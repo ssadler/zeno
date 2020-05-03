@@ -1,0 +1,38 @@
+resolver: lts-15.00
+
+packages:
+- .
+- network-transport-tcp
+- ./distributed-process
+
+extra-deps:
+- aeson-quick-0.1.3@sha256:19e63adcbeaae88f0bfa8006e4d63e8981254f57587580b9eb949e63700375e4,2061
+- distributed-static-0.3.9@sha256:0eb308ee416db4541cb5b4d2dff387e7c9394e6deaf76b7e829ce46add4448bc,2237
+- network-transport-tests-0.2.4.3@sha256:2de93d1a1d1590a6f70591ec78041b36cd23d6c0b66e2c682ac0bc9484787ab9,1569
+
+
+
+
+# Override default flag values for local packages and extra-deps
+# flags: {}
+
+# Extra package databases containing global packages
+# extra-package-dbs: []
+
+# Control whether we use the GHC we find on the path
+# system-ghc: true
+#
+# Require a specific version of stack, using version ranges
+# require-stack-version: -any # Default
+# require-stack-version: ">=2.1"
+#
+# Override the architecture used by stack, especially useful on Windows
+# arch: i386
+# arch: x86_64
+#
+# Extra directories used by stack for building
+# extra-include-dirs: [/path/to/dir]
+# extra-lib-dirs: [/path/to/dir]
+#
+# Allow a newer minor version of GHC than the snapshot specifies
+# compiler-check: newer-minor

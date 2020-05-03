@@ -1,0 +1,236 @@
+[Unrealeased]
+
+*
+
+2018-06-12 Facundo Domínguez <facundo.dominguez@tweag.io> 0.7.4
+
+* Added support for exceptions >= 0.10
+
+2017-08-31 Facundo Domínguez <facundo.dominguez@tweag.io> 0.7.3
+
+* Drop support for ghc-7.8.* and earlier.
+
+2017-08-31 Facundo Domínguez <facundo.dominguez@tweag.io> 0.7.2
+
+* Fixed build errors with ghc-8.2.1.
+
+2017-08-22 Facundo Domínguez <facundo.dominguez@tweag.io> 0.7.1
+
+* Relax upper bounds in dependencies to build with ghc-8.2.1.
+
+2017-08-21 Facundo Domínguez <facundo.dominguez@tweag.io> 0.7.0
+
+* Change type of message sent by `say` from a 3-tuple to a proper
+type (`SayMessage`) with a proper `UTCTime`. (#291)
+* Expose the MonitorRef in the withMonitor call.
+* Have unmonitor remove the monitor message in the inbox. (#268)
+* Remove Mx Data Tables. This API isn't used, is easy to replace with various
+other packages. (#276)
+* Add Ord instance to SpawnRef.
+
+2016-10-13 Facundo Domínguez <facundo.dominguez@tweag.io> 0.6.6
+
+* Remove monitors from remote nodes when a process dies. (#295)
+
+2016-10-12 Facundo Domínguez <facundo.dominguez@tweag.io> 0.6.5
+
+* Use only one connection to communicate between NCs. (#296, #297)
+* Improve documentation of CQueue.
+* Implement bidirectional multimaps for links and monitors. (#293, #294)
+* Fix various warnings. (#292)
+* Fix some of the intermittent failures in tests.
+* Improve error messages when node controllers receive invalid requests.
+(#290)
+
+2016-06-09 Facundo Domínguez <facundo.dominguez@tweag.io> 0.6.4
+
+* Fixup build errors.
+
+2016-06-09 Facundo Domínguez <facundo.dominguez@tweag.io> 0.6.3
+
+* Relax template-haskell upper bound.
+
+2016-06-09 Facundo Domínguez <facundo.dominguez@tweag.io> 0.6.2
+
+* Provide compatibility with ghc-8.0.1
+* Remove dependency on ghc-prim.
+* Don't throw exceptions asynchronously.
+* Bump upper bounds of dependencies.
+* Fix exception handling in callLocal.
+* Have spawnLocal inherit the masking state of the caller.
+* Have nsend send unencoded messages to local processes.
+
+2016-03-03 Facundo Domínguez <facundo.dominguez@tweag.io> 0.6.1
+
+* Implement MonadCatch, MonadThrow, MonadMask for Process.
+
+2016-02-18 Facundo Domínguez <facundo.dominguez@tweag.io> 0.6.0
+
+* Have nsendRemote skip the transport for local communication.
+* Unsafe primitives for usend and nsendRemote.
+* Stop using the transport for local communication.
+* Skip the transport for whereisRemoteAsync and registerRemoteAsync.
+* Have nsendRemote skip the transport for local communication.
+* Have runProcess forward exceptions.
+* Reimport distributed-process-tests. d-p and d-p-test now can be kept in
+sync.
+* Add a stack.yaml file for building tests and d-p all at once conveniently.
+* Implement unreliable forward (uforward).
+* Add Functor instance for Match data type
+* Have `spawnAsync` not use the transport in the local case.
+* Fix monitor race in 'call'.
+* Add compatibility with ghc-7.10: support new typeable, loosen deps, write
+proper NFData instances, support new TH.
+* Kill processes on a local node upon closeLocalNode.
+* Fix getNodeStats function, see DP-97
+* Return size of the queue in ProcessInfo.
+* Implement unreliable send (usend).
+* Implement MonadFix instance for Process.
+* Introduce callLocal primitive.
+* Prevent message loss due to timeouts in CQueue.
+* More informative ProcessRegistrationException. Now includes the identifier
+of the process that owns the name, if any.
+* Avoid message loop between threads when tracing received messages.
+
+2015-06-15 Facundo Domínguez <facundo.dominguez@tweag.io> 0.5.5
+
+* Fix dependencies.
+* Add compatibility with GHC-7.10.
+* Fix various race conditions (DP-99, DP-103).
+
+2014-12-09  Tim Watson  <watson.timothy@gmail.com>  0.5.2
+
+* Fix docstring for `register`
+* Added Data instance to ProcessId, LocalProcessId and NodeId
+* Add static serialiation dictionary for 'Static', for completeness
+* Add Closure static serialization dictionary
+* Replacement for modifyMVarMasked for GHC <= 7.4
+* Document the use of built-in trace flags
+* Make forkProcess exception-safe
+* Make -Wall clean
+
+2014-08-13  Tim Watson  <watson.timothy@gmail.com>  0.5.1
+
+* Fix cabal docs (thanks Markus Barenhoff)
+* Expose lifted version of Control.Exception.mask_ (thanks Alexander Vershilov)
+
+2014-05-30  Tim Watson  <watson.timothy@gmail.com>  0.5.0
+
+* Dependency on STM implicitly changed from 1.3 to 1.4, but was not reflected in the cabal file
+* Race condition in local monitoring when using call
+* mask now works correctly if unmask is called by another process
+* Improve efficiency of local message passing
+* nsend uses local communication channels
+* Link Node Controller and Network Listener
+* Label spawned processes using labelThread
+* Relaxed upper bound on syb in the cabal manifest
+* Bump binary version to include 0.7.*
+* Exposed process info
+* Exposed node statistics
+* Moved tests to https://github.com/haskell-distributed/distributed-process-tests
+* Added "polymorphic expect"
+* Exposed Message type and broaden scope of polymorphic expect
+* Added Management API (for working with internal/system events)
+* Tracing can no longer be disabled
+* We now report node statistics for monitoring/management
+* Node.runProcess now propagates exceptions to its caller
+* Added simple micro benchmarks
+
+2013-01-27  Tim Watson  <watson.timothy@gmail.com>  0.4.2
+
+* Improved exception handling for deferred type checked exit reasons
+* Add matchChan primitive (thanks Simon Marlow)
+* Expose deferred message handling/checking for AbstractMessage
+* Add `getProcessInfo' API
+* Add `trace' API backed by the GHC eventlog
+
+2012-11-22  Edsko de Vries  <edsko@well-typed.com>  0.4.1
+
+* Make behaviour of 'register' more Erlang-like (register will now fail if the
+name is already registered).  Patch by Jeff Epstein.
+* Functor, Applicative, Alternative and Monad instances for ReceivePort
+* Add support for receiveChanTimeout
+* Improved documentation
+* Avoid name clashes in the TH generation for closures
+* Relax package bounds to allow for Binary 0.6
+
+2012-10-23  Edsko de Vries  <edsko@well-typed.com>  0.4.0.2
+
+* Fix race condition in spawn
+
+2012-10-04  Edsko de Vries  <edsko@well-typed.com>  0.4.0.1
+
+* Relax package boundaries
+
+2012-10-03  Edsko de Vries  <edsko@well-typed.com>  0.4.0
+
+* Improved treatment of network failure, using new failure semantics of
+Network.Transport.
+* Make NodeId Typeable
+* Extend Template Haskell support with "remotableDec" so that you can refer to
+$(mkClosure 'f) within the body of "f".
+* Fix bug in spawnChannelLocal
+* Numerous memory leaks plugged
+* Relax upper bound on dependency on 'network'
+* New primitive 'matchAny'
+* Remove 'whereisRemote' (see comment of 'whereisRemoteAsync') 
+
+2012-08-16  Edsko de Vries  <edsko@well-typed.com>  0.3.1
+
+* Fix memory leaks
+* Make Template Haskell support optional
+* Relax dependency constraints
+
+2012-08-07  Edsko de Vries  <edsko@well-typed.com>  0.3.0
+
+* Extract 'static' into a separate package (C.D.Static)
+* Use new package rank1dynamic to proper runtime checks for polymorphic values
+
+2012-08-02  Edsko de Vries  <edsko@well-typed.com>  0.2.3.0
+
+* Expose the constructors of Closure
+* Add instance (Typeable a => Serializable (Static a)) and make sure we only
+use the internal representation of Static where really necessary
+* Improved docs
+
+2012-07-31  Edsko de Vries  <edsko@well-typed.com>  0.2.2.0
+
+* Add exception handling primitives
+* Fix runProcess: if the process threw an exception, a 'waiting indefinitely on
+MVar' exception would be thrown.
+
+2012-07-21  Edsko de Vries  <edsko@well-typed.com>  0.2.1.4
+
+* Bugfix in the node controller
+(one way this bug materialized: when using the SimpleLocalnet backend,
+slave nodes could not be reused)
+* Improved documentation in Control.Distributed.Process.Closure
+
+2012-07-20  Edsko de Vries  <edsko@well-typed.com>  0.2.1.3
+
+* Improve docs
+* Local versions of spawn
+
+2012-07-16  Edsko de Vries  <edsko@well-typed.com>  0.2.1.2
+
+* Base 4.6 compatibility
+* Relax constraints on bytestring and containers
+
+2012-07-16  Edsko de Vries  <edsko@well-typed.com>  0.2.1.1
+
+* Relax upper bound on 'time' dependency
+
+2012-07-11  Edsko de Vries  <edsko@well-typed.com>  0.2.1
+
+* Complete redesign of the underlying implementation of static values and
+closures. 
+
+* Add support for 'spawnChannel' 
+
+2012-07-09  Edsko de Vries  <edsko@well-typed.com>  0.2.0.1
+
+* Bugfix: Continue processing messages when a connection breaks.
+
+2012-07-07  Edsko de Vries  <edsko@well-typed.com>  0.2.0
+
+* Initial release.

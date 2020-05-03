@@ -1,0 +1,15 @@
+resolver: lts-15.00 # Use GHC 8.4.4
+
+# TODO: we can enable nightly-2018-11-11 once PR #319 is merged
+
+packages:
+- '.'
+- ../network-transport-tcp
+
+extra-deps:
+- rank1dynamic-0.4.0
+- distributed-static-0.3.8
+- network-transport-0.5.2
+- network-transport-inmemory-0.5.2
+- rematch-0.2.0.0
+

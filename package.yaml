@@ -1,0 +1,107 @@
+name:                zeno
+version:             0.1.0.0
+github:              "komodoplatform/zeno"
+license:             BSD3
+author:              "Scott Sadler"
+maintainer:          "developers@komodoplatform.com"
+copyright:           "2020 Komodo Platform"
+
+extra-source-files:
+- README.md
+- ChangeLog.md
+
+# Metadata used when publishing your package
+# synopsis:            Short description of your package
+# category:            Web
+
+# To avoid duplicated efforts in documentation and dealing with the
+# complications of embedding Haddock markup inside cabal files, it is
+# common to point users to the README.md file.
+description:         Please see the README on GitHub at <https://github.com/githubuser/zeno#readme>
+
+dependencies:
+- base >= 4.7 && < 5
+- aeson
+- aeson-pretty
+- aeson-quick
+- ansi-wl-pprint
+- attoparsec
+- base16-bytestring
+- binary
+- bytestring
+- cereal
+- conduit
+- conduit-extra
+- containers
+- cryptonite
+- data-accessor
+- deepseq
+- directory
+- distributed-process
+- entropy
+- exceptions
+- hashable
+- haskoin-core
+- http-client
+- http-conduit
+- network
+- network-transport
+- network-transport-tcp
+- memory
+- microlens
+- microlens-platform
+- monad-logger
+- mtl
+- ndjson-conduit
+- optparse-applicative
+- pretty-simple
+- QuickCheck
+- relapse
+- resourcet
+- safe-exceptions
+- scientific
+- secp256k1-haskell
+- string-conv
+- stm
+- text
+- time
+- transformers
+- unix
+- unordered-containers
+
+library:
+  source-dirs: src
+  default-extensions:    OverloadedStrings
+                       , MultiParamTypeClasses
+                       , DataKinds
+                       , RecordWildCards
+                       , LambdaCase
+                       , FlexibleContexts
+                       , ScopedTypeVariables
+                       , DeriveGeneric
+                       , TemplateHaskell
+
+executables:
+  zeno:
+    main:                Main.hs
+    source-dirs:         app
+    ghc-options:
+    - -rtsopts
+    - -with-rtsopts=-N
+    dependencies:
+    - zeno
+
+tests:
+  zeno-test:
+    main:                Discover.hs
+    source-dirs:         test
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    dependencies:
+    - zeno
+    - tasty
+    - tasty-hunit
+    - tasty-discover
+
