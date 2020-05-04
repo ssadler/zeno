@@ -60,3 +60,10 @@ sha3' bs = BS.pack (BA.unpack (hash bs :: Digest Keccak_256))
 
 sha3 :: ByteString -> Sha3
 sha3 = Sha3 . sha3'
+
+instance Semigroup Sha3 where
+  (Sha3 a) <> (Sha3 b) = sha3 $ a <> b
+
+instance Monoid Sha3 where
+  mempty = "0x0000000000000000000000000000000000000000000000000000000000000000"
+

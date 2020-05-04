@@ -2,14 +2,14 @@
 
 module Zeno.Notariser.Types where
 
-import Data.Aeson (FromJSON)
+import Zeno.Data.Aeson
 
 import Network.Ethereum.Crypto.Address
 import Network.Komodo
 import Network.Bitcoin
 import Network.Ethereum
-import Zeno.Consensus
 
+import Zeno.Consensus
 import Zeno.Prelude
 
 
@@ -32,16 +32,27 @@ newtype Members = Members { unMembers :: [Address] }
   deriving (FromJSON, Show)
 
 data NotariserConfig = NotariserConfig
-  { notariser :: EthNotariser
-  , notarisationsContract :: Address
-  , members :: Members
+  { members :: Members
   , threshold :: Int
-  , kmdAlias :: String
+  , notarisationsContract :: Address
+  , kmdChainSymbol :: String
+  , kmdNotaryInputs :: Int
+  , consensusTimeout :: Int
   }
 
-instance Has EthNotariser  NotariserConfig where has = notariser
-instance Has GethConfig    NotariserConfig where has = gethConfig . has
-instance Has BitcoinConfig NotariserConfig where has = getKomodoConfig . has
-instance Has ConsensusNode NotariserConfig where has = getNode . has
-instance Has KomodoIdent   NotariserConfig where has = deriveKomodoIdent . getSecret . has
-instance Has EthIdent      NotariserConfig where has = deriveEthIdent . getSecret . has
+instance FromJSON NotariserConfig where
+  parseJSON =
+    withStrictObject "NotariserConfig" $
+      \o -> do
+        NotariserConfig
+          uninit uninit
+          <$> o .:- "notarisationsContract"
+          <*> o .:- "kmdChainSymbol"
+          <*> o .:- "kmdNotaryInputs"
+          <*> o .:- "consensusTimeout"
+    where uninit = error "NotariserConfig not fully initialized"
+
+getConsensusParams :: NotariserConfig -> Zeno EthNotariser ConsensusParams
+getConsensusParams NotariserConfig{..} = do
+  ident <- asks has
+  pure $ ConsensusParams (unMembers members) ident consensusTimeout

@@ -71,7 +71,7 @@ data CompactRecSig = CompactRecSig
   { getCompactRecSigR :: ShortByteString
   , getCompactRecSigS :: ShortByteString
   , getCompactRecSigV :: Word8
-  } deriving (Eq, Show)
+  } deriving (Eq, Ord, Show)
 
 toLegacyCRS :: CompactRecSig -> Secp256k1.CompactRecSig
 toLegacyCRS (CompactRecSig r s v) = Secp256k1.CompactRecSig s r v

@@ -72,7 +72,7 @@ stringToRAddress s =
 -- Ident ----------------------------------------------------------------------
 
 data KomodoIdent = KomodoIdent
-  { kmdSecKey :: H.SecKeyI
+  { kmdSecKey :: SecKey
   , kmdPubKey :: H.PubKeyI
   , kmdAddress :: RAddress
   } deriving (Show)
@@ -81,7 +81,7 @@ deriveKomodoIdent :: SecKey -> KomodoIdent
 deriveKomodoIdent sk =
   let ski = H.SecKeyI sk True
       pubKey = H.derivePubKeyI ski
-   in KomodoIdent ski pubKey $ RAddress $ H.addressHash $ S.encode pubKey
+   in KomodoIdent sk pubKey $ RAddress $ H.addressHash $ S.encode pubKey
 
 
 -- UTXOs ----------------------------------------------------------------------

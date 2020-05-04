@@ -2,6 +2,9 @@
 
 module Network.Bitcoin where
 
+import qualified Data.Binary as Bin
+import qualified Data.Serialize as Ser
+
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BS8
 import           Data.Attoparsec.ByteString.Char8 as A
@@ -80,14 +83,15 @@ parseWif net wif = do
 
 -- Instances ------------------------------------------------------------------
 
--- instance Bin.Binary H.TxIn where
---   put = Bin.put . Bin.Ser2Bin 
---   get = Bin.unSer2Bin <$> Bin.get
--- 
--- instance Bin.Binary H.OutPoint where
---   put = Bin.put . Bin.Ser2Bin
---   get = Bin.unSer2Bin <$> Bin.get
--- 
--- instance Bin.Binary H.PubKey where
---   put = undefined --  Bin.put . Bin.Ser2Bin
---   get = undefined -- Bin.unSer2Bin <$> Bin.get
+instance Bin.Binary H.TxIn where
+  put = Bin.put . Ser.encode
+  get = Bin.get >>= either fail pure . Ser.decode
+
+instance Bin.Binary H.OutPoint where
+  put = Bin.put . Ser.encode
+  get = Bin.get >>= either fail pure . Ser.decode
+
+instance Bin.Binary H.PubKeyI where
+  put = Bin.put . Ser.encode
+  get = Bin.get >>= either fail pure . Ser.decode
+

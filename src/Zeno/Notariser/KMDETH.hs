@@ -16,8 +16,6 @@ import Zeno.Prelude
 import Zeno.Prelude.Lifted
 
 
-kmdInputAmount :: Word64
-kmdInputAmount = 9800
 
 consensusTimeout :: Int
 consensusTimeout = 5 * 1000000
@@ -47,77 +45,62 @@ ethNotariser = do
   forkMonitorUTXOs kmdInputAmount 5 50
 
   forever do -- here is the place to handle errors
-    withNotariserConfig "KMDETH" $ do
+    nc@NotariserConfig{..} <- getNotariserConfig "KMDETH"
       
-      pure () :: Zeno NotariserConfig ()
+    getLastNotarisationOnEth nc >>=
 
-      getLastNotarisationOnEth >>=
+      \case
+        Nothing -> do
+          logDebug "No prior notarisations found"
+          height <- getKmdProposeHeight 10
+          notariseToETH nc height
 
-        \case
-          Nothing -> do
-            logDebug "No prior notarisations found"
-            height <- getKmdProposeHeight 10
-            notariseToETH height
+        Just (lastHeight, _, _) -> do
+          logDebug $ "Found prior notarisation at height %s" % lastHeight
+          -- Check if backnotarised to KMD
+          getLastNotarisation "ETHTEST" >>=
 
-          Just (lastHeight, _, _) -> do
-            logDebug $ "Found prior notarisation at height %s" % lastHeight
-            -- Check if backnotarised to KMD
-            getLastNotarisation "ETHTEST" >>=
+            \case
+              Just (Notarisation _ _ nor@NOR{..}) | blockNumber == lastHeight -> do
+                let _ = nor :: NotarisationData Sha3
+                logDebug "Found backnotarisation, proceed with next notarisation"
+                newHeight <- getKmdProposeHeight 10
+                if newHeight > lastHeight
+                   then notariseToETH nc newHeight
+                   else do
+                     logDebug "Not enough new blocks, sleeping 60 seconds"
+                     threadDelay $ 60 * 1000000
 
-              \case
-                Just (Notarisation _ _ nor@NOR{..}) | blockNumber == lastHeight -> do
-                  let _ = nor :: NotarisationData Sha3
-                  logDebug "Found backnotarisation, proceed with next notarisation"
-                  newHeight <- getKmdProposeHeight 10
-                  if newHeight > lastHeight
-                     then notariseToETH newHeight
-                     else do
-                       logDebug "Not enough new blocks, sleeping 60 seconds"
-                       threadDelay $ 60 * 1000000
-
-                _ -> do
-                  logDebug "Backnotarisation not found, proceed to backnotarise"
-                  mutxo <- getKomodoUtxo kmdInputAmount
-                  case mutxo of
-                    Nothing -> do
-                      logInfo "Waiting for UTXOs"
-                      liftIO $ threadDelay $ 180 * 1000000
-                    Just utxo -> do
-                      notariseToKMD utxo lastHeight
+              _ -> do
+                logDebug "Backnotarisation not found, proceed to backnotarise"
+                mutxo <- getKomodoUtxo kmdInputAmount
+                case mutxo of
+                  Nothing -> do
+                    logInfo "Waiting for UTXOs"
+                    liftIO $ threadDelay $ 180 * 1000000
+                  Just utxo -> do
+                    notariseToKMD nc utxo lastHeight
 
   where
-    withNotariserConfig :: Text -> Zeno NotariserConfig a -> Zeno EthNotariser a
-    withNotariserConfig configName act = do
+    getNotariserConfig :: Text -> Zeno EthNotariser NotariserConfig
+    getNotariserConfig configName = do
       gateway <- asks getEthGateway
       (threshold, members) <- ethCallABI gateway "getMembers()" ()
-      JsonInABI v <- ethCallABI gateway "getConfig()" configName
-
-      let (notarisationsContract, kmdAlias) =
-            let e = error $ "gateway misconfigured for " % configName
-             in maybe e id $ v .? "{notarisationsContract}"
+      JsonInABI nc <- ethCallABI gateway "getConfig()" configName
+      pure $ nc { members = Members members, threshold }
       
-          config notariser = NotariserConfig
-                      { notarisationsContract
-                      , members = Members members
-                      , threshold
-                      , notariser
-                      , kmdAlias
-                      }
-
-      zenoReader config act
         
 
 
 -- TODO: need error handling here with strategies for configuration errors, member mischief etc.
-notariseToETH :: Word32 -> Zeno NotariserConfig ()
-notariseToETH height32 = do
-  NotariserConfig{..} <- ask
+notariseToETH :: NotariserConfig -> Word32 -> Zeno EthNotariser ()
+notariseToETH NotariserConfig{..} height32 = do
 
   let height = fromIntegral height32
   logDebug $ "Notarising from block %i" % height
 
   ident <- asks has
-  let gateway = getEthGateway notariser
+  gateway <- asks getEthGateway
   let cparams = ConsensusParams (unMembers members) ident consensusTimeout
   r <- ask
   let run = liftIO . runZeno r
@@ -157,10 +140,9 @@ notariseToETH height32 = do
   pure ()
 
 
-getLastNotarisationOnEth :: (Integral i, Has NotariserConfig r, Has GethConfig r)
-                         => Zeno r (Maybe (i, Bytes 32, ByteString))
-getLastNotarisationOnEth = do
-  NotariserConfig{..} <- asks has
+getLastNotarisationOnEth :: Integral i => NotariserConfig
+                         -> Zeno EthNotariser (Maybe (i, Bytes 32, ByteString))
+getLastNotarisationOnEth NotariserConfig{..} = do
   r <- ethCallABI notarisationsContract "getLastNotarisation()" ()
   pure $
     case r of
