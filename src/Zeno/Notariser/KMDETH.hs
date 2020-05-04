@@ -1,17 +1,15 @@
 
 module Zeno.Notariser.KMDETH where
 
-import Data.Aeson.TH
-
 import Network.Bitcoin
 import Network.Ethereum
 import Network.Komodo
-import Network.Ethereum.Transaction
-import qualified Network.Haskoin.Prelude as H
 
---import Zeno.Notariser.UTXO
+import Zeno.Notariser.UTXO
 
 import Zeno.EthGateway
+import Zeno.Notariser.KMD
+import Zeno.Notariser.Types
 import Zeno.Consensus
 import Zeno.Config
 import Zeno.Prelude
@@ -25,78 +23,102 @@ consensusTimeout :: Int
 consensusTimeout = 5 * 1000000
 
 
-data EthNotariser = EthNotariser
-  { getKomodoConfig :: BitcoinConfig
-  , getNode :: ConsensusNode
-  , gethConfig :: GethConfig
-  , getEthGateway :: EthGateway
-  , getSecret :: SecKey
-  }
 
-newtype NotariserConfig = NotariserConfig
-  { notarisationsContract :: Address
-  } deriving (Show)
-
-$(deriveJSON defaultOptions ''NotariserConfig)
-
-instance Has GethConfig    EthNotariser where has = gethConfig
-instance Has BitcoinConfig EthNotariser where has = getKomodoConfig
-instance Has ConsensusNode EthNotariser where has = getNode
-instance Has EthGateway    EthNotariser where has = getEthGateway
-instance Has EthIdent      EthNotariser where has = toEthIdent . getSecret
-
-
-
--- :main notarise kmdeth --host 127.0.0.1 --port=40440 --seed=127.0.0.1:40440 --address=RWgagrqdN7YWH4N6kB4mWCNPCgtAMkCLFp --geth http://127.0.0.1:9545/
-
-runNotariseKmdToEth :: GethConfig -> ConsensusNetworkConfig -> EthGateway -> FilePath -> RAddress -> IO ()
-runNotariseKmdToEth gethConfig consensusConfig gateway kmdConfPath kmdAddr = do
+runNotariseKmdToEth :: GethConfig -> ConsensusNetworkConfig -> Address -> FilePath -> RAddress -> IO ()
+runNotariseKmdToEth gethConfig consensusConfig gateway kmdConfPath kmdAddress = do
   --threadDelay 2000000
   bitcoinConf <- loadBitcoinConfig kmdConfPath
-  wif <- runZeno bitcoinConf $ queryBitcoin "dumpprivkey" [kmdAddr]
-
-  ident <-
-    case H.fromWif komodo wif of
-          Just (H.SecKeyI seckey True) -> pure seckey
-          _ -> error $ "Couldn't parse WIF from daemon: " <> show wif
+  wif <- runZeno bitcoinConf $ queryBitcoin "dumpprivkey" [kmdAddress]
+  sk <- either error pure $ parseWif komodo wif
 
   withConsensusNode consensusConfig $
     \node -> do
-      let config = EthNotariser bitcoinConf node gethConfig gateway ident
-      runZeno config ethNotariser
+      let notariser = EthNotariser bitcoinConf node gethConfig gateway sk
+      runZeno notariser ethNotariser
 
 
 ethNotariser :: Zeno EthNotariser ()
 ethNotariser = do
-  (_, _, kmdAddr) <- deriveKomodoIdent <$> asks getSecret
-  logInfo $ "My KMD address: " ++ show kmdAddr
+  KomodoIdent{..} <- asks has
+  logInfo $ "My KMD address: " ++ show kmdAddress
   (EthIdent _ ethAddr) <- asks has
   logInfo $ "My ETH address: " ++ show ethAddr
 
-  -- forkMonitorUTXOs kmdInputAmount 5 50 ident
+  forkMonitorUTXOs kmdInputAmount 5 50
 
-  forever $ do
-    -- get last notarisation height from ETH
-    r <- gatewayGetConfigJson "KMDETH"
+  forever do -- here is the place to handle errors
+    withNotariserConfig "KMDETH" $ do
+      
+      pure () :: Zeno NotariserConfig ()
 
-    blockRange@(start, end) <- getBlockRange r
-    logInfo $ printf "KMD Block range: %i to %i" start end
-    if start >= end
-       then do
-         logInfo "Waiting for more blocks"
-         threadDelay $ 180 * 1000000
-        else do
-          runNotariserConsensus r blockRange
+      getLastNotarisationOnEth >>=
+
+        \case
+          Nothing -> do
+            logDebug "No prior notarisations found"
+            height <- getKmdProposeHeight 10
+            notariseToETH height
+
+          Just (lastHeight, _, _) -> do
+            logDebug $ "Found prior notarisation at height %s" % lastHeight
+            -- Check if backnotarised to KMD
+            getLastNotarisation "ETHTEST" >>=
+
+              \case
+                Just (Notarisation _ _ nor@NOR{..}) | blockNumber == lastHeight -> do
+                  let _ = nor :: NotarisationData Sha3
+                  logDebug "Found backnotarisation, proceed with next notarisation"
+                  newHeight <- getKmdProposeHeight 10
+                  if newHeight > lastHeight
+                     then notariseToETH newHeight
+                     else do
+                       logDebug "Not enough new blocks, sleeping 60 seconds"
+                       threadDelay $ 60 * 1000000
+
+                _ -> do
+                  logDebug "Backnotarisation not found, proceed to backnotarise"
+                  mutxo <- getKomodoUtxo kmdInputAmount
+                  case mutxo of
+                    Nothing -> do
+                      logInfo "Waiting for UTXOs"
+                      liftIO $ threadDelay $ 180 * 1000000
+                    Just utxo -> do
+                      notariseToKMD utxo lastHeight
+
+  where
+    withNotariserConfig :: Text -> Zeno NotariserConfig a -> Zeno EthNotariser a
+    withNotariserConfig configName act = do
+      gateway <- asks getEthGateway
+      (threshold, members) <- ethCallABI gateway "getMembers()" ()
+      JsonInABI v <- ethCallABI gateway "getConfig()" configName
+
+      let (notarisationsContract, kmdAlias) =
+            let e = error $ "gateway misconfigured for " % configName
+             in maybe e id $ v .? "{notarisationsContract}"
+      
+          config notariser = NotariserConfig
+                      { notarisationsContract
+                      , members = Members members
+                      , threshold
+                      , notariser
+                      , kmdAlias
+                      }
+
+      zenoReader config act
+        
 
 
 -- TODO: need error handling here with strategies for configuration errors, member mischief etc.
-runNotariserConsensus :: NotariserConfig -> (Integer, Integer) -> Zeno EthNotariser ()
-runNotariserConsensus NotariserConfig{..} (_, height) = do
+notariseToETH :: Word32 -> Zeno NotariserConfig ()
+notariseToETH height32 = do
+  NotariserConfig{..} <- ask
+
+  let height = fromIntegral height32
+  logDebug $ "Notarising from block %i" % height
+
   ident <- asks has
-  (EthIdent _ ethAddr) <- asks has
-  gateway <- asks getEthGateway
-  (threshold, members) <- gatewayGetMembers
-  let cparams = ConsensusParams members ident consensusTimeout
+  let gateway = getEthGateway notariser
+  let cparams = ConsensusParams (unMembers members) ident consensusTimeout
   r <- ask
   let run = liftIO . runZeno r
 
@@ -105,24 +127,14 @@ runNotariserConsensus NotariserConfig{..} (_, height) = do
   -- in our ethereum contract. so create the call.
 
   blockHash <- bytes . unHex <$> queryBitcoin "getblockhash" [height]
-  let notariseCallData = abi "notarise(uint,bytes32,bytes)"
+  let notariseCallData = abi "notarise(uint256,bytes32,bytes)"
                              (height, blockHash :: Bytes 32, "" :: ByteString)
-      notariseTarget = notarisationsContract
-      --proxyParams = (unEthGateway gateway, height, notariseCallData)
-      -- If get wrong sig or out of order, try below
-      -- Maybe sig needs to be normalized
-      proxyParams = (unEthGateway gateway, height, abi "getAdmin()" ())
+      proxyParams = (notarisationsContract, height, notariseCallData);
       sighash = ethMakeProxySigMessage proxyParams
-
-  m <- ethCallABI (unEthGateway gateway) "getProxyMessage(address,uint256,bytes)" proxyParams
-  liftIO $ do
-    print sighash
-    print $ toHex $ unBytes $ (m :: Bytes 32)
-
 
   -- Ok now we have all the parameters together, we need to collect sigs and get the tx
 
-  runConsensus cparams 'a' $ do
+  tx <- runConsensus cparams proxyParams $ do
     {- The trick is, that during this whole block inside runConsensus,
        each step will stay open until the end so that lagging nodes can
        join in late. -}
@@ -130,51 +142,27 @@ runNotariserConsensus NotariserConfig{..} (_, height) = do
     run $ logDebug "Step 1: Collect sigs"
     sigBallots <- stepWithTopic sighash (collectThreshold threshold) ()
 
-    let proxyCallData = ethMakeProxyCallData proxyParams (bSig <$> unInventory sigBallots)
-
     run $ logDebug "Step 2: Get proposed transaction"
-    txProposed <- propose $ run $ ethMakeTransaction (unEthGateway gateway) proxyCallData
-
-    let Just sig = _sig txProposed
-    liftIO $ print $ "TX Lower S: " ++ show (isLowerS sig)
-
+    let proxyCallData = ethMakeProxyCallData proxyParams (bSig <$> unInventory sigBallots)
+    txProposed <- propose $ run $ ethMakeTransaction gateway proxyCallData
     -- TODO: verifications on proposed tx
 
-    run $ logDebug "Step 3: confirm proposal"
+    run $ logDebug "Step 3: Confirm proposal"
     _ <- step collectMajority ()
+    pure txProposed
 
-    run $ logDebug "Step 4: Submitting transaction"
-
-    run $ liftIO $ print $ recoverFrom txProposed
-
-    receipt <- run $ postTransactionSync txProposed
-    liftIO $ print receipt
+  logDebug "Step 4: Submit transaction"
+  receipt <- postTransactionSync tx
+  logDebug $ "posted tranaction: " ++ show receipt
+  pure ()
 
 
-getBlockRange :: NotariserConfig -> Zeno EthNotariser (Integer, Integer)
-getBlockRange NotariserConfig{..} = do
-  mlastNota <- getLastNotarisationOnEth
-  end <- getKmdProposeHeight 10
-  case mlastNota of
-       Nothing -> do
-         logInfo "No prior notarisations found"
-         pure (0, end)
-       Just (height, _, _) -> do
-         let start = fromIntegral height + 1
-         pure (start, end)
-  where
-  getLastNotarisationOnEth = do
-    r <- ethCallABI notarisationsContract "getLastNotarisation()" ()
-    pure $
-      case r of
-        (0, _, _) -> Nothing
-        o         -> Just (o :: (Integer, Bytes 32, ByteString))
-
-getKmdProposeHeight :: Has BitcoinConfig r => Integer -> Zeno r Integer
-getKmdProposeHeight n = do
-  height <- bitcoinGetHeight
-  pure $ height - mod height n
-
-toEthIdent :: SecKey -> EthIdent
-toEthIdent sk = EthIdent sk $ pubKeyAddr $ derivePubKey sk
-
+getLastNotarisationOnEth :: (Integral i, Has NotariserConfig r, Has GethConfig r)
+                         => Zeno r (Maybe (i, Bytes 32, ByteString))
+getLastNotarisationOnEth = do
+  NotariserConfig{..} <- asks has
+  r <- ethCallABI notarisationsContract "getLastNotarisation()" ()
+  pure $
+    case r of
+      (0::Integer, _, _) -> Nothing
+      (h, hash, extra) -> Just (fromIntegral h, hash, extra)

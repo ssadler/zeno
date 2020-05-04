@@ -1,7 +1,10 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE UndecidableInstances #-}
 
 module Zeno.Prelude
   ( module ALL
+  , PercentFormat(..)
   , traceE
   , fromHex
   , toHex
@@ -16,6 +19,7 @@ import Control.Monad.Reader as ALL (ask, asks)
 import Control.Monad.Trans.Class as ALL
 
 import Data.Aeson as ALL (Value)
+import Data.Aeson.Quick as ALL ((.?))
 import Data.ByteString as ALL (ByteString)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Base16 as B16
@@ -40,7 +44,7 @@ import Zeno.Logging as ALL
 
 import Lens.Micro as ALL ((<&>))
 
-import Text.Printf as ALL (printf)
+import Text.Printf as ALL (PrintfArg, printf)
 import Text.Pretty.Simple as ALL (pPrint)
 
 import System.Directory
@@ -68,3 +72,15 @@ toHex = B16.encode
 expandPath :: FilePath -> IO FilePath
 expandPath ('~':xs) = (++xs) <$> getHomeDirectory
 expandPath p        = pure p
+
+class PercentFormat a where
+  (%) :: String -> a -> String
+
+instance PrintfArg a => PercentFormat a where
+  s % a = printf s a
+
+instance (PrintfArg a, PrintfArg b) => PercentFormat (a, b) where
+  s % (a, b) = printf s a b
+
+instance (PrintfArg a, PrintfArg b, PrintfArg c) => PercentFormat (a, b, c) where
+  s % (a, b, c) = printf s a b c

@@ -80,6 +80,8 @@ library:
                        , ScopedTypeVariables
                        , DeriveGeneric
                        , TemplateHaskell
+                       , BlockArguments
+                       , NamedFieldPuns
 
 executables:
   zeno:

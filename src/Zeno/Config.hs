@@ -12,7 +12,6 @@ import           Network.Ethereum.Types
 
 import           Zeno.Data.Aeson hiding (Parser)
 import           Zeno.Prelude
-import           Zeno.EthGateway
 
 import           Options.Applicative
 
@@ -34,8 +33,8 @@ optKmdConfigPath = strOption
   <> metavar "KMDCONF"
   <> showDefault )
 
-optGateway :: Parser EthGateway
-optGateway = EthGateway <$>
+optGateway :: Parser Address
+optGateway =
   option auto
      ( long "gateway"
     <> metavar "ADDRESS"

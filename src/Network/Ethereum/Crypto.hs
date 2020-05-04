@@ -7,10 +7,10 @@ module Network.Ethereum.Crypto
   , Address(..)
   , CompactRecSig(..)
   , Key(..)
+  , deriveEthIdent
   , pubKeyAddr
   , genSecKey
   , sign
-  , isLowerS
   , recover
   , recoverAddr
   , hashMsg
@@ -37,6 +37,8 @@ import           System.Entropy
 
 data EthIdent = EthIdent SecKey Address
 
+deriveEthIdent :: SecKey -> EthIdent
+deriveEthIdent sk = EthIdent sk $ pubKeyAddr $ derivePubKey sk
 
 pubKeyAddr :: PubKey -> Address
 pubKeyAddr = Address . BS.drop 12 . sha3' . BS.drop 1 . Secp256k1.exportPubKey False
@@ -59,11 +61,6 @@ recover rs message =
       (_, bad) = Secp256k1.normalizeSig s
    in if bad then Nothing
              else Secp256k1.recover rs message
-
-isLowerS :: CompactRecSig -> Bool
-isLowerS crs = do
-  let (Just s) = Secp256k1.convertRecSig <$> Secp256k1.importCompactRecSig (toLegacyCRS crs)
-   in not $ snd $ Secp256k1.normalizeSig s
 
 
 hashMsg :: ByteString -> Msg

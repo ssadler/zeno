@@ -5,17 +5,12 @@ module Network.Bitcoin where
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BS8
 import           Data.Attoparsec.ByteString.Char8 as A
-import           Data.Scientific
-import qualified Data.Serialize as S
-import qualified Data.Binary as Bin
-
-import qualified Crypto.Secp256k1 as EC
 
 import           Zeno.Data.Aeson hiding (Parser)
 import           Zeno.Prelude
 import           Zeno.Prelude.Lifted
 
-import qualified Network.Haskoin.Transaction as H
+import qualified Network.Haskoin.Prelude as H
 import           Network.HTTP.Simple
 import           Network.JsonRpc
 
@@ -72,8 +67,16 @@ bitcoinSubmitTxSync tx = do
          Nothing -> f
          Just (n::Int) -> if n < 2 then f else pure txid
 
-bitcoinGetHeight :: Has BitcoinConfig r => Zeno r Integer
+bitcoinGetHeight :: Has BitcoinConfig r => Zeno r Word32
 bitcoinGetHeight = queryBitcoin "getinfo" () <&> (.!"{blocks}")
+
+
+parseWif :: H.Network -> Text -> Either String H.SecKey
+parseWif net wif = do
+  case H.fromWif net wif of
+    Just (H.SecKeyI seckey True) -> pure seckey
+    _ -> Left $ "Couldn't parse WIF from daemon using network " ++ H.getNetworkName net
+
 
 -- Instances ------------------------------------------------------------------
 

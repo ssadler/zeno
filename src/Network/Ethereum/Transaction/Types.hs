@@ -84,7 +84,7 @@ newtype ChainId = ChainId { unChainId :: Word8 }
 instance Bin.Binary ChainId
 
 encodeSpecialV :: ChainId -> Word8 -> Word8
-encodeSpecialV 1 v = (v + 27)
+--encodeSpecialV 1 v = (v + 27)
 encodeSpecialV (ChainId c) v = v + c * 2 + 35
 
 decodeSpecialV :: Word8 -> (ChainId, Word8)

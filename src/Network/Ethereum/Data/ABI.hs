@@ -93,6 +93,9 @@ instance PutABI ByteString where
     let bs' = if bs == "" then "" else bytesPad bs False
      in putDynamic (BS.length bs) 0 $ putData bs'
 
+instance PutABI Text where
+  putABI = putABI . encodeUtf8
+
 instance PutABI () where
   fixedLen () = 0
   putABI () = pure ()

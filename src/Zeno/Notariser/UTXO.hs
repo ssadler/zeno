@@ -15,15 +15,16 @@ import Zeno.Prelude
 import Zeno.Prelude.Lifted
 
 
-forkMonitorUTXOs :: Has BitcoinConfig r
-             => Word64 -> Int -> Int -> KomodoIdent -> Zeno r ()
-forkMonitorUTXOs amount minimum nsplit (_, pk, address) = do
+forkMonitorUTXOs :: (Has KomodoIdent r, Has BitcoinConfig r)
+                 => Word64 -> Int -> Int -> Zeno r ()
+forkMonitorUTXOs amount minimum nsplit = do
+  KomodoIdent{..} <- asks has
   run $ do
-    available <- isRightAmount <$> komodoUtxos [address]
+    available <- isRightAmount <$> komodoUtxos [kmdAddress]
 
     when (length available < minimum) $ do
          logInfo $ printf "Creating %i UTXOs of %i" nsplit amount
-         makeSplits $ replicate nsplit (H.PayPK pk, amount)
+         makeSplits $ replicate nsplit (H.PayPK kmdPubKey, amount)
          threadDelay $ 5 * 60 * 1000000
 
     threadDelay $ 30 * 1000000

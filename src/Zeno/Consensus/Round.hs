@@ -66,8 +66,7 @@ step' :: Serializable a => Collect a -> a -> Consensus (Inventory a)
 step' collect obj = do
   topic <- get
   ConsensusParams members (EthIdent sk myAddr) timeout <- ask
-  let sig = (sign sk topic)
-  liftIO $ print $ "Lower S: " ++ show (isLowerS sig)
+  let sig = sign sk topic
   let ballot = Ballot myAddr sig obj
   lift $ lift $ do
     (send, recv) <- newChan

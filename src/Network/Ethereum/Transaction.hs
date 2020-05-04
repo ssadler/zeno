@@ -23,6 +23,7 @@ encodeTx = rlpSerialize
 txid :: Transaction -> Sha3
 txid = sha3 . encodeTx . withoutSig
 
+-- TODO: flip arguments
 signTx :: Transaction -> SecKey -> Transaction
 signTx tx sk = 
   let Just payload = msg $ unSha3 $ txid tx

@@ -71,13 +71,17 @@ stringToRAddress s =
 
 -- Ident ----------------------------------------------------------------------
 
-type KomodoIdent = (H.SecKeyI, H.PubKeyI, RAddress)
+data KomodoIdent = KomodoIdent
+  { kmdSecKey :: H.SecKeyI
+  , kmdPubKey :: H.PubKeyI
+  , kmdAddress :: RAddress
+  } deriving (Show)
 
 deriveKomodoIdent :: SecKey -> KomodoIdent
 deriveKomodoIdent sk =
   let ski = H.SecKeyI sk True
       pubKey = H.derivePubKeyI ski
-   in (ski, pubKey, RAddress $ H.addressHash $ S.encode pubKey)
+   in KomodoIdent ski pubKey $ RAddress $ H.addressHash $ S.encode pubKey
 
 
 -- UTXOs ----------------------------------------------------------------------
@@ -164,8 +168,8 @@ instance Serialize h => FromJSON (Notarisation h) where
                  <*> obj .: "hash"
                  <*> obj .: "opreturn"
 
-scanNotarisationsDB :: (Serialize h, Has BitcoinConfig r) => Word32 -> String ->
-                    Word32 -> Zeno r (Maybe (Notarisation h))
+scanNotarisationsDB :: (Serialize h, Has BitcoinConfig r)
+                    => Word32 -> String -> Word32 -> Zeno r (Maybe (Notarisation h))
 scanNotarisationsDB height symbol limit = do
   traceE "scanNotarisationsDB" $ do
     val <- queryBitcoin "scanNotarisationsDB" [show height, symbol, show limit]
@@ -173,7 +177,7 @@ scanNotarisationsDB height symbol limit = do
               then Nothing
               else Just $ val .! "."
 
-getLastNotarisation :: (Serialize h, Has BitcoinConfig r) => String ->
-                       Zeno r (Maybe (Notarisation h))
-getLastNotarisation s = scanNotarisationsDB 0 s 10000
+getLastNotarisation :: (Serialize h, Has BitcoinConfig r)
+                    => String -> Zeno r (Maybe (Notarisation h))
+getLastNotarisation s = scanNotarisationsDB 0 s 100000
 

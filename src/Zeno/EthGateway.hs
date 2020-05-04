@@ -23,23 +23,18 @@ import           Zeno.Prelude
 import           Zeno.Data.Aeson
 
 
-newtype EthGateway = EthGateway { unEthGateway :: Address }
-  deriving (Show, PutABI)
+gatewayGetConfig :: (GetABI a, Has GethConfig r)
+                 => Address -> ByteString -> Zeno r a
+gatewayGetConfig gateway key = do
+  ethCallABI gateway "getConfig(string)" key
 
-gatewayGetConfig :: (GetABI a, Has GethConfig r, Has EthGateway r)
-                 => ByteString -> Zeno r a
-gatewayGetConfig key = do
-  addr <- unEthGateway . has <$> ask
-  ethCallABI addr "getConfig(string)" key
+gatewayGetConfigJson :: (FromJSON a, Has GethConfig r)
+                     => Address -> ByteString -> Zeno r a
+gatewayGetConfigJson gateway key = unJsonInABI <$> gatewayGetConfig gateway key
 
-gatewayGetConfigJson :: (FromJSON a, Has GethConfig r, Has EthGateway r)
-                     => ByteString -> Zeno r a
-gatewayGetConfigJson key = unJsonInABI <$> gatewayGetConfig key
-
-gatewayGetMembers :: (Has GethConfig r, Has EthGateway r) => Zeno r (Int, [Address])
-gatewayGetMembers = do
-  addr <- unEthGateway . has <$> ask
-  ethCallABI addr "getMembers()" ()
+gatewayGetMembers :: Has GethConfig r => Address -> Zeno r (Int, [Address])
+gatewayGetMembers gateway = do
+  ethCallABI gateway "getMembers()" ()
 
 
 type ProxyParams = (Address, Integer, ByteString)
@@ -66,21 +61,25 @@ exportMultisigABI sigs =
       , BS.pack $ getV <$> sigs
       )
   where
-  getV = encodeSpecialV (ChainId 1) . getCompactRecSigV
+  getV = (+27) . getCompactRecSigV
 
 
 ethMakeTransaction :: (Has GethConfig r, Has EthIdent r)
                    => Address -> ByteString -> Zeno r Transaction
 ethMakeTransaction dest callData = do
   EthIdent sk myAddress <- asks has
-  chainID <- pure 1 -- asks $ getChainId . has
-  U256 nonce <- queryEthereum "eth_getTransactionCount" [toJSON myAddress, "latest"]
-  U256 gas <- queryEthereum "eth_estimateGas" ["{to,data,from}" .% (dest, Hex callData, myAddress)]
-  U256 gasPriceRec <- queryEthereum "eth_gasPrice" ()
-  let gasPrice = gasPriceRec + quot gasPriceRec 2
-  let tx = Tx nonce 0 (Just dest) Nothing gasPrice gas callData chainID
+  tx <- ethMakeTransactionWithSender myAddress dest callData
   pure $ signTx tx sk
 
+
+ethMakeTransactionWithSender :: Has GethConfig r => Address -> Address -> ByteString -> Zeno r Transaction
+ethMakeTransactionWithSender from to callData = do
+  chainID <- pure 1 -- asks $ getChainId . has
+  U256 nonce <- queryEthereum "eth_getTransactionCount" [toJSON from, "latest"]
+  U256 gas <- queryEthereum "eth_estimateGas" ["{to,data,from}" .% (to, Hex callData, from)]
+  U256 gasPriceRec <- queryEthereum "eth_gasPrice" ()
+  let gasPrice = gasPriceRec + quot gasPriceRec 2
+  pure $ Tx nonce 0 (Just to) Nothing gasPrice gas callData chainID
 
 
 ethMsg :: ByteString -> Msg

@@ -43,14 +43,14 @@ postTransactionSync tx = do
   logInfo $ "Sending transaction: " ++ (show $ txid tx)
   txid <- queryEthereum "eth_sendRawTransaction" [toJSON $ Hex $ encodeTx $ tx]
   logInfo $ "Send transaction, txid: " <> show txid
-  fix $ \wait -> do
-        liftIO $ threadDelay 1000000
-        receipt <- queryEthereum "eth_getTransactionReceipt" [txid::Value]
-        if receipt == Null
-           then wait
-           else if receipt .? "{status}" == Just (U256 1)
-                   then pure receipt
-                   else error $ "Unknown transaction status: " ++ show receipt
+  fix $
+    \wait -> do
+      liftIO $ threadDelay 1000000
+      queryEthereum "eth_getTransactionReceipt" [txid::Value] >>=
+        \case
+          Null -> wait
+          o | o .? "{status}" == Just (U256 1) -> pure o
+          o -> error $ "Unknown transaction status: " ++ show o
 
 data RPCMaybe a = RPCMaybe (Maybe a)
   deriving (Show)
