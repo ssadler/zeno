@@ -34,7 +34,7 @@ notariseToKMD nc@NotariserConfig{..} utxo height = do
   
     -- Step 2 - TODO: Key on proposer
     run $ logDebug "Step 2: Get proposed inputs"
-    let proposal = proposeInputs kmdNotaryInputs $ unInventory utxoBallots
+    let proposal = proposeInputs kmdNotarySigs $ unInventory utxoBallots
     utxosChosen <- propose $ pure proposal
   
     -- Step 3 - Sign tx and collect signed inputs
@@ -45,8 +45,8 @@ notariseToKMD nc@NotariserConfig{..} utxo height = do
     allSignedInputs <- step waitSigs myInput
     let finalTx = compileFinalTx signedTx $ unInventory allSignedInputs
   
-    -- Step 4 - Confirm step 3 (bad attempt to overcome two generals problem)
-    run $ logDebug "Step 4: Just for kicks"
+    -- Step 4 - Confirm step 3 (doesn't overcome two generals problem, we let other chains do that)
+    run $ logDebug "Step 4: Confirm"
     _ <- step collectMajority ()
   
     run $ submitNotarisation nc ndata finalTx
@@ -61,7 +61,6 @@ proposeInputs kmdNotaryInputs ballots
 getNotarisationData :: NotariserConfig -> Word32 -> NotarisationData Sha3
 getNotarisationData NotariserConfig{..} height =
    NOR mempty height kmdChainSymbol mempty 0 0
-
 
 
 getKmdProposeHeight :: Has BitcoinConfig r => Word32 -> Zeno r Word32

@@ -28,15 +28,12 @@ instance Has KomodoIdent   EthNotariser where has = deriveKomodoIdent . getSecre
 instance Has EthIdent      EthNotariser where has = deriveEthIdent . getSecret
 
 
-newtype Members = Members { unMembers :: [Address] }
-  deriving (FromJSON, Show)
-
 data NotariserConfig = NotariserConfig
-  { members :: Members
+  { members :: [Address]
   , threshold :: Int
   , notarisationsContract :: Address
   , kmdChainSymbol :: String
-  , kmdNotaryInputs :: Int
+  , kmdNotarySigs :: Int
   , consensusTimeout :: Int
   }
 
@@ -45,14 +42,20 @@ instance FromJSON NotariserConfig where
     withStrictObject "NotariserConfig" $
       \o -> do
         NotariserConfig
-          uninit uninit
+          uninit
+          uninit
           <$> o .:- "notarisationsContract"
           <*> o .:- "kmdChainSymbol"
-          <*> o .:- "kmdNotaryInputs"
-          <*> o .:- "consensusTimeout"
+          <*> o .:- "kmdNotarySigs"
+          <*> (maybe (5 * 1000000) id <$> (o .:-? "consensusTimeout"))
     where uninit = error "NotariserConfig not fully initialized"
 
 getConsensusParams :: NotariserConfig -> Zeno EthNotariser ConsensusParams
 getConsensusParams NotariserConfig{..} = do
   ident <- asks has
-  pure $ ConsensusParams (unMembers members) ident consensusTimeout
+  pure $ ConsensusParams members ident consensusTimeout
+
+
+data ConfigException = ConfigException
+  deriving (Show)
+instance Exception ConfigException

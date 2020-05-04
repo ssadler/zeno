@@ -4,6 +4,8 @@ module Zeno.Notariser.KMDETH where
 import Network.Bitcoin
 import Network.Ethereum
 import Network.Komodo
+import           Network.HTTP.Simple
+import           Network.JsonRpc
 
 import Zeno.Notariser.UTXO
 
@@ -44,8 +46,10 @@ ethNotariser = do
 
   forkMonitorUTXOs kmdInputAmount 5 50
 
-  forever do -- here is the place to handle errors
+  runForever do
+
     nc@NotariserConfig{..} <- getNotariserConfig "KMDETH"
+    asks has >>= checkConfig nc
       
     getLastNotarisationOnEth nc >>=
 
@@ -87,9 +91,32 @@ ethNotariser = do
       gateway <- asks getEthGateway
       (threshold, members) <- ethCallABI gateway "getMembers()" ()
       JsonInABI nc <- ethCallABI gateway "getConfig()" configName
-      pure $ nc { members = Members members, threshold }
+      pure $ nc { members, threshold }
+
+    checkConfig NotariserConfig{..} (EthIdent _ addr) = do
+      when (majorityThreshold (length members) < kmdNotarySigs) $ do
+        logError "Majority threshold is less than required notary sigs"
+        impureThrow ConfigException 
+      when (not $ elem addr members) $ do
+        logError "I am not in the members list 😢 "
+        impureThrow ConfigException
       
-        
+
+runForever :: Zeno r () -> Zeno r ()
+runForever act = forever $ act `catches` handlers
+  where
+    recover f d e = do
+      f $ show e
+      liftIO $ threadDelay $ d * 1000000
+    fmtHttpException (HttpExceptionRequest _ e) = e
+    handlers =
+      [ Handler $ \e -> recover logInfo 5 (e :: ConsensusException)
+      , Handler $ \e -> recover logWarn 60 $ fmtHttpException e
+      , Handler $ \e -> recover logWarn 60 (e :: RPCException)
+      , Handler $ \e -> recover logError 600 (e :: ConfigException)
+      ]
+
+
 
 
 -- TODO: need error handling here with strategies for configuration errors, member mischief etc.
@@ -101,7 +128,7 @@ notariseToETH NotariserConfig{..} height32 = do
 
   ident <- asks has
   gateway <- asks getEthGateway
-  let cparams = ConsensusParams (unMembers members) ident consensusTimeout
+  let cparams = ConsensusParams members ident consensusTimeout
   r <- ask
   let run = liftIO . runZeno r
 
