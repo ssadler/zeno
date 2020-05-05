@@ -1,3 +1,5 @@
+{-# LANGUAGE MonoLocalBinds #-}
+
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  Control.Distributed.Process.UnsafePrimitives
