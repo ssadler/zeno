@@ -40,8 +40,8 @@ runNotariseKmdToEth gethConfig consensusConfig gateway kmdConfPath kmdAddress = 
 ethNotariser :: Zeno EthNotariser ()
 ethNotariser = do
   KomodoIdent{..} <- asks has
-  logInfo $ "My KMD address: " ++ show kmdAddress
   (EthIdent _ ethAddr) <- asks has
+  logInfo $ "My KMD address: " ++ show kmdAddress
   logInfo $ "My ETH address: " ++ show ethAddr
 
   forkMonitorUTXOs kmdInputAmount 5 50
@@ -50,9 +50,8 @@ ethNotariser = do
 
     nc@NotariserConfig{..} <- getNotariserConfig "KMDETH"
     asks has >>= checkConfig nc
-      
-    getLastNotarisationOnEth nc >>=
-
+    
+    getLastNotarisationOnEth nc >>= 
       \case
         Nothing -> do
           logDebug "No prior notarisations found"
@@ -62,8 +61,8 @@ ethNotariser = do
         Just (lastHeight, _, _) -> do
           logDebug $ "Found prior notarisation at height %s" % lastHeight
           -- Check if backnotarised to KMD
-          getLastNotarisation "ETHTEST" >>=
 
+          getLastNotarisation "ETHTEST" >>=
             \case
               Just (Notarisation _ _ nor@NOR{..}) | blockNumber == lastHeight -> do
                 let _ = nor :: NotarisationData Sha3
@@ -77,20 +76,13 @@ ethNotariser = do
 
               _ -> do
                 logDebug "Backnotarisation not found, proceed to backnotarise"
-                mutxo <- getKomodoUtxo kmdInputAmount
-                case mutxo of
-                  Nothing -> do
-                    logInfo "Waiting for UTXOs"
-                    liftIO $ threadDelay $ 180 * 1000000
-                  Just utxo -> do
-                    notariseToKMD nc utxo lastHeight
+                notariseToKMD nc lastHeight
 
   where
-    getNotariserConfig :: Text -> Zeno EthNotariser NotariserConfig
     getNotariserConfig configName = do
       gateway <- asks getEthGateway
       (threshold, members) <- ethCallABI gateway "getMembers()" ()
-      JsonInABI nc <- ethCallABI gateway "getConfig()" configName
+      JsonInABI nc <- ethCallABI gateway "getConfig()" (configName :: Text)
       pure $ nc { members, threshold }
 
     checkConfig NotariserConfig{..} (EthIdent _ addr) = do
@@ -98,23 +90,21 @@ ethNotariser = do
         logError "Majority threshold is less than required notary sigs"
         impureThrow ConfigException 
       when (not $ elem addr members) $ do
-        logError "I am not in the members list 😢 "
+        logError "I am not in the members list"
         impureThrow ConfigException
-      
 
-runForever :: Zeno r () -> Zeno r ()
-runForever act = forever $ act `catches` handlers
-  where
-    recover f d e = do
-      f $ show e
-      liftIO $ threadDelay $ d * 1000000
-    fmtHttpException (HttpExceptionRequest _ e) = e
-    handlers =
-      [ Handler $ \e -> recover logInfo 5 (e :: ConsensusException)
-      , Handler $ \e -> recover logWarn 60 $ fmtHttpException e
-      , Handler $ \e -> recover logWarn 60 (e :: RPCException)
-      , Handler $ \e -> recover logError 600 (e :: ConfigException)
-      ]
+    runForever act = forever $ act `catches` handlers
+      where
+        handlers =
+          [ Handler $ \e -> recover logInfo 5 (e :: ConsensusException)
+          , Handler $ \e -> recover logWarn 60 (fmtHttpException e)
+          , Handler $ \e -> recover logWarn 60 (e :: RPCException)
+          , Handler $ \e -> recover logError 600 (e :: ConfigException)
+          ]
+        recover f d e = do
+          f $ show e
+          liftIO $ threadDelay $ d * 1000000
+        fmtHttpException (HttpExceptionRequest _ e) = e
 
 
 
@@ -139,7 +129,7 @@ notariseToETH NotariserConfig{..} height32 = do
   blockHash <- bytes . unHex <$> queryBitcoin "getblockhash" [height]
   let notariseCallData = abi "notarise(uint256,bytes32,bytes)"
                              (height, blockHash :: Bytes 32, "" :: ByteString)
-      proxyParams = (notarisationsContract, height, notariseCallData);
+      proxyParams = (notarisationsContract, height, notariseCallData)
       sighash = ethMakeProxySigMessage proxyParams
 
   -- Ok now we have all the parameters together, we need to collect sigs and get the tx

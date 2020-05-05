@@ -17,8 +17,14 @@ kmdInputAmount :: Word64
 kmdInputAmount = 9800
 
 
-notariseToKMD :: NotariserConfig -> KomodoUtxo -> Word32 -> Zeno EthNotariser ()
-notariseToKMD nc@NotariserConfig{..} utxo height = do
+notariseToKMD :: NotariserConfig -> Word32 -> Zeno EthNotariser ()
+notariseToKMD nc@NotariserConfig{..} height = do
+
+  utxo <- getKomodoUtxo <&> maybe (error "No UTXOs!") id
+
+
+
+
   KomodoIdent wif pk kmdAddr <- asks has
   cparams <- getConsensusParams nc
   r <- ask :: Zeno EthNotariser EthNotariser
@@ -60,7 +66,7 @@ proposeInputs kmdNotaryInputs ballots
 
 getNotarisationData :: NotariserConfig -> Word32 -> NotarisationData Sha3
 getNotarisationData NotariserConfig{..} height =
-   NOR mempty height kmdChainSymbol mempty 0 0
+   NOR nullSha3 height kmdChainSymbol nullSha3 0 0
 
 
 getKmdProposeHeight :: Has BitcoinConfig r => Word32 -> Zeno r Word32
@@ -68,8 +74,8 @@ getKmdProposeHeight n = do
   height <- bitcoinGetHeight
   pure $ height - mod height n
 
-getKomodoUtxo :: Word64 -> Zeno EthNotariser (Maybe KomodoUtxo)
-getKomodoUtxo kmdInputAmount = do
+getKomodoUtxo :: Zeno EthNotariser (Maybe KomodoUtxo)
+getKomodoUtxo = do
   kmdAddress <- asks $ kmdAddress . has
   listToMaybe . choose <$> komodoUtxos [kmdAddress]
   where
