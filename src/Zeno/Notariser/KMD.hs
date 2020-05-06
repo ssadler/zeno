@@ -23,8 +23,6 @@ notariseToKMD nc@NotariserConfig{..} height = do
   utxo <- getKomodoUtxo <&> maybe (error "No UTXOs!") id
 
 
-
-
   KomodoIdent wif pk kmdAddr <- asks has
   cparams <- getConsensusParams nc
   r <- ask :: Zeno EthNotariser EthNotariser

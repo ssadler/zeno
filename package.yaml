@@ -87,9 +87,9 @@ executables:
   zeno:
     main:                Main.hs
     source-dirs:         app
-    ghc-options:
-    - -rtsopts
-    - -with-rtsopts=-N
+    # ghc-options:
+    # - -rtsopts
+    # - -with-rtsopts=-N
     dependencies:
     - zeno
 
