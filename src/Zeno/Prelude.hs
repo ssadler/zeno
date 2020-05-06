@@ -1,6 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE DefaultSignatures #-}
+
 
 module Zeno.Prelude
   ( module ALL
@@ -73,11 +74,16 @@ expandPath :: FilePath -> IO FilePath
 expandPath ('~':xs) = (++xs) <$> getHomeDirectory
 expandPath p        = pure p
 
+
 class PercentFormat a where
   (%) :: String -> a -> String
-
-instance PrintfArg a => PercentFormat a where
+  default (%) :: PrintfArg a => String -> a -> String
   s % a = printf s a
+
+instance PercentFormat String
+instance PercentFormat Word32
+instance PercentFormat Integer
+
 
 instance (PrintfArg a, PrintfArg b) => PercentFormat (a, b) where
   s % (a, b) = printf s a b

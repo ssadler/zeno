@@ -67,6 +67,7 @@ initPeerState = do
 
 runSeed :: String -> Word16 -> IO ()
 runSeed host port = do
+  putStrLn $ "Now seeding on %s:%i" % (host, port)
   node <- createLocalNode host (show port)
   runProcess node $ peerController []
 
@@ -99,7 +100,6 @@ startP2P host port seeds = do
   runProcess node $ waitController $ pure ()
   return (node, pid)
   where
-  p = runZeno () . logInfo
 
 -- | Waits for controller to start, then runs given process
 waitController :: Process a -> Process a
