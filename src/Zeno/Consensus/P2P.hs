@@ -28,7 +28,7 @@ module Zeno.Consensus.P2P (
     peerNotifier
 ) where
 
-import Control.Distributed.Process hiding (say)
+import Control.Distributed.Process
 import Control.Distributed.Process.Node
 import Control.Distributed.Process.Serializable (Serializable)
 import Network.Transport (EndPointAddress(..))
@@ -71,7 +71,6 @@ runSeed host port = do
   node <- createLocalNode host (show port)
   runProcess node $ peerController []
 
--- | Creates tcp local node which used by 'bootstrap'
 createLocalNode
   :: HostName
   -> ServiceName
@@ -79,15 +78,15 @@ createLocalNode
 createLocalNode host port = do
   let tcpHost = defaultTCPAddr host port
   transport <- either (error . show) id
-               <$> createTransport tcpHost defaultTCPParameters
+             <$> createTransport tcpHost defaultTCPParameters
   newLocalNode transport
-
 
 -- ** Initialization
 
 -- | Make a NodeId from "host:port" string.
-makeNodeId :: String -> NodeId
-makeNodeId addr = NodeId . EndPointAddress . BS.concat $ [BS.pack addr, ":0"]
+makeNodeId :: Word16 -> String -> NodeId
+makeNodeId port addr = NodeId . EndPointAddress . BS.concat $ [BS.pack addr', ":0"]
+  where addr' = addr ++ maybe (':' : show port) (\_ -> "") (elemIndex ':' addr)
 
 startP2P
   :: HostName
@@ -95,20 +94,19 @@ startP2P
   -> [NodeId]
   -> IO (LocalNode, ProcessId)
 startP2P host port seeds = do
+
   node <- createLocalNode host port
   pid <- forkProcess node $ peerController seeds
-  runProcess node $ waitController $ pure ()
-  return (node, pid)
-  where
 
--- | Waits for controller to start, then runs given process
-waitController :: Process a -> Process a
-waitController act = do
-  fix $ \f -> do
-    res <- whereis peerControllerService
-    case res of
-        Nothing -> threadDelay 100000 >> f
-        Just _ -> act
+  -- wait for peer controller to come up
+  runProcess node do
+    fix $ \f -> 
+      whereis peerControllerService >>=
+        \case
+          Nothing -> threadDelay 100000 >> f
+          Just _ -> pure ()
+
+  return (node, pid)
 
 dumpPeers :: PeerState -> IO ()
 dumpPeers (PeerState mpeers) = do
@@ -144,7 +142,7 @@ doDiscover node = whereisRemoteAsync node peerControllerService
 onDiscover :: PeerState -> WhereIsReply -> Process ()
 onDiscover state (WhereIsReply service (Just pid))
   | service == peerControllerService = newPeer state pid
-onDiscover _ _ = pure ()
+onDiscover _ _ = say "unrecognised WhereIsReply"
 
 -- 2: When there's a request to share peers
 onPeerHello :: PeerState -> (ProcessId, Hello) -> Process ()
@@ -181,9 +179,6 @@ newPeer (PeerState{..}) pid = do
        self <- getSelfPid
        send pid (self, Hello)
 
-
-say :: String -> Process ()
-say = liftIO . putStrLn
 
 
 data Hello = Hello

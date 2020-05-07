@@ -44,7 +44,7 @@ data ConsensusNetworkConfig = CNC
   { host :: String
   , port :: Word16
   , seeds :: [String]
-  }
+  } deriving (Show)
 
 consensusDefaultPort :: Word16
 consensusDefaultPort = 40440
