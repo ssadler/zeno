@@ -328,16 +328,16 @@ resolveSockAddr :: N.SockAddr -> IO (Maybe (N.HostName, N.HostName, N.ServiceNam
 resolveSockAddr sockAddr = case sockAddr of
   N.SockAddrInet port host -> do
     (mResolvedHost, mResolvedPort) <- N.getNameInfo [] True False sockAddr
-    (mResolvedIp, _) <- N.getNameInfo [N.NI_NUMERICHOST] False False sockAddr
-    case (mResolvedHost, mResolvedIp, Nothing) of
-      (Just resolvedHost, Just numericHost, Nothing) -> do
-        return $ Just (numericHost, resolvedHost, show port)
+    (mResolvedIp, _) <- N.getNameInfo [N.NI_NUMERICHOST] True False sockAddr
+    case mResolvedIp of
+      Just ip -> do
+        let resolvedHost = maybe ip id mResolvedHost
+        return $ Just (ip, resolvedHost, show port)
       _ -> error $ concat [
           "decodeSockAddr: unexpected resolution "
         , show sockAddr
         , " -> "
         , show mResolvedHost
-        , " (" ++ show mResolvedIp ++ ")"
         , ", "
         , show mResolvedPort
         ]
