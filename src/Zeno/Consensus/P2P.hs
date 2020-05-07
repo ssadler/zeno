@@ -28,7 +28,7 @@ module Zeno.Consensus.P2P (
     peerNotifier
 ) where
 
-import Control.Distributed.Process
+import Control.Distributed.Process hiding (say)
 import Control.Distributed.Process.Node
 import Control.Distributed.Process.Serializable (Serializable)
 import Network.Transport (EndPointAddress(..))
@@ -182,6 +182,8 @@ newPeer (PeerState{..}) pid = do
        send pid (self, Hello)
 
 
+say :: String -> Process ()
+say = liftIO . putStrLn
 
 
 data Hello = Hello
