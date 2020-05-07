@@ -22,8 +22,8 @@ tmux split-window -v -t 0
 tmux split-window -v -t 2
 tmux split-window -v -t 4
 
-notarise="stack exec hath -- notarise"
-ethkmd="ethkmd --mandate=0x8d555026e8952720ebeeda3269833e3626e484eb --seed=127.0.0.1:40440 --host=127.0.0.1"
+notarise="stack exec zeno -- notarise"
+ethkmd="kmdeth --gateway=0x8d555026e8952720ebeeda3269833e3626e484eb --seed=127.0.0.1:40440 --host=127.0.0.1 --kmd=~/.komodo/ZENOTT/ZENOTT.conf"
 
 tmux send-keys -t 1 "$notarise seed --host=127.0.0.1 --port=40440" Enter
 tmux send-keys -t 2 "$notarise $ethkmd --address=RWgagrqdN7YWH4N6kB4mWCNPCgtAMkCLFp --port=40441 $1 $2" Enter
