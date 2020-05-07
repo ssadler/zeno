@@ -1,6 +1,10 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Network.JsonRpc where
+module Network.JsonRpc
+  ( RPCException(..)
+  , Endpoint(..)
+  , queryJsonRpc
+  ) where
 
 import           Data.Conduit hiding (connect)
 import           Data.Conduit.JSON.NewlineDelimited
@@ -29,17 +33,13 @@ instance Show Endpoint where
   show (HttpEndpoint req) = show $ getUri req
 
 
-runJsonRpc :: FromJSON a => Text -> Value -> (Value -> Zeno r Value) -> Zeno r a
-runJsonRpc method params act = do
-  let body = "{jsonrpc,method,params,id}" .% (String "2.0", method, params, Null)
-      interpretResult (v::Value) =
-        case v .? "." of
-             Nothing -> throw $ RPCUnexpected $ asString v
-             Just r -> pure r
-      interpret v = case (v .? "{error}", v .? "{result}") of
-                      (Nothing, Just r) -> interpretResult r
-                      (Just e, _)       -> throw $ RPCException $ asString (Object (e::Object))
-  act body >>= interpret
+createRequest :: ToJSON a => Text -> a -> Value
+createRequest method params =
+  object [ "jsonrpc" .= String "2.0"
+         , "method"  .= method
+         , "params"  .= params
+         , "id"      .= Number 1
+         ]
 
 queryHttp :: Request -> Value -> Zeno r Value
 queryHttp req body = do
@@ -62,8 +62,16 @@ queryIpc endpoint body = do
   either error pure out
 
 queryJsonRpc :: (FromJSON a, ToJSON p) => Endpoint -> Text -> p -> Zeno r a
-queryJsonRpc endpoint method params =
-  traceE ("Json RPC: " ++ show (endpoint, method, asString $ toJSON params)) $ do
-    let transport = case endpoint of HttpEndpoint req -> queryHttp req
-                                     IpcEndpoint file -> queryIpc file
-    runJsonRpc method (toJSON params) transport
+queryJsonRpc endpoint method params = do
+  let transport = case endpoint of HttpEndpoint req -> queryHttp req
+                                   IpcEndpoint file -> queryIpc file
+      req = createRequest method params
+  traceE ("Json RPC: " ++ show (endpoint, asString req)) $ do
+    res <- transport req
+    case res .? "{error}" of
+      Just e | e /= Null ->
+        throw $ RPCException $ asString (e::Value)
+      _ ->
+        case res .? "{result}" of
+          Just r -> pure r
+          Nothing -> throw $ RPCUnexpected $ asString res

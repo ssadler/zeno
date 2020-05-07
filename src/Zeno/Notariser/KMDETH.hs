@@ -37,6 +37,10 @@ runNotariseKmdToEth gethConfig consensusConfig gateway kmdConfPath kmdAddress = 
       runZeno notariser ethNotariser
 
 
+
+
+
+
 ethNotariser :: Zeno EthNotariser ()
 ethNotariser = do
   KomodoIdent{..} <- asks has
@@ -82,7 +86,7 @@ ethNotariser = do
     getNotariserConfig configName = do
       gateway <- asks getEthGateway
       (threshold, members) <- ethCallABI gateway "getMembers()" ()
-      JsonInABI nc <- ethCallABI gateway "getConfig()" (configName :: Text)
+      JsonInABI nc <- ethCallABI gateway "getConfig(string)" (configName :: Text)
       pure $ nc { members, threshold }
 
     checkConfig NotariserConfig{..} (EthIdent _ addr) = do
