@@ -91,7 +91,6 @@ propose mObj = do
       go ((pAddr, isMe):xs) = do
 
         let nextProposer (ConsensusTimeout _) = do
-              _ <- permuteTopic  -- Will have been lost due to exception
               lift $ lift $ say $ "Timeout collecting for proposer: " ++ show pAddr
               go xs
             nextProposer e = throw e
@@ -100,7 +99,7 @@ propose mObj = do
 
         handle nextProposer $ do
           withTimeout (5 * 1000000) $ do
-            results <- step' (collectMembers [pAddr]) obj
+            results <- step (collectMembers [pAddr]) obj
             case Map.lookup pAddr results of
                  Just (_, Just obj2) -> pure obj2
                  _                   -> do

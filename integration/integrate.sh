@@ -23,7 +23,7 @@ tmux split-window -v -t 2
 tmux split-window -v -t 4
 
 notarise="stack exec zeno -- notarise"
-ethkmd="kmdeth --gateway=0x8d555026e8952720ebeeda3269833e3626e484eb --seed=127.0.0.1:40440 --host=127.0.0.1 --kmd=~/.komodo/ZENOTT/ZENOTT.conf"
+ethkmd="kmdeth --gateway=0x0E27bd633C31AaE55079ee41e01579e2333e3cb2 --seed=127.0.0.1:40440 --host=127.0.0.1 --kmd=~/.komodo/ZENOTT/ZENOTT.conf --geth https://ropsten.infura.io/v3/bd54c1b7d144428ebb3243791e1426ea"
 
 tmux send-keys -t 1 "$notarise seed --host=127.0.0.1 --port=40440" Enter
 tmux send-keys -t 2 "$notarise $ethkmd --address=RWgagrqdN7YWH4N6kB4mWCNPCgtAMkCLFp --port=40441 $1 $2" Enter

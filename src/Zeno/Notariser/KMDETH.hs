@@ -26,7 +26,7 @@ consensusTimeout = 5 * 1000000
 
 runNotariseKmdToEth :: GethConfig -> ConsensusNetworkConfig -> Address -> FilePath -> RAddress -> IO ()
 runNotariseKmdToEth gethConfig consensusConfig gateway kmdConfPath kmdAddress = do
-  --threadDelay 2000000
+  threadDelay 1000000
   bitcoinConf <- loadBitcoinConfig kmdConfPath
   wif <- runZeno bitcoinConf $ queryBitcoin "dumpprivkey" [kmdAddress]
   sk <- either error pure $ parseWif komodo wif
@@ -62,8 +62,8 @@ ethNotariser = do
           height <- getKmdProposeHeight 10
           notariseToETH nc height
 
-        Just (lastHeight, _, _) -> do
-          logDebug $ "Found prior notarisation at height %s" % lastHeight
+        Just (lastHeight, _, _, _) -> do
+          logDebug $ "Found prior notarisation at height %i" % lastHeight
           -- Check if backnotarised to KMD
 
           getLastNotarisation "ETHTEST" >>=
@@ -157,15 +157,15 @@ notariseToETH NotariserConfig{..} height32 = do
 
   logDebug "Step 4: Submit transaction"
   receipt <- postTransactionSync tx
-  logDebug $ "posted tranaction: " ++ show receipt
+  logDebug $ "posted transaction: " ++ show receipt
   pure ()
 
 
 getLastNotarisationOnEth :: Integral i => NotariserConfig
-                         -> Zeno EthNotariser (Maybe (i, Bytes 32, ByteString))
+                         -> Zeno EthNotariser (Maybe (i, Bytes 32, Integer, ByteString))
 getLastNotarisationOnEth NotariserConfig{..} = do
   r <- ethCallABI notarisationsContract "getLastNotarisation()" ()
   pure $
     case r of
-      (0::Integer, _, _) -> Nothing
-      (h, hash, extra) -> Just (fromIntegral h, hash, extra)
+      (0::Integer, _, _, _) -> Nothing
+      (h, hash, ethHeight, extra) -> Just (fromIntegral h, hash, ethHeight, extra)
