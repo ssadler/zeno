@@ -91,13 +91,11 @@ ethMakeTransaction dest callData = do
 
 ethMakeTransactionWithSender :: Has GethConfig r => Address -> Address -> ByteString -> Zeno r Transaction
 ethMakeTransactionWithSender from to callData = do
-  let chainId = 1
   nonce <- queryAccountNonce from
   U256 gas <- queryEthereum "eth_estimateGas" ["{to,data,from}" .% (to, Hex callData, from)]
   U256 gasPriceRec <- queryEthereum "eth_gasPrice" ()
   let gasPrice = gasPriceRec + quot gasPriceRec 2
-  liftIO $ print $  "MY NONCE IS: " ++ show nonce
-  pure $ Tx nonce 0 (Just to) Nothing gasPrice gas callData chainId
+  pure $ Tx nonce 0 (Just to) Nothing gasPrice gas callData (ChainId 1)
 
 
 ethMsg :: ByteString -> Msg

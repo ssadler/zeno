@@ -55,7 +55,6 @@ waitTransactionConfirmed1 :: Has GethConfig r => Int -> Sha3 -> Zeno r (Maybe Va
 waitTransactionConfirmed1 timeout txid = do
   let delay = min timeout 5000000
   r <- queryEthereum "eth_getTransactionReceipt" [txid]
-  liftIO $ print r
   pure r >>=
     \case
       o | isJust (o .? "{blockNumber}" :: Maybe U256) -> pure $ Just o

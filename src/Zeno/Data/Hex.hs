@@ -10,6 +10,8 @@ module Zeno.Data.Hex
   , bytes
   , bytesGetN
   , bytesReverse
+  , nullBytes
+  , maxBytes
   ) where
 
 
@@ -80,4 +82,11 @@ bytesGetN = fromIntegral . natVal
 bytesReverse :: Bytes n -> Bytes n
 bytesReverse (Bytes b) = Bytes (BS.reverse b)
 
+nullBytes :: forall n. KnownNat n => Bytes n
+nullBytes = constantBytes 0x00
 
+maxBytes :: forall n. KnownNat n => Bytes n
+maxBytes = constantBytes 0xFF
+
+constantBytes :: forall n. KnownNat n => Word8 -> Bytes n
+constantBytes = Bytes . BS.replicate (bytesGetN (Proxy :: Proxy n))

@@ -17,11 +17,10 @@ import Zeno.Consensus
 import Zeno.Config
 import Zeno.Prelude
 import Zeno.Prelude.Lifted
-import Zeno.Data.Aeson
 
 
-consensusTimeout :: Int
-consensusTimeout = 5 * 1000000
+defaultConsensusTimeout :: Int
+defaultConsensusTimeout = 10 * 1000000
 
 
 runNotariseKmdToEth :: GethConfig -> ConsensusNetworkConfig -> Address -> FilePath -> RAddress -> IO ()
@@ -59,19 +58,25 @@ ethNotariser = do
           notariseToETH nc height
 
         Just ethnota@NOE{..} -> do
-          logDebug $ "Found prior notarisation at height %i" % foreignHeight
-          -- Check if backnotarised to KMD
+          logDebug $ "Found prior notarisation on ETH for %s height %i" % (kmdChainSymbol, foreignHeight)
 
-          getLastNotarisation "ETHTEST" >>=
+          getLastNotarisation kmdChainSymbol >>=
             \case
-              Just (Notarisation _ _ nor@NOR{..}) | blockNumber == foreignHeight -> do
-                logDebug "Found backnotarisation, proceed with next notarisation"
-                newHeight <- getKmdProposeHeight 10
-                if newHeight > foreignHeight
-                   then notariseToETH nc newHeight
-                   else do
-                     logDebug "Not enough new blocks, sleeping 60 seconds"
-                     threadDelay $ 60 * 1000000
+              Just (Notarisation _ _ (BND NOR{..})) 
+                | blockNumber == foreignHeight -> do
+                  logDebug "Found backnotarisation, proceed with next notarisation"
+                  newHeight <- getKmdProposeHeight 10
+                  if newHeight > foreignHeight
+                     then notariseToETH nc newHeight
+                     else do
+                       logDebug "Not enough new blocks, sleeping 60 seconds"
+                       threadDelay $ 60 * 1000000
+                | blockNumber > foreignHeight -> do
+                  liftIO $ do
+                    print NOR{..}
+                    print ethnota
+                  error "We have a very bad error, the backnotarised height in KMD is higher\
+                        \than the notarised height in ETH. Wat do?"
 
               _ -> do
                 logDebug "Backnotarisation not found, proceed to backnotarise"
@@ -105,6 +110,7 @@ ethNotariser = do
           f $ show e
           liftIO $ threadDelay $ d * 1000000
         fmtHttpException (HttpExceptionRequest _ e) = e
+        fmtHttpException e = error ("Configuration error: " ++ show e)
 
 
 -- TODO: need error handling here with strategies for configuration errors, member mischief etc.
@@ -116,7 +122,7 @@ notariseToETH NotariserConfig{..} height32 = do
 
   ident@(EthIdent _ myAddress) <- asks has
   gateway <- asks getEthGateway
-  let cparams = ConsensusParams members ident consensusTimeout
+  let cparams = ConsensusParams members ident defaultConsensusTimeout
   r <- ask
   let run = liftIO . runZeno r
 
@@ -159,20 +165,20 @@ notariseToETH NotariserConfig{..} height32 = do
       if (proposer == myAddress)
         then do
           logDebug "Step 4: Submit transaction"
-          r <- postTransaction tx
-          liftIO $ do
-            print tx
-            print txid
-            print r
+          _ <- postTransaction tx
+          pure ()
         else do
           logDebug $ "Step 4: Proposer will submit: " ++ show txid
 
-    run $ logDebug "Step 5: Confirmed that tx was sumbmitted by proposer"
+    run $ logDebug "Step 5: Confirm that tx was sumbmitted by proposer"
     -- This will timeout if proposer had an exception while submitting the transaction
     _ <- step (collectMembers [proposer]) ()
+
+    run $ logDebug "Step 6: Confirm that everyone saw that the tx was submitted by proposed"
+    _ <- step collectMajority ()
   
     run do
-      logDebug $ "Step 6: Wait for transaction confirmation on chain"
+      logDebug $ "Step 7: Wait for transaction confirmation on chain"
       waitTransactionConfirmed1 (120 * 1000000) txid
       pure ()
 
@@ -188,7 +194,17 @@ getLastNotarisationOnEth NotariserConfig{..} = do
 
 getBackNotarisation :: NotariserConfig -> NotarisationOnEth -> Zeno EthNotariser NotarisationData
 getBackNotarisation NotariserConfig{..} NOE{..} = do
-  pure $ NOR (sha3AsBytes32 foreignHash) foreignHeight kmdChainSymbol (sha3AsBytes32 nullSha3) 0 0
+  pure $ NOR
+    { blockHash = (sha3AsBytes32 foreignHash)
+    , blockNumber = foreignHeight
+    , txHash = maxBytes
+    , symbol = kmdChainSymbol
+    , mom = nullBytes
+    , momDepth = 0
+    , ccId = 0
+    , momom = nullBytes
+    , momomDepth = 0
+    }
 
 
 checkTxProposed :: Ballot Transaction -> Zeno EthNotariser ()

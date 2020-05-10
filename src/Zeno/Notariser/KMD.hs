@@ -119,7 +119,7 @@ submitNotarisation NotariserConfig{..} ndata tx = do
 
   -- Consistency check
   mln <- getLastNotarisation kmdChainSymbol
-  when ((opret <$> mln) /= Just ndata) $ do
+  when ((opret <$> mln) /= Just (BND ndata)) $ do
      logError "Bad error. Notarisation tx confirmed but didn't show up in db."
      logError $ show (ndata, mln)
      error "Bailing"

@@ -135,6 +135,8 @@ permuteTopic = do
 
 -- Check Majority -------------------------------------------------------------
 
+-- TODO: Refactor so that test is provided rather than collector
+
 -- | Collects a majority
 collectMajority :: Serializable a => Collect a
 collectMajority = collectGeneric haveMajority
@@ -152,10 +154,10 @@ collectGeneric test recv timeout members = do
   startTime <- getCurrentTime
   fix $ \f -> do
     d <- timeDelta startTime
-    let us = max 0 $ timeout - d
+    let us = timeout - min timeout d
     minv <- receiveChanTimeout us recv
     case minv of
-         Nothing -> throw (ConsensusTimeout "collect timeout")
+         Nothing -> throw (ConsensusTimeout $ "collect timeout " ++ show us ++ "us")
          Just inv | test members inv -> pure inv
          _ -> f
 
