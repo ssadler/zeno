@@ -4,6 +4,7 @@ module Spec where
 
 import qualified Data.ByteString.Base16 as B16
 
+import qualified Crypto.Secp256k1 as Secp256k1
 import           Network.Ethereum.Crypto
 import           Network.Ethereum.Transaction
 import           Zeno.Prelude
@@ -12,8 +13,8 @@ import           Test.Tasty
 import           Test.Tasty.HUnit
 
 
-recSigTests :: TestTree
-recSigTests = testGroup "RecSig tests"
+test_recSigTests :: TestTree
+test_recSigTests = testGroup "RecSig tests"
 
   [ 
     testCase "CompactRecSig" $ do
@@ -27,17 +28,26 @@ recSigTests = testGroup "RecSig tests"
   , testCase "Encode tx" $ do
       encodeTx tx_a @?= txbin_a
 
+  , testCase "RecoverFrom" $ do
+      let signed = signTx sk tx_a
+      let Just sig = _sig signed
+      let m = fromJust $ msg $ unSha3 $ hashTx $ signed { _sig = Nothing }
+      recoverAddr m sig @?= Just address
+
   , testCase "Recover" $ do
-      let signed = signTx tx_a sk
-      recoverFrom signed @?= Just address
+      let txid = hashTx tx_a
+      let Just m = msg $ unSha3 txid
+      let sig = sign sk m
+      let Just a = recoverAddr m sig
+      a @?= address
 
   , testCase "encodeSpecialV" $ do
 
-      encodeSpecialV 0 16 @?= 67
+      encodeSpecialV 16 0 @?= 67
 
-      forM_ [0..255] $ \i -> do
-        decodeSpecialV (encodeSpecialV 0 i) @?= (0, i)
-        decodeSpecialV (encodeSpecialV 1 i) @?= (1, i)
+      forM_ [0..123::ChainId] $ \i -> do
+        decodeSpecialV (encodeSpecialV i 0) @?= (i, 0)
+        decodeSpecialV (encodeSpecialV i 1) @?= (i, 1)
   ]
 
   
@@ -45,7 +55,7 @@ sk :: SecKey
 (Just sk) = secKey "11111111111111111111111111111111"
 
 address :: Address
-address = Address $ fst $ B16.decode "77952ce83ca3cad9f7adcfabeda85bd2f1f52008"
+EthIdent _ address = deriveEthIdent sk
 
 txid_a :: Sha3
 txid_a = "d018f1502a71f61a00b77546b99f2a647dda07ecb4cf94bd14cd4dbf4337be3d"

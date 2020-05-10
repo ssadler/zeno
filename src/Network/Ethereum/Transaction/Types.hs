@@ -29,25 +29,26 @@ instance Bin.Binary Transaction
 
 
 instance RLPEncodable Transaction where
-  rlpEncode tx =
-    let body =
-          [ rlpEncode $ _nonce tx
-          , rlpEncode $ _gasPrice tx
-          , rlpEncode $ _gas tx
-          , rlpEncode $ maybe "" fromAddress $ _to tx
-          , rlpEncode $ _value tx
-          , rlpEncode $ _data tx
-          ]
+  rlpEncode tx = RLP.Array (c <> e) where
 
-        encodeSig (CompactRecSig r s v) =
-          [ rlpEncode $ encodeSpecialV (_chainId tx) v
-          , rlpEncode $ unpackInteger $ fromShort r
-          , rlpEncode $ unpackInteger $ fromShort s
-          ]
+    RLP.Array c = rlpEncode
 
-        noSig = [rlpEncode $ _chainId tx, RLP.String "", RLP.String ""]
-
-   in RLP.Array $ body ++ maybe noSig encodeSig (_sig tx)
+        ( _nonce tx
+        , _gasPrice tx
+        , _gas tx
+        , maybe "" fromAddress $ _to tx
+        , _value tx
+        , _data tx
+        )
+    
+    RLP.Array e = rlpEncode $
+        case _sig tx of
+            Nothing -> (unChainId $ _chainId tx, 0, 0)
+            Just (CompactRecSig r s v) ->
+              ( encodeSpecialV (_chainId tx) v
+              , unpackInteger $ fromShort r
+              , unpackInteger $ fromShort s
+              )
 
   rlpDecode (RLP.Array a) | length a == 9 = do
 
@@ -71,8 +72,12 @@ instance RLPEncodable Transaction where
   rlpDecode o = error $ "Invalid RLP Transaction: " ++ show o
 
 
-newtype ChainId = ChainId { unChainId :: Word8 }
-  deriving (Show, Num, Eq, Generic, ToJSON, FromJSON, RLPEncodable)
+newtype ChainId = ChainId Word8
+  deriving (Show, Num, Enum, Eq, Generic, ToJSON, FromJSON, RLPEncodable)
+
+unChainId :: ChainId -> Word8
+unChainId (ChainId i) = i
+
 
 instance Bin.Binary ChainId
 

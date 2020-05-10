@@ -86,7 +86,7 @@ ethMakeTransaction :: (Has GethConfig r, Has EthIdent r)
 ethMakeTransaction dest callData = do
   EthIdent sk myAddress <- asks has
   tx <- ethMakeTransactionWithSender myAddress dest callData
-  pure $ signTx tx sk
+  pure $ signTx sk tx
 
 
 ethMakeTransactionWithSender :: Has GethConfig r => Address -> Address -> ByteString -> Zeno r Transaction

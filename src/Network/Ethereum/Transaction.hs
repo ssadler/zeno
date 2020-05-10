@@ -27,15 +27,11 @@ decodeTx = rlpDeserialize
 hashTx :: Transaction -> Sha3
 hashTx = sha3 . encodeTx
 
--- TODO: flip arguments
-signTx :: Transaction -> SecKey -> Transaction
-signTx tx sk = 
-  let Just payload = msg $ unSha3 $ hashTx tx
-      sig = sign sk payload
-   in tx { _sig = Just sig }
+signTx :: SecKey -> Transaction -> Transaction
+signTx sk tx = tx { _sig = Just (sign sk $ sighashTx tx) }
 
 recoverFrom :: Transaction -> Maybe Address
-recoverFrom tx = do
-  message <- msg $ unSha3 $ hashTx tx
-  _sig tx >>= recoverAddr message
+recoverFrom tx = _sig tx >>= recoverAddr (sighashTx tx)
 
+sighashTx :: Transaction -> Msg
+sighashTx tx = fromJust $ msg $ unSha3 $ hashTx $ tx { _sig = Nothing }
