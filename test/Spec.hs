@@ -15,22 +15,21 @@ import           Test.Tasty.HUnit
 recSigTests :: TestTree
 recSigTests = testGroup "RecSig tests"
 
-  [ testCase "CompactRecSig" $ do
-      let Just recSig = signRecMsg sk <$> msg (unSha3 txid_a)
-          CompactRecSig r s v = exportCompactRecSig recSig
+  [ 
+    testCase "CompactRecSig" $ do
+      let CompactRecSig r s v = sign sk $ fromJust $ msg (unSha3 txid_a)
           d = B16.encode . fromShort
       (d r, d s, v) @?= txsig_a
 
   , testCase "Get txid" $ do
-      txid tx_a @?= txid_a
+      hashTx tx_a @?= txid_a
 
   , testCase "Encode tx" $ do
       encodeTx tx_a @?= txbin_a
 
   , testCase "Recover" $ do
       let signed = signTx tx_a sk
-          Just pk = recoverFrom signed
-      pubKeyAddr pk @?= address
+      recoverFrom signed @?= Just address
 
   , testCase "encodeSpecialV" $ do
 

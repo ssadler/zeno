@@ -35,22 +35,33 @@ ethCallABI addr sig params = do
     (unABI <$> readCall addr (abi sig params))
     (logError $ printf "Error in eth_call: %s with %s" sig (show params))
 
-postTransactionSync :: Has GethConfig r => Transaction -> Zeno r Value
-postTransactionSync tx = do
-  -- logInfo $ "Testing transaction"
-  -- callResult <- readCall (fromJust $ _to tx) (Tx._data tx)
-  -- logInfo $ "Result: " ++ asString (callResult :: Value)
-  logInfo $ "Sending transaction: " ++ (show $ txid tx)
-  txid <- queryEthereum "eth_sendRawTransaction" [toJSON $ Hex $ encodeTx $ tx]
-  logInfo $ "Send transaction, txid: " <> show txid
-  fix $
-    \wait -> do
-      liftIO $ threadDelay 1000000
-      queryEthereum "eth_getTransactionReceipt" [txid::Value] >>=
-        \case
-          Null -> wait
-          o | o .? "{status}" == Just (U256 1) -> pure o
-          o -> error $ "Unknown transaction status: " ++ show o
+
+queryAccountNonce :: Has GethConfig r => Address -> Zeno r Integer
+queryAccountNonce addr =
+  unU256 <$> queryEthereum "eth_getTransactionCount" [toJSON addr, "latest"]
+
+
+postTransaction :: Has GethConfig r => Transaction -> Zeno r Sha3
+postTransaction tx = do
+  logInfo $ "Sending transaction: " ++ (show $ hashTx tx)
+  queryEthereum "eth_sendRawTransaction" [toJSON $ Hex $ encodeTx $ tx]
+
+
+-- Waits for a transaction to be confirmed with 1 extra block
+-- There's a detail here - we should probably wait for it to be confirmed with one
+-- or two extra blocks, but, testing is being done with ganache which mines blocks on demand.
+-- TODO.
+waitTransactionConfirmed1 :: Has GethConfig r => Int -> Sha3 -> Zeno r (Maybe Value)
+waitTransactionConfirmed1 timeout txid = do
+  let delay = min timeout 5000000
+  r <- queryEthereum "eth_getTransactionReceipt" [txid]
+  liftIO $ print r
+  pure r >>=
+    \case
+      o | isJust (o .? "{blockNumber}" :: Maybe U256) -> pure $ Just o
+      _ | timeout == 0 -> pure Nothing
+      _ -> liftIO (threadDelay delay) >> waitTransactionConfirmed1 (timeout - delay) txid
+
 
 data RPCMaybe a = RPCMaybe (Maybe a)
   deriving (Show)

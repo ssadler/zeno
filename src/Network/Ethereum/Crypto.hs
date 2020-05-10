@@ -68,19 +68,18 @@ hashMsg = fromJust . msg . sha3'
 
 
 data CompactRecSig = CompactRecSig
-  { getCompactRecSigR :: ShortByteString
-  , getCompactRecSigS :: ShortByteString
-  , getCompactRecSigV :: Word8
+  { sigR :: ShortByteString
+  , sigS :: ShortByteString
+  , sigV :: Word8
   } deriving (Eq, Ord, Show)
 
 toLegacyCRS :: CompactRecSig -> Secp256k1.CompactRecSig
 toLegacyCRS (CompactRecSig r s v) = Secp256k1.CompactRecSig s r v
 
+fromLegacyCRS (Secp256k1.CompactRecSig s r v) = CompactRecSig r s v
+
 sign :: SecKey -> Msg -> CompactRecSig
-sign sk msg = CompactRecSig r s v
-  where
-    (Secp256k1.CompactRecSig s r v) =
-      Secp256k1.exportCompactRecSig $ Secp256k1.signRecMsg sk msg
+sign sk msg = fromLegacyCRS $ Secp256k1.exportCompactRecSig $ Secp256k1.signRecMsg sk msg
 
 instance ToJSON CompactRecSig where
   toJSON (CompactRecSig r s v) = toJsonHex $

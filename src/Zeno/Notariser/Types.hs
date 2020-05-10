@@ -59,3 +59,4 @@ getConsensusParams NotariserConfig{..} = do
 data ConfigException = ConfigException
   deriving (Show)
 instance Exception ConfigException
+

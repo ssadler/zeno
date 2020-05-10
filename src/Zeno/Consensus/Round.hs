@@ -82,11 +82,11 @@ step collect o = permuteTopic >> step' collect o
 -- 1. Determine a starting proposer
 -- 2. Try to get a proposal from them
 -- 3. If there's a timeout, move to the next proposer
-propose :: forall a. Serializable a => Consensus a -> Consensus a
+propose :: forall a. Serializable a => Consensus a -> Consensus (Ballot a)
 propose mObj = do
   determineProposers >>= go
     where
-      go :: [(Address, Bool)] -> Consensus a
+      go :: [(Address, Bool)] -> Consensus (Ballot a)
       go [] = throw $ ConsensusTimeout "Ran out of proposers"
       go ((pAddr, isMe):xs) = do
 
@@ -95,13 +95,16 @@ propose mObj = do
               go xs
             nextProposer e = throw e
 
-        obj <- if isMe then Just <$> mObj else pure Nothing
+        obj <-
+          if isMe
+             then (lift $ lift $ say "I am the chosen one.") >> (Just <$> mObj)
+             else pure Nothing
 
         handle nextProposer $ do
           withTimeout (5 * 1000000) $ do
             results <- step (collectMembers [pAddr]) obj
             case Map.lookup pAddr results of
-                 Just (_, Just obj2) -> pure obj2
+                 Just (s, Just obj2) -> pure $ Ballot pAddr s obj2
                  _                   -> do
                    lift $ lift $ say $ "Mischief: missing proposal from: " ++ show pAddr
                    throw (ConsensusMischief $ printf "Missing proposal from %s" $ show pAddr)

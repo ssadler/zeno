@@ -7,6 +7,7 @@ module Network.Ethereum.Crypto.Hash
   , sha3
   , sha3'
   , nullSha3
+  , sha3AsBytes32
   ) where
 
 import           Crypto.Hash
@@ -46,9 +47,17 @@ instance ToJSON Sha3 where
 instance PutABI Sha3 where
   putABI (Sha3 bs) = putABI (bytes bs :: Bytes 32)
 
+instance GetABI Sha3 where
+  getABI = do
+    b <- getABI
+    pure $ Sha3 $ unBytes (b :: Bytes 32)
+
 instance Serialize Sha3 where
   put (Sha3 bs) = putByteString bs
   get = Sha3 <$> getByteString 32
+
+sha3AsBytes32 :: Sha3 -> Bytes 32
+sha3AsBytes32 (Sha3 b) = Bytes b
 
 failableSha3 :: (Monad m, MonadFail m) => ByteString -> m Sha3
 failableSha3 bs = 

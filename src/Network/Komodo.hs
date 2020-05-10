@@ -120,56 +120,57 @@ getOutPoint utxo = H.OutPoint (utxoTxid utxo) (utxoVout utxo)
 --
 -- (Doesn't support backnotarisation yet)
 
-data NotarisationData h = NOR
-  { blockHash :: h
+data NotarisationData = NOR
+  { blockHash :: Bytes 32
   , blockNumber :: Word32
   , symbol :: String
-  , mom :: h
+  , mom :: Bytes 32
   , momDepth  :: Word16
   , ccId :: Word16
   } deriving (Eq, Show)
 
-momDepth32 :: Integral a => NotarisationData h -> a
+momDepth32 :: Integral a => NotarisationData -> a
 momDepth32 = fromIntegral . momDepth
 
-instance Serialize h => Serialize (NotarisationData h) where
+instance Serialize NotarisationData where
   put NOR{..} = do
-    put blockHash >> putWord32le blockNumber
+    put $ bytesReverse blockHash
+    putWord32le blockNumber
     mapM put symbol >> put '\0'
-    put mom >> putWord16le momDepth >> putWord16le ccId
+    put $ bytesReverse mom
+    putWord16le momDepth >> putWord16le ccId
   get = do
-    let getSymbol =
-          get >>= \case '\0' -> pure ""
-                        i    -> (i:) <$> getSymbol
-    NOR <$> get <*> getWord32le <*> getSymbol
-        <*> get <*> getWord16le <*> getWord16le
+    let getSymbol = get >>= \case '\0' -> pure ""; s -> (s:) <$> getSymbol
+        getRev = bytesReverse <$> get
+    NOR <$> getRev <*> getWord32le <*> getSymbol
+        <*> getRev <*> getWord16le <*> getWord16le
 
-instance Serialize h => Bin.Binary (NotarisationData h) where
+instance Bin.Binary NotarisationData where
   put = Bin.put . Bin.Ser2Bin
   get = Bin.unSer2Bin <$> Bin.get
 
-instance Serialize h => FromJSON (NotarisationData h) where
+instance FromJSON NotarisationData where
   parseJSON val = do
     Hex bs <- parseJSON val
     either fail pure $ decode bs
 
 -- Notarisation RPC
 
-data Notarisation h = Notarisation
+data Notarisation = Notarisation
   { kmdHeight :: Word32
   , txHash :: TxHash
-  , opret :: NotarisationData h
+  , opret :: NotarisationData
   } deriving (Show)
 
-instance Serialize h => FromJSON (Notarisation h) where
+instance FromJSON Notarisation where
   parseJSON val = do
     obj <- parseJSON val
     Notarisation <$> obj .: "height"
                  <*> obj .: "hash"
                  <*> obj .: "opreturn"
 
-scanNotarisationsDB :: (Serialize h, Has BitcoinConfig r)
-                    => Word32 -> String -> Word32 -> Zeno r (Maybe (Notarisation h))
+scanNotarisationsDB :: Has BitcoinConfig r
+                    => Word32 -> String -> Word32 -> Zeno r (Maybe Notarisation)
 scanNotarisationsDB height symbol limit = do
   traceE "scanNotarisationsDB" $ do
     val <- queryBitcoin "scanNotarisationsDB" [show height, symbol, show limit]
@@ -177,7 +178,6 @@ scanNotarisationsDB height symbol limit = do
               then Nothing
               else Just $ val .! "."
 
-getLastNotarisation :: (Serialize h, Has BitcoinConfig r)
-                    => String -> Zeno r (Maybe (Notarisation h))
+getLastNotarisation :: Has BitcoinConfig r => String -> Zeno r (Maybe Notarisation)
 getLastNotarisation s = scanNotarisationsDB 0 s 100000
 

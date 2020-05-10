@@ -55,9 +55,9 @@ instance RLPEncodable TransactionReceipt where
 
 
 data LogEntry = LogEntry
-  { address :: Address
-  , topics :: [Sha3]
-  , _data :: Hex
+  { logAddress :: Address
+  , logTopics :: [Sha3]
+  , logData :: Hex
   } deriving (Show)
 
 instance FromJSON LogEntry where
@@ -69,9 +69,9 @@ instance FromJSON LogEntry where
 
 instance RLPEncodable LogEntry where
   rlpEncode LogEntry{..} = RLP.Array $
-    [ rlpEncode address
-    , rlpEncode topics
-    , rlpEncode _data
+    [ rlpEncode logAddress
+    , rlpEncode logTopics
+    , rlpEncode logData
     ]
   rlpDecode _ = Left "rlpDecode LogEntry undefined"
 

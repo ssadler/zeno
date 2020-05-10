@@ -188,6 +188,9 @@ instance GetABI Integer where
 instance GetABI U256 where
   getABI = U256 . unpackInteger <$> takeN 32
 
+instance GetABI Word32 where
+  getABI = fromIntegral . unU256 <$> getABI
+
 instance GetABI ByteString where
   getABI =
     getDynamic $ do
@@ -231,25 +234,6 @@ instance GetABI Value where
     if BS.length bs > 0
        then ExceptT $ pure $ eitherDecodeStrict' bs
        else pure Null
-
--- Bytes type -----------------------------------------------------------------
---
-newtype Bytes (n :: Nat) = Bytes { unBytes :: ByteString }
-  deriving (Eq, Ord)
-
-instance Show (Bytes n) where
-  show = show . asString . unBytes
-
-instance forall n. (KnownNat n, n <= 32) => IsString (Bytes n) where
-  fromString = bytes . fromString
-
-bytes :: forall n. (KnownNat n, n <= 32) => ByteString -> Bytes n
-bytes =
-  let n = bytesGetN (Proxy :: Proxy n)
-   in n `seq` Bytes
-
-bytesGetN :: forall n. (KnownNat n, n <= 32) => Proxy n -> Int
-bytesGetN = fromIntegral . natVal
 
 -- Aeson instance (for abi inside JSON) ---------------------------------------
 --

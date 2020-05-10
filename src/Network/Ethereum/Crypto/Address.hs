@@ -21,7 +21,7 @@ newtype Address = Address { fromAddress :: ByteString }
   deriving (Eq, Ord, Binary)
 
 instance Show Address where
-  show (Address bs) = "0x" <> BS8.unpack (B16.encode bs)
+  show (Address bs) = show $ "0x" <> BS8.unpack (B16.encode bs)
 
 instance Read Address where
   readsPrec p s =

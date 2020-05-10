@@ -9,6 +9,11 @@ module Zeno.Consensus.Step
   , runStep
   ) where
 
+-- This module deals with exchanging messages and building inventory.
+-- The entry point is `runStep`. Each step has a topic, and each member
+-- will provide an input. Messages are exhanged until all participants
+-- have a full inventory.
+
 import           Control.Monad
 
 import           Control.Distributed.Process
@@ -58,23 +63,34 @@ runStep :: forall a. Serializable a
         -> (Inventory a -> Process ())
         -> Process ()
 runStep message myBallot members yield = do
+
+  -- Build the step context
+  mInv <- newMVar Map.empty
+  myPid <- getSelfPid
   -- Hash the message as the topic so it's obfuscated
   let topic = asString $ getMsg $ hashMsg $ getMsg message
       (Ballot myAddr mySig myData) = myBallot
+      step = Step topic mInv members myPid yield mySig message
 
-  mInv <- newMVar Map.empty
-  myPid <- getSelfPid
-  let step = Step topic mInv members myPid yield mySig message
-  builder <- spawnLocalLink $ buildInventory step
+  -- Spawn our inventory builder
+  builder <- spawnLocalLink $ inventoryBuilder step
 
+  -- Register so that we get new peer events
   nsend P2P.peerListenerService myPid
+
+  -- Register to current topic so we will get messages
   register topic myPid
+
+  -- Dispatching own inventory to self kicks off the process of propagating it
   send myPid (mySig, InventoryData $ Map.singleton myAddr (mySig, myData))
-  forever $ receiveWait [ match $ onInventoryIndex builder step
-                        , match $ onGetInventory step
-                        , match $ onInventoryData step
-                        , match $ onNewPeer step
-                        ]
+
+  forever do
+    receiveWait
+      [ match $ onInventoryIndex builder step
+      , match $ onGetInventory step
+      , match $ onInventoryData step
+      , match $ onNewPeer step
+      ]
 
 onNewPeer :: Step a -> P2P.NewPeer -> Process ()
 onNewPeer Step{..} (P2P.NewPeer nodeId) = do
@@ -82,25 +98,14 @@ onNewPeer Step{..} (P2P.NewPeer nodeId) = do
   let idx = inventoryIndex members inv
   nsendRemote nodeId topic (mySig, InventoryIndex parent idx)
 
-authenticate :: (Step a -> b -> Process ()) -> Step a -> (CompactRecSig, b) -> Process ()
-authenticate act step@Step{..} (theirSig, obj) =
-  case recoverAddr message theirSig of
-       Just addr ->
-         if elem addr members
-            then act step obj
-            else say $ "Not member or wrong step: " ++ show addr
-       Nothing -> do
-         say "Signature recovery failed"
-
 onInventoryIndex :: ProcessId -> Step a -> Authenticated InventoryIndex -> Process ()
-onInventoryIndex builder = authenticate $ \Step{..} (InventoryIndex peer theirIdx) ->
-  send builder (peer, theirIdx)
+onInventoryIndex builder = authenticate $
+  \Step{..} (InventoryIndex peer theirIdx) -> send builder (peer, theirIdx)
 
 onGetInventory :: Serializable a => Step a -> Authenticated GetInventory -> Process ()
-onGetInventory = authenticate $ \Step{..} (GetInventory peer idx) -> do
+onGetInventory = authenticate $ \Step{..} (GetInventory peer wanted) -> do
   inv <- readMVar mInv
-  let idx = inventoryIndex members inv
-  let subset = getInventorySubset idx members inv
+  let subset = getInventorySubset wanted members inv
   send peer (mySig, InventoryData subset)
 
 onInventoryData :: Step a -> Authenticated (InventoryData a) -> Process ()
@@ -115,17 +120,42 @@ onInventoryData = authenticate $ \Step{..} (InventoryData theirInv) -> do
     yield inv
     P2P.nsendPeers topic (mySig, InventoryIndex parent idx)
 
-buildInventory :: forall a. Serializable a => Step a -> Process ()
-buildInventory Step{..} = do
+
+authenticate :: (Step a -> b -> Process ()) -> Step a -> (CompactRecSig, b) -> Process ()
+authenticate act step@Step{..} (theirSig, obj) =
+  case recoverAddr message theirSig of
+       Just addr ->
+         if elem addr members
+            then act step obj
+            else say $ "Not member or wrong step: " ++ show addr
+       Nothing -> do
+         say "Signature recovery failed"
+
+
+-- | Inventory builder, continually builds and dispatches queries for remote inventory
+
+inventoryBuilder :: forall a. Serializable a => Step a -> Process ()
+inventoryBuilder step@Step{..} = do
   forever $ do
-    -- Stage 1: Take a few remote indexes and send requests
-    idxs <- recvAll :: Process [(ProcessId, Integer)]
-    ordered <- prioritiseRemoteInventory members <$> readMVar mInv <*> pure idxs
-    let queries = dedupeInventoryQueries ordered
-    forM_ queries $ \(peer, wanted) -> do
-      send peer (mySig, GetInventory parent wanted)
-    -- Stage 2: Take a nap
+    getInventoryQueries step >>=
+      mapM_ (\(peer, wanted) -> do
+        send peer (mySig, GetInventory parent wanted))
+    
     threadDelay $ 100 * 1000
+
+
+-- | 
+getInventoryQueries :: Step a -> Process [(ProcessId, Integer)]
+getInventoryQueries Step{..} = do
+  idxs <- recvAll
+  inv <- readMVar mInv
+  let ordered = prioritiseRemoteInventory members inv idxs
+  pure $ dedupeInventoryQueries ordered
+  where
+  recvAll = expectTimeout 0 >>= maybe (pure []) (\a -> (a:) <$> recvAll)
+
+
+-- | Pure functions for inventory building ------------------------------------
 
 -- | Get a bit array of what inventory we have
 inventoryIndex :: [Address] -> Map Address a -> Integer
@@ -139,7 +169,7 @@ prioritiseRemoteInventory :: [Address] -> Map Address a -> [(b, Integer)] -> [(b
 prioritiseRemoteInventory members inv idxs =
   let myIdx = inventoryIndex members inv
       interesting = [(p, i .&. complement myIdx) | (p, i) <- idxs]
-   in sortOn (\(pid,i) -> popCount i * (-1)) interesting
+   in sortOn (\(_,i) -> popCount i * (-1)) interesting
 
 -- Get queries for remote inventory filtering duplicates
 dedupeInventoryQueries :: [(a, Integer)] -> [(a, Integer)]
@@ -158,14 +188,3 @@ getInventorySubset idx members =
   Map.filterWithKey $
     \k _ -> let Just i = elemIndex k members
              in testBit idx i
-
-recvAll :: Serializable a => Process [a]
-recvAll = expectTimeout 0 >>= maybe (pure []) (\a -> (a:) <$> recvAll)
-
--- Utility
-
---signMsg :: Serializable o => Step a -> o -> Authenticated o
---signMsg Step{..} o =
---  let message = hashMsg $ encode o <> getMsg topic
---   in (sign message, o)
-    

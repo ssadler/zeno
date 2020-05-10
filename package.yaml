@@ -82,6 +82,8 @@ library:
                        , TemplateHaskell
                        , BlockArguments
                        , NamedFieldPuns
+                       , TypeSynonymInstances
+                       , FlexibleInstances
 
 executables:
   zeno:

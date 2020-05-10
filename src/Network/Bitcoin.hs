@@ -60,15 +60,15 @@ queryBitcoin method params = hasReader $ do
           setRequestPort port r
   queryJsonRpc endpoint method params
 
-bitcoinSubmitTxSync :: Has BitcoinConfig r => H.Tx -> Zeno r H.TxHash
-bitcoinSubmitTxSync tx = do
+bitcoinSubmitTxSync :: Has BitcoinConfig r => Int -> H.Tx -> Zeno r H.TxHash
+bitcoinSubmitTxSync confirmations tx = do
   txid <- queryBitcoin "sendrawtransaction" [tx]
   fix $ \f -> do
     threadDelay 5000000
     rawtx <- queryBitcoin "getrawtransaction" (txid, 1::Int)
     case rawtx .? "{confirmations}" of
          Nothing -> f
-         Just (n::Int) -> if n < 2 then f else pure txid
+         Just (n::Int) -> if n < confirmations then f else pure txid
 
 bitcoinGetHeight :: Has BitcoinConfig r => Zeno r Word32
 bitcoinGetHeight = queryBitcoin "getinfo" () <&> (.!"{blocks}")

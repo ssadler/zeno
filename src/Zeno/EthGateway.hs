@@ -23,6 +23,23 @@ import           Zeno.Prelude
 import           Zeno.Data.Aeson
 
 
+
+data NotarisationOnEth = NOE
+  { foreignHeight :: Word32
+  , foreignHash :: Sha3
+  , ethHeight :: Word32
+  , extraData :: ByteString
+  } deriving (Show)
+  
+instance GetABI NotarisationOnEth where
+  getABI = NOE <$> getABI <*> getABI <*> getABI <*> getABI
+
+
+
+
+
+
+
 gatewayGetConfig :: (GetABI a, Has GethConfig r)
                  => Address -> ByteString -> Zeno r a
 gatewayGetConfig gateway key = do
@@ -56,12 +73,12 @@ ethMakeProxyCallData (dest, proxyNonce, proxyCallData) sigs =
 exportMultisigABI :: [CompactRecSig] -> ([Bytes 32], [Bytes 32], ByteString)
 exportMultisigABI sigs =
   let f = bytes . fromShort
-   in ( f . getCompactRecSigR <$> sigs
-      , f . getCompactRecSigS <$> sigs
+   in ( f . sigR <$> sigs
+      , f . sigS <$> sigs
       , BS.pack $ getV <$> sigs
       )
   where
-  getV = (+27) . getCompactRecSigV
+  getV = (+27) . sigV
 
 
 ethMakeTransaction :: (Has GethConfig r, Has EthIdent r)
@@ -74,12 +91,13 @@ ethMakeTransaction dest callData = do
 
 ethMakeTransactionWithSender :: Has GethConfig r => Address -> Address -> ByteString -> Zeno r Transaction
 ethMakeTransactionWithSender from to callData = do
-  chainID <- pure 1 -- asks $ getChainId . has
-  U256 nonce <- queryEthereum "eth_getTransactionCount" [toJSON from, "latest"]
+  let chainId = 1
+  nonce <- queryAccountNonce from
   U256 gas <- queryEthereum "eth_estimateGas" ["{to,data,from}" .% (to, Hex callData, from)]
   U256 gasPriceRec <- queryEthereum "eth_gasPrice" ()
   let gasPrice = gasPriceRec + quot gasPriceRec 2
-  pure $ Tx nonce 0 (Just to) Nothing gasPrice gas callData chainID
+  liftIO $ print $  "MY NONCE IS: " ++ show nonce
+  pure $ Tx nonce 0 (Just to) Nothing gasPrice gas callData chainId
 
 
 ethMsg :: ByteString -> Msg

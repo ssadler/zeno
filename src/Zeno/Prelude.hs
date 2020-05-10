@@ -18,6 +18,7 @@ import Control.Monad as ALL (forM, forM_, join, when, replicateM, foldM, forever
 import Control.Monad.IO.Class as ALL (liftIO)
 import Control.Monad.Reader as ALL (ask, asks)
 import Control.Monad.Trans.Class as ALL
+import GHC.Generics as ALL (Generic)
 
 import Data.Aeson as ALL (Value)
 import Data.Aeson.Quick as ALL ((.?))

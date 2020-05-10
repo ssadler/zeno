@@ -17,8 +17,8 @@ kmdInputAmount :: Word64
 kmdInputAmount = 9800
 
 
-notariseToKMD :: NotariserConfig -> Word32 -> Zeno EthNotariser ()
-notariseToKMD nc@NotariserConfig{..} height = do
+notariseToKMD :: NotariserConfig -> NotarisationData -> Zeno EthNotariser ()
+notariseToKMD nc@NotariserConfig{..} ndata = do
 
   utxo <- getKomodoUtxo <&> maybe (error "No UTXOs!") id
 
@@ -27,7 +27,6 @@ notariseToKMD nc@NotariserConfig{..} height = do
   cparams <- getConsensusParams nc
   r <- ask :: Zeno EthNotariser EthNotariser
   let run = liftIO . runZeno r
-  let ndata = getNotarisationData nc height
   let opret = Ser.encode ndata
 
   runConsensus cparams opret $ do
@@ -39,7 +38,7 @@ notariseToKMD nc@NotariserConfig{..} height = do
     -- Step 2 - TODO: Key on proposer
     run $ logDebug "Step 2: Get proposed inputs"
     let proposal = proposeInputs kmdNotarySigs $ unInventory utxoBallots
-    utxosChosen <- propose $ pure proposal
+    Ballot _ _ utxosChosen <- propose $ pure proposal
   
     -- Step 3 - Sign tx and collect signed inputs
     run $ logDebug "Step 3: Sign & collect"
@@ -62,11 +61,6 @@ proposeInputs kmdNotaryInputs ballots
   | otherwise = take kmdNotaryInputs $ bData <$> sortOn bSig ballots
 
 
-getNotarisationData :: NotariserConfig -> Word32 -> NotarisationData Sha3
-getNotarisationData NotariserConfig{..} height =
-   NOR nullSha3 height kmdChainSymbol nullSha3 0 0
-
-
 getKmdProposeHeight :: Has BitcoinConfig r => Word32 -> Zeno r Word32
 getKmdProposeHeight n = do
   height <- bitcoinGetHeight
@@ -81,7 +75,7 @@ getKomodoUtxo = do
                    . filter ((== kmdInputAmount) . utxoAmount)
 
 notarisationRecip :: H.ScriptOutput
-notarisationRecip = H.PayPKHash $ getAddrHash "RXL3YXG2ceaB6C5hfJcN4fvmLH2C34knhA"
+notarisationRecip = H.PayPK "020e46e79a2a8d12b9b5d12c7a91adb4e454edfae43c0a0cb805427d2ac7613fd9" -- $ getAddrHash "RXL3YXG2ceaB6C5hfJcN4fvmLH2C34knhA"
 
 signMyInput :: NotariserConfig -> H.SecKey -> [(H.PubKeyI, H.OutPoint)] -> H.ScriptOutput -> H.Tx
 signMyInput NotariserConfig{..} wif ins opret = do
@@ -117,10 +111,10 @@ collectOutpoints given = collectGeneric test
               vals = getOPs $ unInventory inv
            in sortOn show vals == sortOn show given
 
-submitNotarisation :: NotariserConfig -> NotarisationData Sha3 -> H.Tx -> Zeno EthNotariser ()
+submitNotarisation :: NotariserConfig -> NotarisationData -> H.Tx -> Zeno EthNotariser ()
 submitNotarisation NotariserConfig{..} ndata tx = do
   logInfo $ "Broadcast transaction: " ++ show (H.txHash tx)
-  bitcoinSubmitTxSync tx
+  bitcoinSubmitTxSync 1 tx
   liftIO $ threadDelay $ 1 * 1000000
 
   -- Consistency check
