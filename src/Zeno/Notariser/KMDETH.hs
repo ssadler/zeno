@@ -19,10 +19,6 @@ import Zeno.Prelude
 import Zeno.Prelude.Lifted
 
 
-defaultConsensusTimeout :: Int
-defaultConsensusTimeout = 10 * 1000000
-
-
 runNotariseKmdToEth :: GethConfig -> ConsensusNetworkConfig -> Address -> FilePath -> RAddress -> IO ()
 runNotariseKmdToEth gethConfig consensusConfig gateway kmdConfPath kmdAddress = do
   threadDelay 1000000
@@ -54,7 +50,7 @@ ethNotariser = do
       \case
         Nothing -> do
           logDebug "No prior notarisations found"
-          height <- getKmdProposeHeight 10
+          height <- getKmdProposeHeight kmdBlockInterval
           notariseToETH nc height
 
         Just ethnota@NOE{..} -> do
@@ -65,7 +61,7 @@ ethNotariser = do
               Just (Notarisation _ _ (BND NOR{..})) 
                 | blockNumber == foreignHeight -> do
                   logDebug "Found backnotarisation, proceed with next notarisation"
-                  newHeight <- getKmdProposeHeight 10
+                  newHeight <- getKmdProposeHeight kmdBlockInterval
                   if newHeight > foreignHeight
                      then notariseToETH nc newHeight
                      else do
@@ -122,7 +118,7 @@ notariseToETH NotariserConfig{..} height32 = do
 
   ident@(EthIdent _ myAddress) <- asks has
   gateway <- asks getEthGateway
-  let cparams = ConsensusParams members ident defaultConsensusTimeout
+  let cparams = ConsensusParams members ident consensusTimeout
   r <- ask
   let run = liftIO . runZeno r
 

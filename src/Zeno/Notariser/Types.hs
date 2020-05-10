@@ -34,20 +34,24 @@ data NotariserConfig = NotariserConfig
   , notarisationsContract :: Address
   , kmdChainSymbol :: String
   , kmdNotarySigs :: Int
+  , kmdBlockInterval :: Word32
   , consensusTimeout :: Int
   }
 
 instance FromJSON NotariserConfig where
   parseJSON =
-    withStrictObject "NotariserConfig" $
+    --- This is not a strict object because we want config additions
+    --- to be backwards compatible
+    withObject "NotariserConfig" $
       \o -> do
         NotariserConfig
           uninit
           uninit
-          <$> o .:- "notarisationsContract"
-          <*> o .:- "kmdChainSymbol"
-          <*> o .:- "kmdNotarySigs"
-          <*> (maybe (5 * 1000000) id <$> (o .:-? "consensusTimeout"))
+          <$> o .: "notarisationsContract"
+          <*> o .: "kmdChainSymbol"
+          <*> o .: "kmdNotarySigs"
+          <*> o .: "kmdBlockInterval"
+          <*> (maybe (5 * 1000000) id <$> (o .:? "consensusTimeout"))
     where uninit = error "NotariserConfig not fully initialized"
 
 getConsensusParams :: NotariserConfig -> Zeno EthNotariser ConsensusParams

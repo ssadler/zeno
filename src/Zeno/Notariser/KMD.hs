@@ -4,7 +4,6 @@ module Zeno.Notariser.KMD where
 import Data.Serialize as Ser
 import Network.Bitcoin
 import Network.Komodo
-import Network.Ethereum.Crypto
 import qualified Network.Haskoin.Prelude as H
 
 import Zeno.Notariser.Types
@@ -23,7 +22,7 @@ notariseToKMD nc@NotariserConfig{..} ndata = do
   utxo <- getKomodoUtxo <&> maybe (error "No UTXOs!") id
 
 
-  KomodoIdent wif pk kmdAddr <- asks has
+  KomodoIdent wif pk _ <- asks has
   cparams <- getConsensusParams nc
   r <- ask :: Zeno EthNotariser EthNotariser
   let run = liftIO . runZeno r
