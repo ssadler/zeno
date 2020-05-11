@@ -84,14 +84,25 @@ library:
                        , NamedFieldPuns
                        , TypeSynonymInstances
                        , FlexibleInstances
+  extra-source-files:
+  c-sources: cbits/blake2_personalized.c
+  when:
+  - condition: arch(x86_64) || flag(support_sse)
+    then:
+      include-dirs: cbits/blake2/sse
+    else:
+      include-dirs: cbits/blake2/ref
+
+flags:
+  support_sse:
+    manual: true
+    default: false
+
 
 executables:
   zeno:
     main:                Main.hs
     source-dirs:         app
-    # ghc-options:
-    # - -rtsopts
-    # - -with-rtsopts=-N
     dependencies:
     - zeno
 

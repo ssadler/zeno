@@ -1,13 +1,14 @@
+{-# LANGUAGE ForeignFunctionInterface #-}
 
 module Network.ZCash.Sapling where
 
 import Data.Bits
 import Data.Serialize
 import Crypto.Secp256k1 (SecKey)
-import Crypto.Hash
 
 import qualified Network.Haskoin.Prelude as H
 
+import Crypto.Blake2
 import Zeno.Data.Hex
 import Zeno.Prelude
 
@@ -53,47 +54,38 @@ sigHashOverwintered inputIdx H.SigInput{..} tx = do
     putByteString zcash_sig_hash_personalization
     putWord32le consensusBranchId
 
-  sigHash =
-    blake_2b_256_personal personalization $
-      runPut do
-        put header
-        put versionGroupId
-        putByteString prevOutsHash
-        putByteString sequencesHash
-        putByteString outputsHash
-        put (nullBytes :: Bytes 32)           -- shielded inputs not supported
-        put (nullBytes :: Bytes 32)           -- shielded outputs not supported
-        put (H.txLockTime tx)
-        put expiryHeight
-        put (0 :: Word64)                     -- valueBalance not supported
-        put (1 :: Word32)                     -- Constant sighashtype
-        put sigInputOP
-        put (H.encodeOutput sigInputScript)
-        put sigInputValue
-        put (H.txInSequence myIn)
+  sigData = runPut do
+    putWord32le header
+    putWord32le versionGroupId
+    putByteString prevOutsHash
+    putByteString sequencesHash
+    putByteString outputsHash
+    put (nullBytes :: Bytes 32)           -- shielded inputs not supported
+    put (nullBytes :: Bytes 32)           -- shielded outputs not supported
+    putWord32le (H.txLockTime tx)
+    putWord32le expiryHeight
+    putWord64le 0                         -- valueBalance not supported
+    putWord32le 1                         -- Constant sighashtype
+    put sigInputOP
+    put (H.encodeOutput sigInputScript)
+    putWord64le sigInputValue
+    putWord32le (H.txInSequence myIn)
+  sigHash = blake2bPersonalized personalization sigData
 
-  prevOutsHash =
-   blake_2b_256_personal zcash_prevouts_hash_personalization $
-    runPut $ forM_ (H.txIn tx) $ put . H.prevOutput
+  prevOutsData = runPut $ forM_ (H.txIn tx) $ put . H.prevOutput
+  prevOutsHash = blake2bPersonalized zcash_prevouts_hash_personalization prevOutsData
 
-  sequencesHash =
-    blake_2b_256_personal zcash_sequence_hash_personalization $
-      runPut $ forM_ (H.txIn tx) $ put . H.txInSequence
+  sequencesData = runPut $ forM_ (H.txIn tx) $ put . H.txInSequence
+  sequencesHash = blake2bPersonalized zcash_sequence_hash_personalization sequencesData
 
-  outputsHash = 
-    blake_2b_256_personal zcash_outputs_hash_personalization $
-      runPut $ forM_ (H.txOut tx) put
+  outputsData = runPut $ forM_ (H.txOut tx) put
+  outputsHash = blake2bPersonalized zcash_outputs_hash_personalization outputsData
 
-
-blake_2b_256_personal p h = undefined
-
-
-zcash_join_splits_hash_personalization      = "ZcashJSplitsHash" :: ByteString
-zcash_outputs_hash_personalization          = "ZcashOutputsHash" :: ByteString
-zcash_prevouts_hash_personalization         = "ZcashPrevoutHash" :: ByteString
-zcash_sequence_hash_personalization         = "ZcashSequencHash" :: ByteString
-zcash_shielded_outputs_hash_personalizatiON = "ZcashSOutputHash" :: ByteString
-zcash_shielded_spends_hash_personalization  = "ZcashSSpendsHash" :: ByteString
-zcash_sig_hash_personalization              = "ZcashSigHash"     :: ByteString
-
+  zcash_join_splits_hash_personalization      = "ZcashJSplitsHash" :: ByteString
+  zcash_outputs_hash_personalization          = "ZcashOutputsHash" :: ByteString
+  zcash_prevouts_hash_personalization         = "ZcashPrevoutHash" :: ByteString
+  zcash_sequence_hash_personalization         = "ZcashSequencHash" :: ByteString
+  zcash_shielded_outputs_hash_personalization = "ZcashSOutputHash" :: ByteString
+  zcash_shielded_spends_hash_personalization  = "ZcashSSpendsHash" :: ByteString
+  zcash_sig_hash_personalization              = "ZcashSigHash"     :: ByteString
 
