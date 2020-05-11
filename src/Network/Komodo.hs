@@ -141,32 +141,32 @@ instance Serialize NotarisationData where
 
 encodeNotarisation :: Bool -> NotarisationData -> Put
 encodeNotarisation isBack NOR{..} = do
-    put $ bytesReverse blockHash
-    putWord32le blockNumber
-    when isBack $ put $ bytesReverse txHash
-    mapM put symbol >> put '\0'
-    put $ bytesReverse mom
-    putWord16le momDepth
-    putWord16le ccId
-    when isBack do
-      put $ bytesReverse momom
-      putWord32le momomDepth
+  put $ bytesReverse blockHash
+  putWord32le blockNumber
+  when isBack $ put $ bytesReverse txHash
+  mapM put symbol >> put '\0'
+  put $ bytesReverse mom
+  putWord16le momDepth
+  putWord16le ccId
+  when isBack do
+    put $ bytesReverse momom
+    putWord32le momomDepth
 
 parseNotarisation :: Bool -> Get NotarisationData
 parseNotarisation isBack = do
-    let getSymbol = get >>= \case '\0' -> pure ""; s -> (s:) <$> getSymbol
-        getRev = bytesReverse <$> get
+  let getSymbol = get >>= \case '\0' -> pure ""; s -> (s:) <$> getSymbol
+      getRev = bytesReverse <$> get
 
-    blockHash <- getRev
-    blockNumber <- getWord32le
-    txHash <- if isBack then getRev else pure nullBytes
-    symbol <- getSymbol
-    mom <- getRev
-    momDepth <- getWord16le
-    ccId <- getWord16le
-    momom <- if isBack then getRev else pure nullBytes
-    momomDepth <- if isBack then getWord32le else pure 0
-    pure NOR{..}
+  blockHash <- getRev
+  blockNumber <- getWord32le
+  txHash <- if isBack then getRev else pure nullBytes
+  symbol <- getSymbol
+  mom <- getRev
+  momDepth <- getWord16le
+  ccId <- getWord16le
+  momom <- if isBack then getRev else pure nullBytes
+  momomDepth <- if isBack then getWord32le else pure 0
+  pure NOR{..}
 
 instance Bin.Binary NotarisationData where
   put = Bin.put . Bin.Ser2Bin

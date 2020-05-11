@@ -41,11 +41,11 @@ notariseToKMD nc@NotariserConfig{..} ndata = do
   
     -- Step 3 - Sign tx and collect signed inputs
     run $ logDebug "Step 3: Sign & collect"
-    let signedTx = signMyInput nc wif utxosChosen $ H.DataCarrier opret
-        myInput = getMyInput utxo signedTx
+    let partlySignedTx = signMyInput nc wif utxosChosen $ H.DataCarrier opret
+        myInput = getMyInput utxo partlySignedTx
         waitSigs = collectOutpoints $ snd <$> utxosChosen
     allSignedInputs <- step waitSigs myInput
-    let finalTx = compileFinalTx signedTx $ unInventory allSignedInputs
+    let finalTx = compileFinalTx partlySignedTx $ unInventory allSignedInputs
   
     -- Step 4 - Confirm step 3 (doesn't overcome two generals problem, we let other chains do that)
     run $ logDebug "Step 4: Confirm"
@@ -76,6 +76,7 @@ getKomodoUtxo = do
 notarisationRecip :: H.ScriptOutput
 notarisationRecip = H.PayPK "020e46e79a2a8d12b9b5d12c7a91adb4e454edfae43c0a0cb805427d2ac7613fd9" -- $ getAddrHash "RXL3YXG2ceaB6C5hfJcN4fvmLH2C34knhA"
 
+-- | Given selected UTXOs, compile a tx and sign own inputs, if any.
 signMyInput :: NotariserConfig -> H.SecKey -> [(H.PubKeyI, H.OutPoint)] -> H.ScriptOutput -> H.Tx
 signMyInput NotariserConfig{..} wif ins opret = do
   let toSigIn (a, o) = H.SigInput (H.PayPK a) kmdInputAmount o H.sigHashAll Nothing
