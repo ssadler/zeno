@@ -7,8 +7,7 @@ import Control.Monad.Reader
 
 import Network.Bitcoin
 import Network.Komodo
-import qualified Network.Haskoin.Transaction as H
-import qualified Network.Haskoin.Script as H
+import qualified Haskoin as H
 
 import Zeno.Data.Aeson
 import Zeno.Prelude

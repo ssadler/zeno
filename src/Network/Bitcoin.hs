@@ -13,7 +13,7 @@ import           Zeno.Data.Aeson hiding (Parser)
 import           Zeno.Prelude
 import           Zeno.Prelude.Lifted
 
-import qualified Network.Haskoin.Prelude as H
+import qualified Haskoin as H
 import           Network.HTTP.Simple
 import           Network.JsonRpc
 

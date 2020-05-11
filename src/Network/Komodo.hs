@@ -8,11 +8,8 @@ import           Crypto.Secp256k1 as EC
 import           Data.Serialize as S
 
 import           Network.Bitcoin
-import           Network.Haskoin.Crypto as H
-import           Network.Haskoin.Keys as H
-import           Network.Haskoin.Transaction as H
-import           Network.Haskoin.Constants as H
-import           Network.Haskoin.Address as H
+import qualified Haskoin as H
+import           Haskoin.Constants
 
 import           Zeno.Prelude
 import           Zeno.Data.Aeson
@@ -189,7 +186,7 @@ instance FromJSON BackNotarisationData where
 
 data Notarisation n = Notarisation
   { kmdHeight :: Word32
-  , nTxHash :: TxHash
+  , nTxHash :: H.TxHash
   , opret :: n
   } deriving (Show)
 

@@ -84,7 +84,6 @@ library:
                        , NamedFieldPuns
                        , TypeSynonymInstances
                        , FlexibleInstances
-  extra-source-files:
   c-sources: cbits/blake2_personalized.c
   when:
   - condition: arch(x86_64) || flag(support_sse)

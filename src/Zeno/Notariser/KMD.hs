@@ -4,7 +4,7 @@ module Zeno.Notariser.KMD where
 import Data.Serialize as Ser
 import Network.Bitcoin
 import Network.Komodo
-import qualified Network.Haskoin.Prelude as H
+import qualified Haskoin as H
 
 import Zeno.Notariser.Types
 import Zeno.Prelude
