@@ -11,13 +11,14 @@ extra-deps:
 - network-transport-tests-0.2.4.3@sha256:2de93d1a1d1590a6f70591ec78041b36cd23d6c0b66e2c682ac0bc9484787ab9,1569
 - git: https://github.com/ssadler/haskoin-core
   commit: 1efb7a5764cf6846122d2be73c306e3d826db085
+- git: https://github.com/haskoin/secp256k1-haskell
+  commit: 4fcaca3a2022519bdc768c06dc54c8d785289380
 
 
+flags:
+  secp256k1-haskell:
+    recovery: true
 
-
-
-# Override default flag values for local packages and extra-deps
-# flags: {}
 
 # Extra package databases containing global packages
 # extra-package-dbs: []
