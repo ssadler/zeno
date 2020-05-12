@@ -12,6 +12,7 @@ import qualified Haskoin.Transaction.Builder as H
 import qualified Haskoin.Transaction.Builder.Sign as H
 
 import Zeno.Prelude
+import Zeno.Data.Hex
 
 import Unsafe.Coerce
 
@@ -51,46 +52,44 @@ nullTx :: SaplingTx
 nullTx = SaplingTx 4 [] [] 0
 
 instance Serialize SaplingTx where
-  get = parseSaplingTx
-  put = putSapingTx
+  get = do
+    h <- getWord32le
+    when (h /= saplingHeader) $ fail $ "Not a v4 sapling tx: " ++ show h
+    vg <- getWord32le
+    when (vg /= versionGroupId) $ fail $ "Unexpected version group id: " ++ show vg
+    VarList txIn <- get
+    VarList txOut <- get
+    txLockTime <- getWord32le
+    expiryHeight <- getWord32le
 
-parseSaplingTx :: Get SaplingTx
-parseSaplingTx = do
-  h <- getWord32le
-  when (h /= saplingHeader) $ fail $ "Not a v4 sapling tx: " ++ show h
-  vg <- getWord32le
-  when (vg /= versionGroupId) $ fail $ "Unexpected version group id: " ++ show vg
-  VarList txIn <- get
-  VarList txOut <- get
-  txLockTime <- getWord32le
-  expiryHeight <- getWord32le
+    vb <- getWord64le
+    H.VarInt ss <- get
+    H.VarInt so <- get
+    H.VarInt js <- get
 
-  vb <- getWord64le
-  H.VarInt ss <- get
-  H.VarInt so <- get
-  H.VarInt js <- get
+    when (vb + ss + so + js /= 0) $ fail "Cannot parse ZCash inputs/outputs"
 
-  when (vb + ss + so + js /= 0) $ fail "Cannot parse ZCash inputs/outputs"
+    let txVersion = 4
+    pure $ SaplingTx{..}
 
-  let txVersion = 4
-  pure $ SaplingTx{..}
+  put SaplingTx{..} = do
+    putWord32le saplingHeader
+    putWord32le versionGroupId
+    put $ VarList txIn
+    put $ VarList txOut
+    putWord32le txLockTime
+    putWord32le expiryHeight
 
-  
-putSapingTx :: SaplingTx -> Put
-putSapingTx SaplingTx{..} = do
-  putWord32le saplingHeader
-  putWord32le versionGroupId
-  put $ VarList txIn
-  put $ VarList txOut
-  putWord32le txLockTime
-  putWord32le expiryHeight
-
-  putWord64le 0  -- value balance
-  H.putVarInt 0  -- shielded spends
-  H.putVarInt 0  -- shielded outputs
-  H.putVarInt 0  -- joinSplitSig
+    putWord64le 0  -- value balance
+    H.putVarInt 0  -- shielded spends
+    H.putVarInt 0  -- shielded outputs
+    H.putVarInt 0  -- joinSplitSig
 
 
+instance FromJSON SaplingTx where
+  parseJSON val = do
+    Hex s <- parseJSON val
+    either fail pure $ S.decode s
 
 instance ToJSON SaplingTx where
   toJSON = String . toS . toHex . S.encode

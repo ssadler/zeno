@@ -20,7 +20,7 @@ kmdInputAmount = 9800
 notariseToKMD :: NotariserConfig -> NotarisationData -> Zeno EthNotariser ()
 notariseToKMD nc@NotariserConfig{..} ndata = do
 
-  utxo <- getKomodoUtxo <&> maybe (error "No UTXOs!") id
+  utxo <- waitForUtxo
 
 
   KomodoIdent wif pk _ <- asks has
@@ -73,6 +73,12 @@ getKomodoUtxo = do
   where
   choose = reverse . sortOn (\c -> (utxoConfirmations c, utxoTxid c))
                    . filter ((== kmdInputAmount) . utxoAmount)
+
+waitForUtxo :: Zeno EthNotariser KomodoUtxo
+waitForUtxo = do
+  getKomodoUtxo >>=
+    \case Nothing -> logWarn "Waiting for UTXOs" >> threadDelay (10 * 1000000) >> waitForUtxo
+          Just u -> pure u
 
 notarisationRecip :: H.ScriptOutput
 notarisationRecip = H.PayPK "020e46e79a2a8d12b9b5d12c7a91adb4e454edfae43c0a0cb805427d2ac7613fd9" -- $ getAddrHash "RXL3YXG2ceaB6C5hfJcN4fvmLH2C34knhA"

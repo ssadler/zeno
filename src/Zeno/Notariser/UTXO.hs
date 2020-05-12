@@ -7,6 +7,7 @@ import Control.Monad.Reader
 
 import Network.Bitcoin
 import Network.Komodo
+import Network.ZCash.Sapling
 import qualified Haskoin as H
 
 import Zeno.Data.Aeson
@@ -51,12 +52,12 @@ makeSplits outs = do
                 logError $ "Could not build transaction: " <> err
               Right mtx -> do
                 signed <- queryBitcoin "signrawtransaction" [mtx]
-                case signed .? "{hex}" :: Maybe H.Tx of
+                case signed .? "{hex}" :: Maybe SaplingTx of
                   Just tx -> do
                     splitId <- queryBitcoin "sendrawtransaction" [tx]
                     logInfo $ "Sent split tx: " ++ splitId
                   Nothing -> do
-                    logError $ "Could not sign transaction: " <> show mtx
+                    logError $ "Could not sign transaction: " <> show signed
   where
     fee = 10000
     total = (sum $ snd <$> outs) + fee
@@ -71,7 +72,7 @@ makeSplits outs = do
           change = if changeSats >= fee
                       then [(H.PayPKHash changeAddr, changeSats)]
                       else []  -- avoid dust
-       in H.buildTx [getOutPoint x] (outs ++ change)
+       in saplingFromLegacy <$> H.buildTx [getOutPoint x] (outs ++ change)
 
     fromSats :: Word64 -> String
     fromSats sats = printf "%f" $ (fromIntegral sats :: Double) / (10e7)
