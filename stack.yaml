@@ -10,7 +10,8 @@ extra-deps:
 - distributed-static-0.3.9@sha256:0eb308ee416db4541cb5b4d2dff387e7c9394e6deaf76b7e829ce46add4448bc,2237
 - network-transport-tests-0.2.4.3@sha256:2de93d1a1d1590a6f70591ec78041b36cd23d6c0b66e2c682ac0bc9484787ab9,1569
 - git: https://github.com/ssadler/haskoin-core
-  commit: 91722b82d4c6756e8513cbde001bc07be8fa0426
+  commit: 1efb7a5764cf6846122d2be73c306e3d826db085
+
 
 
 

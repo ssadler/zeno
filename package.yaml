@@ -107,6 +107,7 @@ executables:
 
 tests:
   zeno-test:
+    default-extensions:    OverloadedStrings
     main:                Discover.hs
     source-dirs:         test
     ghc-options:
@@ -117,5 +118,8 @@ tests:
     - zeno
     - tasty
     - tasty-hunit
+    - tasty-hspec
     - tasty-discover
+    - QuickCheck
+    - hspec
 

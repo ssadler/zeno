@@ -1,12 +1,10 @@
 
-
 module TestTx where
 
 import Network.Ethereum
 import Network.Ethereum.Transaction
 
 import TestUtils
-
 
 
 unit_decode_tx :: IO ()
