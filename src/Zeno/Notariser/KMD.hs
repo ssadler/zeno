@@ -4,6 +4,7 @@ module Zeno.Notariser.KMD where
 import Data.Serialize as Ser
 import Network.Bitcoin
 import Network.Komodo
+import Network.ZCash.Sapling
 import qualified Haskoin as H
 
 import Zeno.Notariser.Types
@@ -77,28 +78,26 @@ notarisationRecip :: H.ScriptOutput
 notarisationRecip = H.PayPK "020e46e79a2a8d12b9b5d12c7a91adb4e454edfae43c0a0cb805427d2ac7613fd9" -- $ getAddrHash "RXL3YXG2ceaB6C5hfJcN4fvmLH2C34knhA"
 
 -- | Given selected UTXOs, compile a tx and sign own inputs, if any.
-signMyInput :: NotariserConfig -> H.SecKey -> [(H.PubKeyI, H.OutPoint)] -> H.ScriptOutput -> H.Tx
+signMyInput :: NotariserConfig -> H.SecKey -> [(H.PubKeyI, H.OutPoint)] -> H.ScriptOutput -> SaplingTx
 signMyInput NotariserConfig{..} wif ins opret = do
   let toSigIn (a, o) = H.SigInput (H.PayPK a) kmdInputAmount o H.sigHashAll Nothing
       inputs = toSigIn <$> ins
       outputAmount = kmdInputAmount * (fromIntegral $ length ins - 1)
       outputs = [(notarisationRecip, outputAmount), (opret, 0)]
       etx = H.buildTx (snd <$> ins) outputs
-      signTx tx = H.signTx komodo tx inputs [wif]
+      signTx tx = signTxSapling komodo tx inputs [wif]
    in either error id $ etx >>= signTx
 
-getMyInput :: KomodoUtxo -> H.Tx -> Maybe H.TxIn
-getMyInput myUtxo tx =
-  find (\txIn -> H.prevOutput txIn == getOutPoint myUtxo)
-       (H.txIn tx)
+getMyInput :: KomodoUtxo -> SaplingTx -> Maybe H.TxIn
+getMyInput myUtxo SaplingTx{..} =
+  find (\txIn -> H.prevOutput txIn == getOutPoint myUtxo) txIn
 
-compileFinalTx :: H.Tx -> [Ballot (Maybe H.TxIn)] -> H.Tx
-compileFinalTx tx ballots = tx { H.txIn = mergedIns }
+compileFinalTx :: SaplingTx -> [Ballot (Maybe H.TxIn)] -> SaplingTx
+compileFinalTx tx@SaplingTx{..} ballots = tx { txIn = mergedIns }
   where
     signedIns = catMaybes $ bData <$> ballots
-    unsignedIns = H.txIn tx
     mischief = impureThrow $ ConsensusMischief $ "compileFinalTx: %s" % show (tx, ballots)
-    mergedIns = map combine unsignedIns
+    mergedIns = map combine txIn
     combine unsigned =
       case find (\a -> H.prevOutput a == H.prevOutput unsigned) signedIns of
            Nothing -> mischief
@@ -111,9 +110,9 @@ collectOutpoints given = collectGeneric test
               vals = getOPs $ unInventory inv
            in sortOn show vals == sortOn show given
 
-submitNotarisation :: NotariserConfig -> NotarisationData -> H.Tx -> Zeno EthNotariser ()
+submitNotarisation :: NotariserConfig -> NotarisationData -> SaplingTx -> Zeno EthNotariser ()
 submitNotarisation NotariserConfig{..} ndata tx = do
-  logInfo $ "Broadcast transaction: " ++ show (H.txHash tx)
+  logInfo $ "Broadcast transaction: " ++ show (txHashSapling tx)
   bitcoinSubmitTxSync 1 tx
   liftIO $ threadDelay $ 1 * 1000000
 

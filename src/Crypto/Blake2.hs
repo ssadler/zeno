@@ -1,5 +1,7 @@
 
-module Crypto.Blake2 where
+module Crypto.Blake2
+  ( blake2bPersonalized
+  ) where
 
 
 import qualified Data.ByteString.Base16 as B16
@@ -30,5 +32,3 @@ blake2bPersonalized personalization input
                   >>= \case 0 -> pure ()
                             r -> error $ "blake2b returned with " ++ show r
 
-
-toHex = B16.encode

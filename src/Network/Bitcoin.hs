@@ -16,6 +16,7 @@ import           Zeno.Prelude.Lifted
 import qualified Haskoin as H
 import           Network.HTTP.Simple
 import           Network.JsonRpc
+import           Network.ZCash.Sapling
 
 
 data BitcoinConfig =
@@ -60,7 +61,7 @@ queryBitcoin method params = hasReader $ do
           setRequestPort port r
   queryJsonRpc endpoint method params
 
-bitcoinSubmitTxSync :: Has BitcoinConfig r => Int -> H.Tx -> Zeno r H.TxHash
+bitcoinSubmitTxSync :: Has BitcoinConfig r => Int -> SaplingTx -> Zeno r H.TxHash
 bitcoinSubmitTxSync confirmations tx = do
   txid <- queryBitcoin "sendrawtransaction" [tx]
   fix $ \f -> do
