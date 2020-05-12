@@ -81,26 +81,6 @@ exportMultisigABI sigs =
   getV = (+27) . sigV
 
 
-ethMakeTransaction :: (Has GethConfig r, Has EthIdent r)
-                   => Address -> ByteString -> Zeno r Transaction
-ethMakeTransaction dest callData = do
-  EthIdent sk myAddress <- asks has
-  tx <- ethMakeTransactionWithSender myAddress dest callData
-  pure $ signTx sk tx
-
-
-ethMakeTransactionWithSender :: Has GethConfig r => Address -> Address -> ByteString -> Zeno r Transaction
-ethMakeTransactionWithSender from to callData = do
-  nonce <- queryAccountNonce from
-  --U256 gas <- queryEthereum "eth_estimateGas" ["{to,data,from}" .% (to, Hex callData, from)]
-  --liftIO $ putStrLn $ "estimated gas: " ++ show gas
-  let gas = 1823490 -- fails with some backends. This is a real gas price with 2 signers
-                    -- to notarise. TODO: make configurable.
-  U256 gasPriceRec <- queryEthereum "eth_gasPrice" ()
-  let gasPrice = gasPriceRec + quot gasPriceRec 2
-  pure $ Tx nonce 0 (Just to) Nothing gasPrice gas callData (ChainId 1)
-
-
 ethMsg :: ByteString -> Msg
 ethMsg a = maybe (error "should never happen") id $
   msg $ sha3' $ "\x19\&Ethereum Signed Message:\n32" <> sha3' a

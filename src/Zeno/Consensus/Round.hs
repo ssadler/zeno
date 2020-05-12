@@ -157,7 +157,7 @@ collectGeneric test recv timeout members = do
     let us = timeout - min timeout d
     minv <- receiveChanTimeout us recv
     case minv of
-         Nothing -> throw (ConsensusTimeout $ "collect timeout " ++ show us ++ "us")
+         Nothing -> throw $ ConsensusTimeout $ "collect timeout after %i seconds" % quot timeout 1000000
          Just inv | test members inv -> pure inv
          _ -> f
 

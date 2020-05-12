@@ -8,6 +8,7 @@ import Network.Ethereum.Crypto.Address
 import Network.Komodo
 import Network.Bitcoin
 import Network.Ethereum
+import Network.Ethereum.Transaction
 
 import Zeno.Consensus
 import Zeno.Prelude
@@ -36,7 +37,9 @@ data NotariserConfig = NotariserConfig
   , kmdNotarySigs :: Int
   , kmdBlockInterval :: Word32
   , consensusTimeout :: Int
-  }
+  , ethChainId :: ChainId
+  , ethNotariseGas :: Integer
+  } deriving (Show, Eq)
 
 instance FromJSON NotariserConfig where
   parseJSON =
@@ -44,15 +47,19 @@ instance FromJSON NotariserConfig where
     --- to be backwards compatible
     withObject "NotariserConfig" $
       \o -> do
-        NotariserConfig
-          uninit
-          uninit
-          <$> o .: "notarisationsContract"
-          <*> o .: "kmdChainSymbol"
-          <*> o .: "kmdNotarySigs"
-          <*> o .: "kmdBlockInterval"
-          <*> (maybe (5 * 1000000) id <$> (o .:? "consensusTimeout"))
-    where uninit = error "NotariserConfig not fully initialized"
+        notarisationsContract <- o .: "notarisationsContract"
+        kmdChainSymbol        <- o .: "kmdChainSymbol"
+        kmdNotarySigs         <- o .: "kmdNotarySigs"
+        kmdBlockInterval      <- o .: "kmdBlockInterval"
+        ethNotariseGas        <- o .: "ethNotariseGas"
+        ethChainId            <- o .: "ethChainId"
+        consensusTimeout      <- o .: "consensusTimeout" <|> pure defaultTimeout
+        pure $ NotariserConfig{..}
+    where
+      members = uninit
+      threshold = uninit
+      uninit = error "NotariserConfig not fully initialized"
+      defaultTimeout = 10 * 1000000
 
 getConsensusParams :: NotariserConfig -> Zeno EthNotariser ConsensusParams
 getConsensusParams NotariserConfig{..} = do

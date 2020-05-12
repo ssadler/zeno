@@ -111,7 +111,7 @@ ethNotariser = do
 
 -- TODO: need error handling here with strategies for configuration errors, member mischief etc.
 notariseToETH :: NotariserConfig -> Word32 -> Zeno EthNotariser ()
-notariseToETH NotariserConfig{..} height32 = do
+notariseToETH nc@NotariserConfig{..} height32 = do
 
   let height = fromIntegral height32
   logDebug $ "Notarising from block %i" % height
@@ -143,7 +143,7 @@ notariseToETH NotariserConfig{..} height32 = do
 
     run $ logDebug "Step 2: Get proposed transaction"
     let proxyCallData = ethMakeProxyCallData proxyParams (bSig <$> unInventory sigBallots)
-    ballot@(Ballot proposer _ tx) <- propose $ run $ ethMakeTransaction gateway proxyCallData
+    ballot@(Ballot proposer _ tx) <- propose $ run $ ethMakeNotarisationTx nc proxyCallData
     run $ checkTxProposed ballot
 
     -- There's a bit of an open question here: A single node is selected to create the transaction,
@@ -177,6 +177,17 @@ notariseToETH NotariserConfig{..} height32 = do
       logDebug $ "Step 7: Wait for transaction confirmation on chain"
       waitTransactionConfirmed1 (120 * 1000000) txid
       pure ()
+
+
+ethMakeNotarisationTx :: NotariserConfig -> ByteString -> Zeno EthNotariser Transaction
+ethMakeNotarisationTx NotariserConfig{..} callData = do
+  EthIdent sk myAddress <- asks has
+  gateway <- asks getEthGateway
+  nonce <- queryAccountNonce myAddress
+  U256 gasPriceRec <- queryEthereum "eth_gasPrice" ()
+  let gasPrice = gasPriceRec + quot gasPriceRec 2
+      tx = Tx nonce 0 (Just gateway) Nothing gasPrice ethNotariseGas callData ethChainId
+  pure $ signTx sk tx
 
 
 getLastNotarisationOnEth :: NotariserConfig -> Zeno EthNotariser (Maybe NotarisationOnEth)

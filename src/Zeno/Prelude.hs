@@ -84,6 +84,7 @@ class PercentFormat a where
 instance PercentFormat String
 instance PercentFormat Word32
 instance PercentFormat Integer
+instance PercentFormat Int
 
 
 instance (PrintfArg a, PrintfArg b) => PercentFormat (a, b) where
