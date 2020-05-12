@@ -75,10 +75,10 @@ data CompactRecSig = CompactRecSig
   } deriving (Eq, Ord, Show)
 
 toLegacyCRS :: CompactRecSig -> Secp256k1.CompactRecSig
-toLegacyCRS (CompactRecSig r s v) = Secp256k1.CompactRecSig s r v
+toLegacyCRS (CompactRecSig r s v) = Secp256k1.CompactRecSig r s v
 
 fromLegacyCRS :: Secp256k1.CompactRecSig -> CompactRecSig
-fromLegacyCRS (Secp256k1.CompactRecSig s r v) = CompactRecSig r s v
+fromLegacyCRS (Secp256k1.CompactRecSig r s v) = CompactRecSig r s v
 
 sign :: SecKey -> Msg -> CompactRecSig
 sign sk msg = fromLegacyCRS $ Secp256k1.exportCompactRecSig $ Secp256k1.signRecMsg sk msg

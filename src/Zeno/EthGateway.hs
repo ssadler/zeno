@@ -92,7 +92,10 @@ ethMakeTransaction dest callData = do
 ethMakeTransactionWithSender :: Has GethConfig r => Address -> Address -> ByteString -> Zeno r Transaction
 ethMakeTransactionWithSender from to callData = do
   nonce <- queryAccountNonce from
-  U256 gas <- queryEthereum "eth_estimateGas" ["{to,data,from}" .% (to, Hex callData, from)]
+  --U256 gas <- queryEthereum "eth_estimateGas" ["{to,data,from}" .% (to, Hex callData, from)]
+  --liftIO $ putStrLn $ "estimated gas: " ++ show gas
+  let gas = 1823490 -- fails with some backends. This is a real gas price with 2 signers
+                    -- to notarise. TODO: make configurable.
   U256 gasPriceRec <- queryEthereum "eth_gasPrice" ()
   let gasPrice = gasPriceRec + quot gasPriceRec 2
   pure $ Tx nonce 0 (Just to) Nothing gasPrice gas callData (ChainId 1)
