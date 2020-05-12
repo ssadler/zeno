@@ -84,7 +84,7 @@ signMyInput NotariserConfig{..} wif ins opret = do
       inputs = toSigIn <$> ins
       outputAmount = kmdInputAmount * (fromIntegral $ length ins - 1)
       outputs = [(notarisationRecip, outputAmount), (opret, 0)]
-      etx = H.buildTx (snd <$> ins) outputs
+      etx = saplingFromLegacy <$> H.buildTx (snd <$> ins) outputs
       signTx tx = signTxSapling komodo tx inputs [wif]
    in either error id $ etx >>= signTx
 

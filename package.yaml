@@ -84,6 +84,7 @@ library:
                        , NamedFieldPuns
                        , TypeSynonymInstances
                        , FlexibleInstances
+                       , GeneralizedNewtypeDeriving
   c-sources: cbits/blake2_personalized.c
   when:
   - condition: arch(x86_64) || flag(support_sse)
@@ -107,7 +108,6 @@ executables:
 
 tests:
   zeno-test:
-    default-extensions:    OverloadedStrings
     main:                Discover.hs
     source-dirs:         test
     ghc-options:
@@ -122,4 +122,17 @@ tests:
     - tasty-discover
     - QuickCheck
     - hspec
-
+    default-extensions:    OverloadedStrings
+                         , MultiParamTypeClasses
+                         , DataKinds
+                         , RecordWildCards
+                         , LambdaCase
+                         , FlexibleContexts
+                         , ScopedTypeVariables
+                         , DeriveGeneric
+                         , TemplateHaskell
+                         , BlockArguments
+                         , NamedFieldPuns
+                         , TypeSynonymInstances
+                         , FlexibleInstances
+                         , GeneralizedNewtypeDeriving
