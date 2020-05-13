@@ -14,7 +14,7 @@ import Zeno.Data.Aeson
 import Zeno.Prelude
 import Zeno.Prelude.Lifted
 
-
+-- TODO: Should be a single "Has Komodo r"
 forkMonitorUTXOs :: (Has KomodoIdent r, Has BitcoinConfig r)
                  => Word64 -> Int -> Int -> Zeno r ()
 forkMonitorUTXOs amount minimum nsplit = do
@@ -24,7 +24,7 @@ forkMonitorUTXOs amount minimum nsplit = do
 
     when (length available < minimum) $ do
          logInfo $ printf "Creating %i UTXOs of %i" nsplit amount
-         makeSplits $ replicate nsplit (H.PayPK kmdPubKey, amount)
+         makeSplits amount nsplit
          threadDelay $ 5 * 60 * 1000000
 
     threadDelay $ 30 * 1000000
@@ -39,40 +39,43 @@ forkMonitorUTXOs amount minimum nsplit = do
       pure ()
 
 
-makeSplits :: Has BitcoinConfig r => [(H.ScriptOutput, Word64)] -> Zeno r ()
-makeSplits outs = do
-  utxos <- viable <$> komodoUtxos []
-  case utxos of
-       [] -> do
-         logWarn $ "No funds! Need a spendable input of at least " ++ fromSats total ++ " KMD"
-       (x:_) -> do
-         logInfo $ "Chose input: " ++ show (getOutPoint x)
-         case buildSplit x of
-              Left err -> do
-                logError $ "Could not build transaction: " <> err
-              Right mtx -> do
-                signed <- queryBitcoin "signrawtransaction" [mtx]
-                case signed .? "{hex}" :: Maybe SaplingTx of
-                  Just tx -> do
-                    splitId <- queryBitcoin "sendrawtransaction" [tx]
-                    logInfo $ "Sent split tx: " ++ splitId
-                  Nothing -> do
-                    logError $ "Could not sign transaction: " <> show signed
-  where
-    fee = 10000
-    total = (sum $ snd <$> outs) + fee
-    viable = reverse . sortOn (\c -> ( utxoConfirmations c * (-1)
-                                     , utxoTxid c
-                                     ))
-                     . filter (\c -> utxoAmount c > total)
-                     . filter utxoSpendable
-    buildSplit x =
-      let changeSats = utxoAmount x - total
-          changeAddr = getAddrHash $ utxoAddress x
-          change = if changeSats >= fee
-                      then [(H.PayPKHash changeAddr, changeSats)]
-                      else []  -- avoid dust
-       in saplingFromLegacy <$> H.buildTx [getOutPoint x] (outs ++ change)
+makeSplits :: (Has BitcoinConfig r, Has KomodoIdent r) => Word64 -> Int -> Zeno r ()
+makeSplits amount nsplits = do
+  KomodoIdent{..} <- asks has
 
-    fromSats :: Word64 -> String
-    fromSats sats = printf "%f" $ (fromIntegral sats :: Double) / (10e7)
+  let outs = replicate nsplits (H.PayPK kmdPubKeyI, amount)
+      fee = 10000
+      total = (sum $ snd <$> outs) + fee
+      viable = reverse . sortOn (\c -> ( utxoConfirmations c * (-1)
+                                       , utxoTxid c
+                                       ))
+                       . filter (\c -> utxoAmount c > total)
+                       . filter utxoSpendable
+      buildSplit x =
+        let changeSats = utxoAmount x - total
+            changeAddr = getAddrHash $ utxoAddress x
+            change = if changeSats >= fee
+                        then [(H.PayPKHash changeAddr, changeSats)]
+                        else []  -- avoid dust
+         in saplingFromLegacy <$> H.buildTx [getOutPoint x] (outs ++ change)
+
+      fromSats :: Word64 -> String
+      fromSats sats = printf "%f" $ (fromIntegral sats :: Double) / (10e7)
+   in do
+     utxos <- viable <$> komodoUtxos []
+     case utxos of
+          [] -> do
+            logWarn $ "No funds! Need a spendable input of at least " ++ fromSats total ++ " KMD"
+          (x:_) -> do
+            logInfo $ "Chose input: " ++ show (getOutPoint x)
+            case buildSplit x of
+                 Left err -> do
+                   logError $ "Could not build transaction: " <> err
+                 Right mtx -> do
+                   signed <- queryBitcoin "signrawtransaction" [mtx]
+                   case signed .? "{hex}" :: Maybe SaplingTx of
+                     Just tx -> do
+                       splitId <- queryBitcoin "sendrawtransaction" [tx]
+                       logInfo $ "Sent split tx: " ++ splitId
+                     Nothing -> do
+                       logError $ "Could not sign transaction: " <> show signed

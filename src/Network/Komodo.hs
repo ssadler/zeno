@@ -64,21 +64,26 @@ stringToRAddress s =
     Just (H.PubKeyAddress h160) -> Just (RAddress h160)
     _ -> Nothing
 
+deriveKomodoAddress :: PubKey -> RAddress
+deriveKomodoAddress = RAddress . H.addressHash . exportPubKey True
+
 
 
 -- Ident ----------------------------------------------------------------------
 
 data KomodoIdent = KomodoIdent
   { kmdSecKey :: SecKey
-  , kmdPubKey :: H.PubKeyI
+  , kmdPubKey :: PubKey
+  , kmdPubKeyI :: H.PubKeyI
   , kmdAddress :: RAddress
   } deriving (Show)
 
 deriveKomodoIdent :: SecKey -> KomodoIdent
-deriveKomodoIdent sk =
-  let ski = H.SecKeyI sk True
-      pubKey = H.derivePubKeyI ski
-   in KomodoIdent sk pubKey $ RAddress $ H.addressHash $ S.encode pubKey
+deriveKomodoIdent kmdSecKey =
+  let kmdPubKey = EC.derivePubKey kmdSecKey
+      kmdPubKeyI = H.wrapPubKey True kmdPubKey
+      kmdAddress = deriveKomodoAddress kmdPubKey
+   in KomodoIdent{..}
 
 
 -- UTXOs ----------------------------------------------------------------------

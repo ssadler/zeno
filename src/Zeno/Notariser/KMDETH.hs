@@ -19,10 +19,11 @@ import Zeno.Prelude
 import Zeno.Prelude.Lifted
 
 
-runNotariseKmdToEth :: GethConfig -> ConsensusNetworkConfig -> Address -> FilePath -> RAddress -> IO ()
-runNotariseKmdToEth gethConfig consensusConfig gateway kmdConfPath kmdAddress = do
+runNotariseKmdToEth :: PubKey -> Address -> ConsensusNetworkConfig -> GethConfig -> FilePath -> IO ()
+runNotariseKmdToEth pk gateway consensusConfig gethConfig kmdConfPath = do
   threadDelay 1000000
   bitcoinConf <- loadBitcoinConfig kmdConfPath
+  let kmdAddress = deriveKomodoAddress pk
   wif <- runZeno bitcoinConf $ queryBitcoin "dumpprivkey" [kmdAddress]
   sk <- either error pure $ parseWif komodo wif
 
@@ -35,7 +36,7 @@ runNotariseKmdToEth gethConfig consensusConfig gateway kmdConfPath kmdAddress = 
         logInfo $ "My KMD address: " ++ show kmdAddress
         logInfo $ "My ETH address: " ++ show ethAddr
 
-        forkMonitorUTXOs kmdInputAmount 5 50
+        forkMonitorUTXOs kmdInputAmount 5 20
 
         runForever do
           nc@NotariserConfig{..} <- getNotariserConfig "KMDETH"

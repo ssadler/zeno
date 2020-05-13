@@ -41,18 +41,20 @@ optGateway =
     <> help "Gateway contract address 0x..." )
 
 data ConsensusNetworkConfig = CNC
-  { host :: String
+  { seeds :: [String]
+  , host :: String
   , port :: Word16
-  , seeds :: [String]
   } deriving (Show)
 
 consensusDefaultPort :: Word16
 consensusDefaultPort = 40440
 
 optHost = strOption
-   ( long "host"
+   ( long "bind"
   <> metavar "IP"
-  <> help "Public IP to bind to" )
+  <> value "0.0.0.0"
+  <> showDefault
+  <> help "IP to bind to" )
 
 optPort = option auto
    ( long "port"
@@ -66,7 +68,7 @@ optSeeds = strOption
   <> metavar "HOST"
   <> help "ip[:port]" )
 
-optConsensusConfig = CNC <$> optHost <*> optPort <*> some optSeeds
+optConsensusConfig = CNC <$> some optSeeds <*> optHost <*> optPort
 
 -- Helpers --------------------------------------------------------------------
 

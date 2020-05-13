@@ -34,11 +34,11 @@ parseAct = infoH topMethods $ fullDesc <> progDesc "Notariser for Komodo network
 runEthNotariserMethod :: Parser Method
 runEthNotariserMethod =
   runNotariseKmdToEth
-  <$> optGethConfig
-  <*> optConsensusConfig
+  <$> strOption ( long "pubkey" <> help "notariser pubkey" <> metavar "PUB" )
   <*> optGateway
+  <*> optConsensusConfig
+  <*> optGethConfig
   <*> optKmdConfigPath
-  <*> strOption ( long "address" <> help "kmd address" <> metavar "KMD" )
 
 
 runSeedNotariserMethod :: Parser Method

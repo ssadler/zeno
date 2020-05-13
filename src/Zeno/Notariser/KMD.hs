@@ -19,11 +19,10 @@ kmdInputAmount = 9800
 
 notariseToKMD :: NotariserConfig -> NotarisationData -> Zeno EthNotariser ()
 notariseToKMD nc@NotariserConfig{..} ndata = do
+  KomodoIdent{..} <- asks has
 
   utxo <- waitForUtxo
 
-
-  KomodoIdent wif pk _ <- asks has
   cparams <- getConsensusParams nc
   r <- ask :: Zeno EthNotariser EthNotariser
   let run = liftIO . runZeno r
@@ -33,7 +32,7 @@ notariseToKMD nc@NotariserConfig{..} ndata = do
   
     -- Step 1 - Key on opret, collect UTXOs
     run $ logDebug "Step 1: Collect inputs"
-    utxoBallots <- step collectMajority (pk, getOutPoint utxo)
+    utxoBallots <- step collectMajority (kmdPubKeyI, getOutPoint utxo)
   
     -- Step 2 - TODO: Key on proposer
     run $ logDebug "Step 2: Get proposed inputs"
@@ -42,7 +41,7 @@ notariseToKMD nc@NotariserConfig{..} ndata = do
   
     -- Step 3 - Sign tx and collect signed inputs
     run $ logDebug "Step 3: Sign & collect"
-    let partlySignedTx = signMyInput nc wif utxosChosen $ H.DataCarrier opret
+    let partlySignedTx = signMyInput nc kmdSecKey utxosChosen $ H.DataCarrier opret
         myInput = getMyInput utxo partlySignedTx
         waitSigs = collectOutpoints $ snd <$> utxosChosen
     allSignedInputs <- step waitSigs myInput
