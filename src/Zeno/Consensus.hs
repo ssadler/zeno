@@ -14,8 +14,9 @@ module Zeno.Consensus
   , majorityThreshold
   ) where
 
-import Control.Distributed.Process.Node
 import Control.Exception.Safe
+
+import Network.NQE
 
 import Zeno.Consensus.Types
 import Zeno.Consensus.Round

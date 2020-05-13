@@ -7,8 +7,7 @@ import qualified Data.Map as Map
 import           Control.Exception
 import           Control.Monad.Reader
 import           Control.Monad.State
-import           Control.Distributed.Process
-import           Control.Distributed.Process.Node
+import           Network.NQE
 import           Network.Ethereum.Crypto
 import           GHC.Generics (Generic)
 import           Zeno.Prelude

@@ -16,8 +16,7 @@ module Zeno.Consensus.Step
 
 import           Control.Monad
 
-import           Control.Distributed.Process
-import           Control.Distributed.Process.Serializable (Serializable)
+import           Network.NQE
 
 import           Data.Binary
 import           Data.Bits
@@ -56,7 +55,7 @@ data Step a = Step
   }
 
 
-runStep :: forall a. Serializable a
+runStep :: forall a. Sendable a
         => Msg
         -> Ballot a
         -> [Address]
@@ -102,7 +101,7 @@ onInventoryIndex :: ProcessId -> Step a -> Authenticated InventoryIndex -> Proce
 onInventoryIndex builder = authenticate $
   \Step{..} (InventoryIndex peer theirIdx) -> send builder (peer, theirIdx)
 
-onGetInventory :: Serializable a => Step a -> Authenticated GetInventory -> Process ()
+onGetInventory :: Sendable a => Step a -> Authenticated GetInventory -> Process ()
 onGetInventory = authenticate $ \Step{..} (GetInventory peer wanted) -> do
   inv <- readMVar mInv
   let subset = getInventorySubset wanted members inv
@@ -134,7 +133,7 @@ authenticate act step@Step{..} (theirSig, obj) =
 
 -- | Inventory builder, continually builds and dispatches queries for remote inventory
 
-inventoryBuilder :: forall a. Serializable a => Step a -> Process ()
+inventoryBuilder :: forall a. Sendable a => Step a -> Process ()
 inventoryBuilder step@Step{..} = do
   forever $ do
     getInventoryQueries step >>=

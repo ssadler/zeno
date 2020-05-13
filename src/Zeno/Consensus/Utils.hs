@@ -1,9 +1,9 @@
 
 module Zeno.Consensus.Utils where
 
-import Control.Distributed.Process
 import Zeno.Prelude
 import Zeno.Prelude.Lifted
+import Network.NQE
 
 
 repeatMatch :: Int -> [Match ()] -> Process ()

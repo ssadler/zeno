@@ -28,12 +28,14 @@ module Zeno.Consensus.P2P (
     peerNotifier
 ) where
 
-import Control.Distributed.Process
-import Control.Distributed.Process.Node
-import Control.Distributed.Process.Serializable (Serializable)
 import Network.Transport (EndPointAddress(..))
 import Network.Socket (HostName, ServiceName)
+<<<<<<< HEAD
 import Network.Transport.TCP
+=======
+import Network.Transport.TCP (createTransport, defaultTCPParameters, defaultTCPAddr)
+import Network.NQE
+>>>>>>> type checking with undefined networking
 
 import Control.Monad
 
@@ -208,7 +210,7 @@ getPeers = do
     receiveChan rp >>= return . map processNodeId . S.toList
 
 -- | Broadcast a message to a specific service on all peers.
-nsendPeers :: Serializable a => String -> a -> Process ()
+nsendPeers :: Sendable a => String -> a -> Process ()
 nsendPeers service msg = getPeers >>= mapM_ (\peer -> nsendRemote peer service msg)
 
 maySay :: String -> Process ()
@@ -219,10 +221,8 @@ maySay _ = pure ()
 
 --
 
-data NewPeer = NewPeer NodeId
-  deriving (Generic)
-
-instance Binary NewPeer
+newtype NewPeer = NewPeer NodeId
+  deriving (Binary)
 
 
 
