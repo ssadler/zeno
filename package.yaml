@@ -33,7 +33,6 @@ dependencies:
 - containers
 - cryptonite
 - directory
-- distributed-process
 - entropy
 - exceptions
 - haskoin-core
@@ -48,7 +47,6 @@ dependencies:
 - ndjson-conduit
 - optparse-applicative
 - relapse
-- scientific
 - safe-exceptions
 - secp256k1-haskell
 - string-conv
