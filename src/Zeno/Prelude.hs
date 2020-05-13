@@ -6,6 +6,7 @@
 module Zeno.Prelude
   ( module ALL
   , PercentFormat(..)
+  , (<&>)
   , traceE
   , fromHex
   , toHex
@@ -32,7 +33,6 @@ import Data.List as ALL (elemIndex, find, findIndex, sort, sortOn)
 import Data.Map as ALL (Map)
 import Data.Maybe as ALL (catMaybes, isJust, fromJust, fromMaybe, mapMaybe, listToMaybe)
 import Data.Monoid as ALL
-import Data.Scientific as ALL (Scientific)
 import Data.Set as ALL (Set)
 import Data.String.Conv as ALL
 import Data.String as ALL (IsString, fromString)
@@ -44,14 +44,15 @@ import Network.Ethereum.Errors as ALL
 import Zeno.Monad as ALL
 import Zeno.Logging as ALL
 
-import Lens.Micro as ALL ((<&>))
-
 import Text.Printf as ALL (PrintfArg, printf)
-import Text.Pretty.Simple as ALL (pPrint)
 
 import System.Directory
 
 import Debug.Trace as ALL (traceShowId)
+
+(<&>) :: Functor f => f a -> (a -> b) -> f b
+(<&>) = flip fmap
+infixl 1 <&>
 
 traceE :: String -> Zeno r a -> Zeno r a
 traceE prefix act = do

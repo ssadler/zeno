@@ -103,8 +103,8 @@ data KomodoUtxo = Utxo
 instance FromJSON KomodoUtxo where
   parseJSON val = do
     obj <- parseJSON val
-    amount <- obj .: "amount"
-    Utxo (floor $ amount * (1e8::Scientific))
+    Number amount <- obj .: "amount"
+    Utxo (floor $ amount * 1e8)
          <$> obj .: "confirmations"
          <*> obj .: "txid"
          <*> obj .: "vout"
