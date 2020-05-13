@@ -29,57 +29,21 @@ runNotariseKmdToEth gethConfig consensusConfig gateway kmdConfPath kmdAddress = 
   withConsensusNode consensusConfig $
     \node -> do
       let notariser = EthNotariser bitcoinConf node gethConfig gateway sk
-      runZeno notariser ethNotariser
+      runZeno notariser do
+        KomodoIdent{..} <- asks has
+        (EthIdent _ ethAddr) <- asks has
+        logInfo $ "My KMD address: " ++ show kmdAddress
+        logInfo $ "My ETH address: " ++ show ethAddr
 
+        forkMonitorUTXOs kmdInputAmount 5 50
 
-ethNotariser :: Zeno EthNotariser ()
-ethNotariser = do
-  KomodoIdent{..} <- asks has
-  (EthIdent _ ethAddr) <- asks has
-  logInfo $ "My KMD address: " ++ show kmdAddress
-  logInfo $ "My ETH address: " ++ show ethAddr
-
-  forkMonitorUTXOs kmdInputAmount 5 50
-
-  runForever do
-
-    nc@NotariserConfig{..} <- getNotariserConfig "KMDETH"
-    asks has >>= checkConfig nc
-    
-    getLastNotarisationOnEth nc >>= 
-      \case
-        Nothing -> do
-          logDebug "No prior notarisations found"
-          height <- getKmdProposeHeight kmdBlockInterval
-          notariseToETH nc height
-
-        Just ethnota@NOE{..} -> do
-          logDebug $ "Found prior notarisation on ETH for %s height %i" % (kmdChainSymbol, foreignHeight)
-
-          getLastNotarisation kmdChainSymbol >>=
-            \case
-              Just (Notarisation _ _ (BND NOR{..})) 
-                | blockNumber == foreignHeight -> do
-                  logDebug "Found backnotarisation, proceed with next notarisation"
-                  newHeight <- getKmdProposeHeight kmdBlockInterval
-                  if newHeight > foreignHeight
-                     then notariseToETH nc newHeight
-                     else do
-                       logDebug "Not enough new blocks, sleeping 60 seconds"
-                       threadDelay $ 60 * 1000000
-                | blockNumber > foreignHeight -> do
-                  liftIO $ do
-                    print NOR{..}
-                    print ethnota
-                  error "We have a very bad error, the backnotarised height in KMD is higher\
-                        \than the notarised height in ETH. Wat do?"
-
-              _ -> do
-                logDebug "Backnotarisation not found, proceed to backnotarise"
-                opret <- getBackNotarisation nc ethnota
-                notariseToKMD nc opret
+        runForever do
+          nc@NotariserConfig{..} <- getNotariserConfig "KMDETH"
+          asks has >>= checkConfig nc
+          notariserStep nc
 
   where
+
     getNotariserConfig configName = do
       gateway <- asks getEthGateway
       (threshold, members) <- ethCallABI gateway "getMembers()" ()
@@ -107,6 +71,46 @@ ethNotariser = do
           liftIO $ threadDelay $ d * 1000000
         fmtHttpException (HttpExceptionRequest _ e) = e
         fmtHttpException e = error ("Configuration error: " ++ show e)
+
+
+notariserStep :: NotariserConfig -> Zeno EthNotariser ()
+notariserStep nc@NotariserConfig{..} = do
+  getLastNotarisationOnEth nc >>= 
+    \case
+      Nothing -> do
+        logDebug "No prior notarisations found"
+        height <- getKmdProposeHeight kmdBlockInterval
+        notariseToETH nc height
+
+      Just ethnota@NOE{..} -> do
+        logDebug $ "Found notarisation on ETH for %s height %i" % (kmdChainSymbol, foreignHeight)
+
+        getLastNotarisation kmdChainSymbol >>=
+          \case
+            Just (Notarisation _ _ (BND NOR{..})) 
+              | blockNumber == foreignHeight -> do
+                logDebug "Found backnotarisation, proceed with next notarisation"
+                forward foreignHeight
+              | blockNumber > foreignHeight -> do
+                logError $ show NOR{..}
+                logError $ show ethnota
+                logError "We have a very bad error, the backnotarised height in KMD is higher\
+                         \than the notarised height in ETH. Continuing to notarise to ETH again."
+                forward foreignHeight
+
+            _ -> do
+              logDebug "Backnotarisation not found, proceed to backnotarise"
+              opret <- getBackNotarisation nc ethnota
+              notariseToKMD nc opret
+
+  where
+    forward lastNotarisedHeight = do
+      newHeight <- getKmdProposeHeight kmdBlockInterval
+      if newHeight > lastNotarisedHeight
+         then notariseToETH nc newHeight
+         else do
+           logDebug "Not enough new blocks, sleeping 30 seconds"
+           threadDelay $ 30 * 1000000
 
 
 -- TODO: need error handling here with strategies for configuration errors, member mischief etc.
