@@ -33,8 +33,8 @@ runNotariseKmdToEth pk gateway consensusConfig gethConfig kmdConfPath = do
       runZeno notariser do
         KomodoIdent{..} <- asks has
         (EthIdent _ ethAddr) <- asks has
-        logInfo $ "My KMD address: " ++ show kmdAddress
-        logInfo $ "My ETH address: " ++ show ethAddr
+        logInfo $ "KMD address: " ++ show kmdAddress
+        logInfo $ "ETH address: " ++ show ethAddr
 
         forkMonitorUTXOs kmdInputAmount 5 20
 
