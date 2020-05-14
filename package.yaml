@@ -42,7 +42,6 @@ dependencies:
 - network
 - network-transport
 - network-transport-tcp
-- nqe
 - memory
 - monad-logger
 - mtl

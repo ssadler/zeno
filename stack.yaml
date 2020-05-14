@@ -12,7 +12,7 @@ extra-deps:
 - git: https://github.com/ssadler/haskoin-core
   commit: 1efb7a5764cf6846122d2be73c306e3d826db085
 - git: https://github.com/haskoin/secp256k1-haskell
-  commit: 4fcaca3a2022519bdc768c06dc54c8d785289380
+  commit: ff13d39de623e0349143af5514fce1532c84cdae
 
 
 flags:
