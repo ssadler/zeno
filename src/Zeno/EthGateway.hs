@@ -78,6 +78,7 @@ exportMultisigABI sigs =
       , BS.pack $ getV <$> sigs
       )
   where
+  -- `ecrecover` inside evm expects v to be v+27.
   getV = (+27) . sigV
 
 
