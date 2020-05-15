@@ -8,7 +8,7 @@ module Network.Ethereum.Crypto
   , CompactRecSig(..)
   , Key(..)
   , deriveEthIdent
-  , pubKeyAddr
+  , deriveEthAddress
   , genSecKey
   , sign
   , recoverAddr
@@ -38,13 +38,13 @@ import           System.Entropy
 data EthIdent = EthIdent SecKey Address
 
 deriveEthIdent :: SecKey -> EthIdent
-deriveEthIdent sk = EthIdent sk $ pubKeyAddr $ derivePubKey sk
+deriveEthIdent sk = EthIdent sk $ deriveEthAddress $ derivePubKey sk
 
-pubKeyAddr :: PubKey -> Address
-pubKeyAddr = Address . BS.drop 12 . sha3' . BS.drop 1 . Secp256k1.exportPubKey False
+deriveEthAddress :: PubKey -> Address
+deriveEthAddress = Address . BS.drop 12 . sha3' . BS.drop 1 . Secp256k1.exportPubKey False
 
 recoverAddr :: Msg -> CompactRecSig -> Maybe Address
-recoverAddr msg crs = pubKeyAddr <$> recover crs msg
+recoverAddr msg crs = deriveEthAddress <$> recover crs msg
 
 genSecKey :: IO SecKey
 genSecKey = do
