@@ -25,7 +25,7 @@ parseAct = infoH topMethods $ fullDesc <> progDesc "Notariser for Komodo network
    topMethods = subparser $
         (command "notarize" $ infoH notariserMethods  $ progDesc "Notarizer modes")
      <> (command "notarise" $ infoH notariserMethods  $ mempty)
-     <> (command "utils"    $ infoH utilMethods       $ progDesc "utilities")
+     <> (command "util"     $ infoH utilMethods       $ progDesc "utilities")
    
    notariserMethods = subparser $
         (command "kmdeth" $ infoH runEthNotariserMethod  $ progDesc "Run KMD -> ETH notariser")
