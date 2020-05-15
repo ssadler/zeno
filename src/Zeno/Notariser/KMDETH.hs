@@ -175,7 +175,7 @@ notariseToETH nc@NotariserConfig{..} height32 = do
     -- This will timeout if proposer had an exception while submitting the transaction
     _ <- step (collectMembers [proposer]) ()
 
-    run $ logDebug "Step 6: Confirm that everyone saw that the tx was submitted by proposed"
+    run $ logDebug "Step 6: Confirm that everyone saw that the tx was submitted by proposer"
     _ <- step collectMajority ()
   
     run do
