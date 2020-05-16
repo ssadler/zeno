@@ -33,7 +33,7 @@ import Control.Distributed.Process.Node
 import Control.Distributed.Process.Serializable (Serializable)
 import Network.Transport (EndPointAddress(..))
 import Network.Socket (HostName, ServiceName)
-import Network.Transport.TCP (createTransport, defaultTCPParameters, defaultTCPAddr)
+import Network.Transport.TCP
 
 import Control.Monad
 
@@ -76,10 +76,18 @@ createLocalNode
   -> ServiceName
   -> IO LocalNode
 createLocalNode host port = do
-  let tcpHost = defaultTCPAddr host port
+  let tcpParams = defaultTCPParameters { tcpCheckPeerHost = True }
   transport <- either (error . show) id
-             <$> createTransport tcpHost defaultTCPParameters
+             <$> createTransport tcpHost tcpParams
   newLocalNode transport
+  where
+  (bindAddr, hostAddr) =
+    case elemIndex '/' host of
+      Nothing -> (host, host)
+      Just idx -> let (a, _:b) = splitAt idx host in (a, b)
+
+  tcpHost = Addressable $
+    TCPAddrInfo bindAddr port ((,) hostAddr)
 
 -- ** Initialization
 

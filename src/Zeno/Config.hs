@@ -51,8 +51,8 @@ consensusDefaultPort = 40440
 
 optHost = strOption
    ( long "bind"
-  <> metavar "IP"
-  <> help "IP to bind to" )
+  <> metavar "IP[/EXT]"
+  <> help "IP to bind to, and external IP if different" )
 
 optPort = option auto
    ( long "port"

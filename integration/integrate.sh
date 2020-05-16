@@ -23,13 +23,13 @@ tmux split-window -v -t 2
 tmux split-window -v -t 4
 
 notarise="stack exec zeno -- notarise"
-ethkmd="kmdeth --gateway=$1 --seed=127.0.0.1:40440 --host=127.0.0.1 --kmd=~/.komodo/TXSCLZ/TXSCLZ.conf --geth http://127.0.0.1:9545/"
+ethkmd="kmdeth --gateway=$1 --seed=127.0.0.1:40440 --bind=127.0.0.1/127.0.0.1 --kmd=~/.komodo/TXSCLZ/TXSCLZ.conf --geth https://ropsten.infura.io/v3/bd54c1b7d144428ebb3243791e1426ea" # http://127.0.0.1:9545/"
 
-tmux send-keys -t 1 "$notarise seed --host=127.0.0.1 --port=40440" Enter
-tmux send-keys -t 2 "$notarise $ethkmd --address=RWgagrqdN7YWH4N6kB4mWCNPCgtAMkCLFp --port=40441" Enter
-tmux send-keys -t 3 "$notarise $ethkmd --address=RC2cZ25L6ueuy66WB6MjFEgP14JU2gNxhu --port=40442" Enter
-tmux send-keys -t 4 "$notarise $ethkmd --address=RHPT5v4o6o93eofnPGmD53LK3hTo1WaZEx --port=40443" Enter
-tmux send-keys -t 5 "$notarise $ethkmd --address=RL72qw2ymk56DzXk7mW36VvhiKwWzjggap --port=40444" Enter
+tmux send-keys -t 1 "$notarise seed --bind=127.0.0.1 --port=40440" Enter
+tmux send-keys -t 2 "$notarise $ethkmd --pubkey=03e68acfc0253a10620dff706b0a1b1f1f5833ea3beb3bde2250d5f271f3563606 --port=40441" Enter
+tmux send-keys -t 3 "$notarise $ethkmd --pubkey=0294d3137ac5561a2f7b7909f3304c678bbe5c628c4156e1f9ef40c521b41b9d27 --port=40442" Enter
+tmux send-keys -t 4 "$notarise $ethkmd --pubkey=0356e12fd39278e33cd2df2aaa0acd57974a1ce5637e2231903dc0bf45aeffb9a3 --port=40443" Enter
+tmux send-keys -t 5 "$notarise $ethkmd --pubkey=0278b7e11a2b1b66504963ba9cfcccc69a37b6fc8138e51b6e82effba9dc6f8d81 --port=40444" Enter
 
 tmux select-pane -t 0
 
