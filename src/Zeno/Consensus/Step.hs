@@ -75,7 +75,7 @@ runStep message myBallot members yield = do
   builder <- spawnLocalLink $ inventoryBuilder step
 
   -- Register so that we get new peer events
-  nsend P2P.peerListenerService myPid
+  -- TODO nsend P2P.peerListenerService myPid
 
   -- Register to current topic so we will get messages
   register topic myPid

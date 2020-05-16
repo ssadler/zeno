@@ -38,6 +38,7 @@ dependencies:
 - haskoin-core
 - http-client
 - http-conduit
+- microlens-platform
 - network
 - network-transport
 - network-transport-tcp
@@ -56,6 +57,7 @@ dependencies:
 - unix
 - unliftio
 - transformers
+- unliftio
 - unordered-containers
 
 library:

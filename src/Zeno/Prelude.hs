@@ -28,6 +28,7 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Base16 as B16
 import Data.ByteString.Lazy as ALL (toStrict, fromStrict)
 import Data.ByteString.Short as ALL (ShortByteString, toShort, fromShort)
+import Data.Either as ALL (fromRight)
 import Data.Function as ALL (fix)
 import Data.List as ALL (elemIndex, find, findIndex, sort, sortOn)
 import Data.Map as ALL (Map)

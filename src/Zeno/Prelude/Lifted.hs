@@ -10,7 +10,6 @@ module Zeno.Prelude.Lifted
 
   , IN.UTCTime
   , getCurrentTime
-  , timeDelta
   ) where
 
 import qualified Control.Concurrent as IN
@@ -45,8 +44,3 @@ putMVar mv = liftIO . IN.putMVar mv
 
 getCurrentTime :: MonadIO m => m IN.UTCTime
 getCurrentTime = liftIO IN.getCurrentTime
-
-
-timeDelta :: MonadIO m => IN.UTCTime -> m Int
-timeDelta t = us <$> (IN.diffUTCTime <$> getCurrentTime <*> pure t)
-  where us = round . (*1000000) . realToFrac

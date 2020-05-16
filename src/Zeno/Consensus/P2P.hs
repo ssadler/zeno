@@ -22,20 +22,21 @@ module Zeno.Consensus.P2P (
     makeNodeId,
     getPeers,
     nsendPeers,
-    peerController,
-    peerListenerService,
-    runSeed,
-    peerNotifier
+    runSeed
 ) where
 
-import Network.Transport (EndPointAddress(..))
+import Network.Transport (EndPointAddress(..), Transport)
 import Network.Socket (HostName, ServiceName)
 <<<<<<< HEAD
 import Network.Transport.TCP
 =======
 import Network.Transport.TCP (createTransport, defaultTCPParameters, defaultTCPAddr)
+<<<<<<< HEAD
 import Network.NQE
 >>>>>>> type checking with undefined networking
+=======
+import Network.Distributed
+>>>>>>> halfway through implementing the guts of the new network layer. Time to look at the receive side.
 
 import Control.Monad
 
@@ -45,34 +46,44 @@ import Data.Binary
 import Data.Typeable
 
 import Zeno.Prelude
-import Zeno.Prelude.Lifted
-import Zeno.Consensus.Utils
+import Zeno.Consensus.P2P.Types
 
 import GHC.Generics (Generic)
 import System.Posix.Signals
+import UnliftIO
+import UnliftIO.Concurrent
+
+getPeers = undefined
+
 
 -- * Peer-to-peer API
 
-peerControllerService :: String
-peerControllerService = "P2P:Controller"
 
 
-type Peers = S.Set ProcessId
+type Peers = S.Set RemoteProcessId
 
-data PeerState = PeerState { p2pPeers :: MVar Peers }
+data PeerState = PeerState { p2pPeers :: TVar Peers }
 
-initPeerState :: Process PeerState
-initPeerState = do
-    self <- getSelfPid
-    peers <- newMVar (S.singleton self)
-    return $! PeerState peers
+data P2P = P2P
+  { node :: Node
+  , p2pState :: PeerState
+  }
+
+
+data WhereIsReply = WhereIsReply String (Maybe ProcessId)
+  deriving (Generic, Typeable)
+
+instance Binary WhereIsReply
+
 
 runSeed :: String -> Word16 -> IO ()
 runSeed host port = do
   putStrLn $ "Now seeding on %s:%i" % (host, port)
-  node <- createLocalNode host (show port)
-  runProcess node $ peerController []
+  startP2P host port []
+  threadDelay $ 2^64
 
+
+<<<<<<< HEAD
 createLocalNode
   :: HostName
   -> ServiceName
@@ -90,6 +101,8 @@ createLocalNode host port = do
 
   tcpHost = Addressable $
     TCPAddrInfo bindAddr port ((,) hostAddr)
+=======
+>>>>>>> halfway through implementing the guts of the new network layer. Time to look at the receive side.
 
 -- ** Initialization
 
@@ -98,142 +111,121 @@ makeNodeId :: Word16 -> String -> NodeId
 makeNodeId port addr = NodeId . EndPointAddress . BS.concat $ [BS.pack addr', ":0"]
   where addr' = addr ++ maybe (':' : show port) (\_ -> "") (elemIndex ':' addr)
 
+
+
+peerControllerPid :: ProcessId
+peerControllerPid = serviceId "peerController"
+
+
+
 startP2P
   :: HostName
-  -> ServiceName
+  -> Word16
   -> [NodeId]
-  -> IO (LocalNode, ProcessId)
+  -> IO P2P
 startP2P host port seeds = do
+  t <- getTransport
+  node <- createNode t
+  peerState <- PeerState <$> newTVarIO mempty
+  nodeSpawnNamed node peerControllerPid $ peerController peerState seeds
+  installHandler sigUSR1 (Catch $ dumpPeers peerState) Nothing
+  pure $ P2P node peerState
 
-  node <- createLocalNode host port
-  pid <- forkProcess node $ peerController seeds
+  where
+  myNodeId = makeNodeId port host
 
-  -- wait for peer controller to come up
-  runProcess node do
-    fix $ \f -> 
-      whereis peerControllerService >>=
-        \case
-          Nothing -> threadDelay 100000 >> f
-          Just _ -> pure ()
+  getTransport :: IO Transport
+  getTransport = do
+    let tcpHost = defaultTCPAddr host (show port)
+    et <- createTransport tcpHost defaultTCPParameters
+    either (fail . show) pure et
 
-  return (node, pid)
+  peerController :: PeerState -> [NodeId] -> Process ()
+  peerController state seeds = do
+    self <- RPID (error "remoteself") <$> getSelfPid
+
+    forever $ do
+      mapM_ doDiscover seeds
+      repeatMatch 60000000 [ match $ onPeerHello state
+                           , match $ onPeerResponse state
+                           --, match $ onMonitor state
+                           ]
+
+
+newtype GetPeers = GetPeers ProcessId
+  deriving (Typeable)
 
 dumpPeers :: PeerState -> IO ()
-dumpPeers (PeerState mpeers) = do
-  peers <- S.toAscList <$> readMVar mpeers
+dumpPeers PeerState{..} = do
+  peers <- atomically $ readTVar p2pPeers
+
   runZeno () $ do
     logInfo "Got signal USR1"
     forM_ peers $ \p ->
       logInfo $ show p
 
--- | A P2P controller service process.
-peerController :: [NodeId] -> Process ()
-peerController seeds = do
-    state <- initPeerState
-    liftIO $ do
-      installHandler sigUSR1 (Catch $ dumpPeers state) Nothing
-    getSelfPid >>= register peerControllerService
 
-    forever $ do
-      mapM_ doDiscover seeds
-      repeatMatch 60000000 [ match $ onDiscover state
-                           , match $ onMonitor state
-                           , match $ onPeerHello state
-                           , match $ onPeerResponse state
-                           , match $ onPeerQuery state
-                           ]
+--onMonitor = undefined
+onPeerResponse = undefined
+
 -- ** Discovery
 
 -- 0: A node probes another node
 doDiscover :: NodeId -> Process ()
-doDiscover node = whereisRemoteAsync node peerControllerService
+doDiscover nodeId = sendRemote rpid Hello
+  where rpid = RPID nodeId peerControllerPid
 
--- 1.1: Register that peer and ask for their peers
-onDiscover :: PeerState -> WhereIsReply -> Process ()
-onDiscover state (WhereIsReply service (Just pid))
-  | service == peerControllerService = newPeer state pid
-onDiscover _ _ = say "unrecognised WhereIsReply"
 
 -- 2: When there's a request to share peers
-onPeerHello :: PeerState -> (ProcessId, Hello) -> Process ()
+onPeerHello :: PeerState -> (RemoteProcessId, Hello) -> Process ()
 onPeerHello s@PeerState{..} (peer, Hello) = do
-    self <- getSelfPid
-    peers <- readMVar p2pPeers
-    send peer (self, peers) -- PeerResponse
-    newPeer s peer
+  peers <- readTVarIO p2pPeers
+  sendRemote peer peers
+  newPeer s peer
+
 
 -- 3: When peers are received
 onPeerResponse :: PeerState -> (ProcessId, Peers) -> Process ()
-onPeerResponse state (peer, peers) = do
-    known <- readMVar $ p2pPeers state
-    -- Do a discovery here so when we get a response we know the node is up
-    mapM_ (doDiscover . processNodeId) $ S.toList $ S.difference peers known
+-- onPeerResponse state (peer, peers) = do
+--     known <- readMVar $ p2pPeers state
+--     -- Do a discovery here so when we get a response we know the node is up
+--     mapM_ (doDiscover . processNodeId) $ S.toList $ S.difference peers known
+-- 
+-- -- 4: Disconnect
+--onMonitor :: PeerState -> ProcessMonitorNotification -> Process ()
+-- onMonitor PeerState{..} (ProcessMonitorNotification mref pid reason) = do
+--     say $ "Dropped peer: " ++ show (pid, reason)
+--     maybe (return ()) unmonitor $ Just mref
+--     modifyMVar_ p2pPeers $ pure . S.delete pid
+ 
 
--- 4: Disconnect
-onMonitor :: PeerState -> ProcessMonitorNotification -> Process ()
-onMonitor PeerState{..} (ProcessMonitorNotification mref pid reason) = do
-    say $ "Dropped peer: " ++ show (pid, reason)
-    maybe (return ()) unmonitor $ Just mref
-    modifyMVar_ p2pPeers $ pure . S.delete pid
-
-newPeer :: PeerState -> ProcessId -> Process ()
+newPeer :: PeerState -> RemoteProcessId -> Process ()
 newPeer (PeerState{..}) pid = do
-  pids <- liftIO $ takeMVar p2pPeers
-  if S.member pid pids
-     then putMVar p2pPeers pids
-     else do
-       say $ "New peer:" ++ show pid
-       putMVar p2pPeers $ S.insert pid pids
-       _ <- monitor pid
-       nsend peerListenerService $ NewPeer $ processNodeId pid
-       self <- getSelfPid
-       send pid (self, Hello)
-
-
-
+  pids <- readTVarIO p2pPeers
+  unless (S.member pid pids) do
+    say $ "New peer:" ++ show pid
+    -- putMVar p2pPeers $ S.insert pid pids
+    -- -- _ <- monitor pid
+    -- nsend peerListenerService $ NewPeer $ processNodeId pid
+    -- self <- getSelfPid
+    -- send pid (self, Hello)
+ 
+say = undefined
+ 
+ 
 data Hello = Hello
   deriving (Typeable, Generic)
 
 instance Binary Hello
-
-onPeerQuery :: PeerState -> SendPort Peers -> Process ()
-onPeerQuery PeerState{..} replyTo = do
-    maySay $ "Local peer query."
-    readMVar p2pPeers >>= sendChan replyTo
-
--- | Get a list of currently available peer nodes.
-getPeers :: Process [NodeId]
-getPeers = do
-    maySay $ "Requesting peer list from local controller..."
-    (sp, rp) <- newChan
-    nsend peerControllerService (sp :: SendPort Peers)
-    receiveChan rp >>= return . map processNodeId . S.toList
-
+-- 
 -- | Broadcast a message to a specific service on all peers.
 nsendPeers :: Sendable a => String -> a -> Process ()
-nsendPeers service msg = getPeers >>= mapM_ (\peer -> nsendRemote peer service msg)
-
-maySay :: String -> Process ()
-maySay _ = pure ()
-
-
-
-
---
-
+nsendPeers service msg = undefined -- getPeers >>= mapM_ (\peer -> nsendRemote peer service msg)
+-- 
+-- 
+-- 
+-- 
+-- --
+-- 
 newtype NewPeer = NewPeer NodeId
   deriving (Binary)
-
-
-
-peerListenerService :: String
-peerListenerService = "P2P::Listener"
-
-peerNotifier :: Process ()
-peerNotifier = do
-  getSelfPid >>= register peerListenerService
-  f []
-  where
-    f pids = do
-      let fanout m = forM_ pids $ \p -> send p (m :: NewPeer)
-      receiveWait [ match fanout, match $ f . (:pids) ]

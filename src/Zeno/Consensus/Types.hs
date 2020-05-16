@@ -7,14 +7,14 @@ import qualified Data.Map as Map
 import           Control.Exception
 import           Control.Monad.Reader
 import           Control.Monad.State
-import           Network.NQE
+import           Network.Distributed
 import           Network.Ethereum.Crypto
 import           GHC.Generics (Generic)
 import           Zeno.Prelude
 import           Data.Binary
 import           UnliftIO
 
-data ConsensusNode = ConsensusNode { unConsensusNode :: LocalNode }
+data ConsensusNode = ConsensusNode { unConsensusNode :: Node }
 
 data Ballot a = Ballot
   { bMember :: Address
@@ -26,7 +26,7 @@ instance Binary a => Binary (Ballot a)
 
 type Authenticated a = (CompactRecSig, a)
 type Inventory a = Map Address (CompactRecSig, a)
-type Collect a = ReceivePort (Inventory a) -> Timeout -> [Address] -> Process (Inventory a)
+type Collect a = TMVar (Inventory a) -> Timeout -> [Address] -> Process (Inventory a)
 
 unInventory :: Inventory a -> [Ballot a]
 unInventory inv = [Ballot a s o | (a, (s, o)) <- Map.toAscList inv]
