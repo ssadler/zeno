@@ -13,6 +13,7 @@ import           Network.Ethereum.Crypto
 import           GHC.Generics (Generic)
 import           Zeno.Prelude
 import           Data.Binary
+import           UnliftIO
 
 data ConsensusNode = ConsensusNode { unConsensusNode :: LocalNode }
 
@@ -39,12 +40,13 @@ data ConsensusParams = ConsensusParams
   { members' :: [Address]
   , getIdent' :: EthIdent
   , timeout' :: Timeout
+  , mtopic :: TVar Msg
   }
 
 -- Monad ----------------------------------------------------------------------
 
 type Topic = Msg
-type Consensus = ReaderT ConsensusParams (StateT Topic Process)
+type Consensus = ReaderT ConsensusParams Process
 
 data ConsensusException = ConsensusTimeout String
                         | ConsensusMischief String

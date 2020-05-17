@@ -96,7 +96,7 @@ notariserStep nc@NotariserConfig{..} = do
                 logError $ show NOR{..}
                 logError $ show ethnota
                 logError "We have a very bad error, the backnotarised height in KMD is higher\
-                         \than the notarised height in ETH. Continuing to notarise to ETH again."
+                         \ than the notarised height in ETH. Continuing to notarise to ETH again."
                 forward foreignHeight
 
             _ -> do
@@ -110,7 +110,7 @@ notariserStep nc@NotariserConfig{..} = do
       if newHeight > lastNotarisedHeight
          then notariseToETH nc newHeight
          else do
-           logDebug "Not enough new blocks, sleeping 30 seconds"
+           logDebug $ "Not enough new blocks, sleeping 30 seconds"
            threadDelay $ 30 * 1000000
 
 
@@ -123,7 +123,7 @@ notariseToETH nc@NotariserConfig{..} height32 = do
 
   ident@(EthIdent _ myAddress) <- asks has
   gateway <- asks getEthGateway
-  let cparams = ConsensusParams members ident consensusTimeout
+  cparams <- getConsensusParams nc
   r <- ask
   let run = liftIO . runZeno r
 

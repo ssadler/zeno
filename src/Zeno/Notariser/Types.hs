@@ -13,6 +13,8 @@ import Network.Ethereum.Transaction
 import Zeno.Consensus
 import Zeno.Prelude
 
+import UnliftIO
+
 
 data EthNotariser = EthNotariser
   { getKomodoConfig :: BitcoinConfig
@@ -64,7 +66,8 @@ instance FromJSON NotariserConfig where
 getConsensusParams :: NotariserConfig -> Zeno EthNotariser ConsensusParams
 getConsensusParams NotariserConfig{..} = do
   ident <- asks has
-  pure $ ConsensusParams members ident consensusTimeout
+  mt <- newTVarIO ""
+  pure $ ConsensusParams members ident consensusTimeout mt
 
 
 data ConfigException = ConfigException

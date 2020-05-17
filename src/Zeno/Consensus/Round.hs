@@ -35,27 +35,29 @@ import qualified Data.Map as Map
 import           Network.Ethereum.Crypto
 
 import           Zeno.Prelude
-import           Zeno.Prelude.Lifted
+import           Zeno.Prelude.Lifted (getCurrentTime, timeDelta)
 import qualified Zeno.Consensus.P2P as P2P
 import           Zeno.Consensus.Step
 import           Zeno.Consensus.Types
 import           Zeno.Consensus.Utils
+
+import           UnliftIO.STM
 
 
 -- Run round ------------------------------------------------------------------
 
 runConsensus :: (Serializable a, Has ConsensusNode r) => ConsensusParams
              -> a -> Consensus b -> Zeno r b
-runConsensus params topicData act = do
-  let topic = hashMsg $ toStrict $ Bin.encode topicData
-      act' = evalStateT (runReaderT act params) topic
+runConsensus params@ConsensusParams{..} topicData act = do
+  atomically $ writeTVar mtopic $ hashMsg $ toStrict $ Bin.encode topicData
+  let act' = runReaderT act params
   ConsensusNode node <- asks $ has
   liftIO $ do
-    handoff <- newEmptyMVar
+    handoff <- newEmptyTMVarIO
     runProcess node $ do
       _ <- spawnLocalLink P2P.peerNotifier
-      act' >>= putMVar handoff
-    takeMVar handoff
+      act' >>= atomically . putTMVar handoff
+    atomically $ takeTMVar handoff
 
 -- Coordinate Round -----------------------------------------------------------
 
@@ -64,20 +66,22 @@ runConsensus params topicData act = do
 --   
 step' :: Serializable a => Collect a -> a -> Consensus (Inventory a)
 step' collect obj = do
-  topic <- get
-  ConsensusParams members (EthIdent sk myAddr) timeout <- ask
+  ConsensusParams members (EthIdent sk myAddr) timeout mtopic <- ask
+  topic <- readTVarIO mtopic
   let sig = sign sk topic
   let ballot = Ballot myAddr sig obj
-  lift $ lift $ do
+  lift $ do
     (send, recv) <- newChan
     _ <- spawnLocalLink $ runStep topic ballot members $ sendChan send
     collect recv timeout members
 
 stepWithTopic :: Serializable a => Topic -> Collect a -> a -> Consensus (Inventory a)
-stepWithTopic topic collect o = put topic >> step' collect o
+stepWithTopic topic collect o = do
+  asks mtopic >>= atomically . flip writeTVar topic
+  step' collect o
 
 step :: Serializable a => Collect a -> a -> Consensus (Inventory a)
-step collect o = permuteTopic >> step' collect o
+step collect o = permuteTopic () >> step' collect o
 
 -- 1. Determine a starting proposer
 -- 2. Try to get a proposal from them
@@ -90,23 +94,25 @@ propose mObj = do
       go [] = throw $ ConsensusTimeout "Ran out of proposers"
       go ((pAddr, isMe):xs) = do
 
+        permuteTopic pAddr
+
         let nextProposer (ConsensusTimeout _) = do
-              lift $ lift $ say $ "Timeout collecting for proposer: " ++ show pAddr
+              lift $ say $ "Timeout collecting for proposer: " ++ show pAddr
               go xs
             nextProposer e = throw e
 
         obj <-
           if isMe
-             then (lift $ lift $ say "I am the chosen one.") >> (Just <$> mObj)
+             then (lift $ say "I am the chosen one.") >> (Just <$> mObj)
              else pure Nothing
 
         handle nextProposer $ do
           withTimeout (5 * 1000000) $ do
-            results <- step (collectMembers [pAddr]) obj
+            results <- step' (collectMembers [pAddr]) obj
             case Map.lookup pAddr results of
                  Just (s, Just obj2) -> pure $ Ballot pAddr s obj2
                  _                   -> do
-                   lift $ lift $ say $ "Mischief: missing proposal from: " ++ show pAddr
+                   lift $ say $ "Mischief: missing proposal from: " ++ show pAddr
                    throw (ConsensusMischief $ printf "Missing proposal from %s" $ show pAddr)
 
 determineProposers :: Consensus [(Address, Bool)]
@@ -120,18 +126,21 @@ determineProposers = do
       dist[d%64] += 1
   print dist
   -}
-  ConsensusParams members (EthIdent _ myAddr)  _ <- ask
+  ConsensusParams members (EthIdent _ myAddr)  _ mtopic <- ask
   let msg2sum = sum . map fromIntegral . BS.unpack . getMsg
-  topic <- get
+  topic <- readTVarIO mtopic
   let i = mod (msg2sum topic) (length members)
       proposers = take 3 $ drop i $ cycle members
   pure $ [(p, p == myAddr) | p <- proposers]
 
-permuteTopic :: Consensus Topic
-permuteTopic = do
-  out <- get
-  put $ hashMsg $ getMsg out
-  pure out
+permuteTopic :: Bin.Binary a => a -> Consensus Topic
+permuteTopic key = do
+  tv <- asks mtopic
+  atomically do
+    cur <- readTVar tv <&> getMsg
+    let r = hashMsg $ toStrict $ Bin.encode (key, cur)
+    writeTVar tv r
+    pure r
 
 -- Check Majority -------------------------------------------------------------
 

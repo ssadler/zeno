@@ -23,7 +23,7 @@ tmux split-window -v -t 2
 tmux split-window -v -t 4
 
 notarise="stack exec zeno -- notarise"
-ethkmd="kmdeth --gateway=$1 --seed=127.0.0.1:40440 --bind=127.0.0.1/127.0.0.1 --kmd=~/.komodo/TXSCLZ/TXSCLZ.conf --geth https://ropsten.infura.io/v3/bd54c1b7d144428ebb3243791e1426ea" # http://127.0.0.1:9545/"
+ethkmd="kmdeth --gateway=$1 --seed=127.0.0.1:40440 --bind=127.0.0.1/127.0.0.1 --kmd=~/.komodo/TXSCLZ/TXSCLZ.conf --geth=http://127.0.0.1:9545/"
 
 tmux send-keys -t 1 "$notarise seed --bind=127.0.0.1 --port=40440" Enter
 tmux send-keys -t 2 "$notarise $ethkmd --pubkey=03e68acfc0253a10620dff706b0a1b1f1f5833ea3beb3bde2250d5f271f3563606 --port=40441" Enter
