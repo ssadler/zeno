@@ -1,6 +1,6 @@
 # zeno
 
-Fancy new notarising software for Komodo <> Ethereum
+Notarising software for Komodo <> Ethereum, and eventually other protocols.
 
 ## Building
 
@@ -13,7 +13,3 @@ git clone https://github.com/ssadler/zeno
 cd zeno
 stack build
 ```
-
-## Dev notes
-
-* Ok, I spent AGES fighting with the signatures. Learnings:
