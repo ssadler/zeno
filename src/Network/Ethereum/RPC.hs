@@ -3,7 +3,6 @@
 
 module Network.Ethereum.RPC where
 
-import           Control.Concurrent (threadDelay)
 import           Control.Exception.Safe
 
 import           Network.Ethereum.Data

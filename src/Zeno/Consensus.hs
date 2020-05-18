@@ -16,8 +16,8 @@ module Zeno.Consensus
 
 import Control.Exception.Safe
 
-import Network.NQE
 import Network.Transport
+import Network.Distributed
 
 import Zeno.Consensus.Types
 import Zeno.Consensus.Round
@@ -39,5 +39,5 @@ spawnConsensusNode CNC{..} = do
 withConsensusNode :: ConsensusNetworkConfig -> (ConsensusNode -> IO a) -> IO a
 withConsensusNode conf = do
  bracket (spawnConsensusNode conf)
-         (releaseNode . unConsensusNode)
+         (error "closeNode - should inform peers of end and kill everything") -- closeNode . unConsensusNode)
 

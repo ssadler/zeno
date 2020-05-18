@@ -50,6 +50,7 @@ dependencies:
 - relapse
 - safe-exceptions
 - secp256k1-haskell
+- stm-containers
 - string-conv
 - stm
 - text

@@ -9,7 +9,6 @@ import qualified Haskoin as H
 
 import Zeno.Notariser.Types
 import Zeno.Prelude
-import Zeno.Prelude.Lifted
 import Zeno.Consensus
 
 

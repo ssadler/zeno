@@ -1,7 +1,6 @@
 
 module Zeno.Notariser.UTXO where
 
-import Control.Concurrent (forkIO)
 import Control.Exception.Safe (catchAny)
 import Control.Monad.Reader
 
@@ -12,7 +11,7 @@ import qualified Haskoin as H
 
 import Zeno.Data.Aeson
 import Zeno.Prelude
-import Zeno.Prelude.Lifted
+
 
 -- TODO: Should be a single "Has Komodo r"
 forkMonitorUTXOs :: (Has KomodoIdent r, Has BitcoinConfig r)

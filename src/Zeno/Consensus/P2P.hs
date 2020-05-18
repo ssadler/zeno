@@ -1,42 +1,19 @@
 {-# LANGUAGE OverloadedStrings, RecordWildCards, MonoLocalBinds, DeriveGeneric #-}
 
--- Kindly borrowed from: http://hackage.haskell.org/package/distributed-process-p2p
---
---
--- | Peer-to-peer node discovery backend for Cloud Haskell based on the TCP
--- transport. Provided with a known node address it discovers and maintains
--- the knowledge of it's peers.
---
--- > import qualified Control.Distributed.Backend.P2P as P2P
--- > import           Control.Monad.Trans (liftIO)
--- > import           Control.Concurrent (threadDelay)
--- >
--- > main = P2P.bootstrap "myhostname" "9001" [P2P.makeNodeId "seedhost:9000"] $ do
--- >     liftIO $ threadDelay 1000000 -- give dispatcher a second to discover other nodes
--- >     P2P.nsendPeers "myService" ("some", "message")
-
-module Zeno.Consensus.P2P (
-    -- * Starting peer controller
-    NewPeer(..),
-    startP2P,
-    makeNodeId,
-    getPeers,
-    nsendPeers,
-    runSeed
-) where
+module Zeno.Consensus.P2P
+  ( NewPeer(..)
+  , P2P(..)
+  , startP2P
+  , makeNodeId
+  , getPeers
+  , sendPeers
+  , runSeed
+  ) where
 
 import Network.Transport (EndPointAddress(..), Transport)
 import Network.Socket (HostName, ServiceName)
-<<<<<<< HEAD
 import Network.Transport.TCP
-=======
-import Network.Transport.TCP (createTransport, defaultTCPParameters, defaultTCPAddr)
-<<<<<<< HEAD
-import Network.NQE
->>>>>>> type checking with undefined networking
-=======
 import Network.Distributed
->>>>>>> halfway through implementing the guts of the new network layer. Time to look at the receive side.
 
 import Control.Monad
 
@@ -46,26 +23,27 @@ import Data.Binary
 import Data.Typeable
 
 import Zeno.Prelude
-import Zeno.Consensus.P2P.Types
 
 import GHC.Generics (Generic)
 import System.Posix.Signals
 import UnliftIO
 import UnliftIO.Concurrent
 
-getPeers = undefined
+
+getPeers :: Process [NodeId]
+getPeers = error "getPeers"
 
 
 -- * Peer-to-peer API
 
 
 
-type Peers = S.Set RemoteProcessId
+type Peers = S.Set NodeId
 
 data PeerState = PeerState { p2pPeers :: TVar Peers }
 
 data P2P = P2P
-  { node :: Node
+  { p2pNode :: Node
   , p2pState :: PeerState
   }
 
@@ -82,27 +60,6 @@ runSeed host port = do
   startP2P host port []
   threadDelay $ 2^64
 
-
-<<<<<<< HEAD
-createLocalNode
-  :: HostName
-  -> ServiceName
-  -> IO LocalNode
-createLocalNode host port = do
-  let tcpParams = defaultTCPParameters { tcpCheckPeerHost = True }
-  transport <- either (error . show) id
-             <$> createTransport tcpHost tcpParams
-  newLocalNode transport
-  where
-  (bindAddr, hostAddr) =
-    case elemIndex '/' host of
-      Nothing -> (host, host)
-      Just idx -> let (a, _:b) = splitAt idx host in (a, b)
-
-  tcpHost = Addressable $
-    TCPAddrInfo bindAddr port ((,) hostAddr)
-=======
->>>>>>> halfway through implementing the guts of the new network layer. Time to look at the receive side.
 
 -- ** Initialization
 
@@ -125,7 +82,7 @@ startP2P
   -> IO P2P
 startP2P host port seeds = do
   t <- getTransport
-  node <- createNode t
+  node <- startNode t
   peerState <- PeerState <$> newTVarIO mempty
   nodeSpawnNamed node peerControllerPid $ peerController peerState seeds
   installHandler sigUSR1 (Catch $ dumpPeers peerState) Nothing
@@ -134,23 +91,42 @@ startP2P host port seeds = do
   where
   myNodeId = makeNodeId port host
 
+  (bindAddr, hostAddr) =
+    case elemIndex '/' host of
+      Nothing -> (host, host)
+      Just idx -> let (a, _:b) = splitAt idx host in (a, b)
+
+  tcpHost = Addressable $
+    TCPAddrInfo bindAddr (show port) ((,) hostAddr)
+
   getTransport :: IO Transport
   getTransport = do
-    let tcpHost = defaultTCPAddr host (show port)
-    et <- createTransport tcpHost defaultTCPParameters
-    either (fail . show) pure et
+    let tcpParams = defaultTCPParameters { tcpCheckPeerHost = True }
+    createTransport tcpHost tcpParams <&>
+      either (error . show) id
 
   peerController :: PeerState -> [NodeId] -> Process ()
   peerController state seeds = do
-    self <- RPID (error "remoteself") <$> getSelfPid
-
-    forever $ do
+    forever do
       mapM_ doDiscover seeds
-      repeatMatch 60000000 [ match $ onPeerHello state
-                           , match $ onPeerResponse state
-                           --, match $ onMonitor state
-                           ]
+      receiveDuringS 60 $
+        withRemoteMessage $
+          \peer ->
+             \case 
+               Hello     -> onPeerHello state peer
+               (Peers peers) -> do
+                 known <- readTVarIO $ p2pPeers state
+                 -- Do a discovery here so when we get a response we know the node is up
+                 mapM_ doDiscover $ S.toList $ S.difference peers known
 
+
+
+data PeerMsg =
+    Hello
+  | Peers Peers
+  deriving (Generic)
+
+instance Binary PeerMsg
 
 newtype GetPeers = GetPeers ProcessId
   deriving (Typeable)
@@ -165,62 +141,46 @@ dumpPeers PeerState{..} = do
       logInfo $ show p
 
 
---onMonitor = undefined
-onPeerResponse = undefined
-
--- ** Discovery
 
 -- 0: A node probes another node
 doDiscover :: NodeId -> Process ()
-doDiscover nodeId = sendRemote rpid Hello
-  where rpid = RPID nodeId peerControllerPid
+doDiscover nodeId =
+  sendRemote nodeId peerControllerPid Hello
 
 
 -- 2: When there's a request to share peers
-onPeerHello :: PeerState -> (RemoteProcessId, Hello) -> Process ()
-onPeerHello s@PeerState{..} (peer, Hello) = do
+onPeerHello :: PeerState -> NodeId -> Process ()
+onPeerHello s@PeerState{..} peer = do
   peers <- readTVarIO p2pPeers
-  sendRemote peer peers
+  sendRemote peer peerControllerPid peers
   newPeer s peer
 
 
--- 3: When peers are received
-onPeerResponse :: PeerState -> (ProcessId, Peers) -> Process ()
--- onPeerResponse state (peer, peers) = do
---     known <- readMVar $ p2pPeers state
---     -- Do a discovery here so when we get a response we know the node is up
---     mapM_ (doDiscover . processNodeId) $ S.toList $ S.difference peers known
--- 
--- -- 4: Disconnect
---onMonitor :: PeerState -> ProcessMonitorNotification -> Process ()
--- onMonitor PeerState{..} (ProcessMonitorNotification mref pid reason) = do
---     say $ "Dropped peer: " ++ show (pid, reason)
---     maybe (return ()) unmonitor $ Just mref
---     modifyMVar_ p2pPeers $ pure . S.delete pid
- 
+newPeer :: PeerState -> NodeId -> Process ()
+newPeer state@(PeerState{..}) peer = do
+  peers <- readTVarIO p2pPeers
+  unless (S.member peer peers) do
+    say $ "New peer: " ++ show peer
+    atomically $ writeTVar p2pPeers $ S.insert peer peers
+    monitorRemote peer dropPeer
+    -- nsend peerListenerService $ NewPeer $ processNodeId pid -- TODO
+    sendRemote peer peerControllerPid Hello
 
-newPeer :: PeerState -> RemoteProcessId -> Process ()
-newPeer (PeerState{..}) pid = do
-  pids <- readTVarIO p2pPeers
-  unless (S.member pid pids) do
-    say $ "New peer:" ++ show pid
-    -- putMVar p2pPeers $ S.insert pid pids
-    -- -- _ <- monitor pid
-    -- nsend peerListenerService $ NewPeer $ processNodeId pid
-    -- self <- getSelfPid
-    -- send pid (self, Hello)
+  where
+  dropPeer = do
+    say $ "Peer disconnect: " ++ show peer
+    atomically $ modifyTVar p2pPeers $ S.delete peer
  
 say = undefined
  
- 
-data Hello = Hello
-  deriving (Typeable, Generic)
 
-instance Binary Hello
 -- 
 -- | Broadcast a message to a specific service on all peers.
-nsendPeers :: Sendable a => String -> a -> Process ()
-nsendPeers service msg = undefined -- getPeers >>= mapM_ (\peer -> nsendRemote peer service msg)
+sendPeers :: Binary a => ProcessId -> a -> Process ()
+sendPeers pid msg = do
+  peers <- getPeers
+  forM_ peers $ \peer -> sendRemote peer pid msg
+
 -- 
 -- 
 -- 

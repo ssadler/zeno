@@ -11,7 +11,6 @@ import           Data.Attoparsec.ByteString.Char8 as A
 
 import           Zeno.Data.Aeson hiding (Parser)
 import           Zeno.Prelude
-import           Zeno.Prelude.Lifted
 
 import qualified Haskoin as H
 import           Network.HTTP.Simple

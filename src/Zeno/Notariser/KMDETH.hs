@@ -16,7 +16,6 @@ import Zeno.Notariser.Types
 import Zeno.Consensus
 import Zeno.Config
 import Zeno.Prelude
-import Zeno.Prelude.Lifted
 
 
 runNotariseKmdToEth :: PubKey -> Address -> ConsensusNetworkConfig -> GethConfig -> FilePath -> IO ()

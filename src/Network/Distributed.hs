@@ -1,24 +1,36 @@
 {-# LANGUAGE ConstraintKinds #-}
+{-# LANGUAGE BangPatterns #-}
 
 module Network.Distributed 
   ( Node
   , NodeId(..)
   , Process
-  , ProcessId
-  , Sendable
+  , ProcessId(..)
+  , Typeable
+  , RemoteMessage(..)
   , RemoteProcessId(..)
-  , createNode
-  , getSelfPid
-  , match
+  , closeNode
+  , getMyPid
+  , monitorRemote
   , nodeSpawn
   , nodeSpawnNamed
-  , nsend
+  , receiveDuring
+  , receiveDuringS
+  , receiveMaybe
+  , receiveTimeout
+  , receiveTimeoutS
+  , receiveWait
   , remoteServiceId
-  , repeatMatch
   , send
   , sendRemote
   , serviceId
   , spawn
+  , spawnChild
+  , spawnChildNamed
+  , startNode
+  , withRemoteMessage
+  -- Util exports
+  , timeDelta
   ) where
 
 import qualified Data.ByteString as BS
@@ -33,7 +45,7 @@ import Control.Monad.Catch
 import Control.Monad.Reader
 import Control.Applicative
 import Control.Monad.IO.Class
-import Control.Concurrent.STM (check)
+import Control.Concurrent.STM (check, retry)
 
 import Crypto.Hash
 import Lens.Micro.Platform
@@ -57,6 +69,8 @@ import UnliftIO.Concurrent hiding (Chan)
 newtype NodeId = NodeId { endpointAddress :: NT.EndPointAddress }
   deriving (Show, Eq, Ord, Binary)
 
+
+-- TODO: The queue should be an IO write action rather than a queue
 data Proc = Proc
   { procChan :: TQueue Dynamic
   , procAsync :: Async ()
@@ -67,7 +81,6 @@ data Proc = Proc
 data InnerNode = Inner
   { _lastPid :: BS.ByteString
   , _processes :: Map.Map ProcessId Proc
-  , _subscribers :: Map.Map String (Set.Set ProcessId)
   }
 
 data Node = Node
@@ -85,6 +98,11 @@ data ProcData = PD
   }
 
 
+
+data RemoteMessage = RemoteMessage NodeId BSL.ByteString
+  deriving (Typeable)
+
+
 newtype Process a = Process { unProcess :: ReaderT ProcData IO a }
   deriving ( Functor, Monad, Applicative
            , MonadIO, MonadThrow, MonadCatch
@@ -93,30 +111,31 @@ newtype Process a = Process { unProcess :: ReaderT ProcData IO a }
 
 
 newtype ProcessId = ProcessId BS.ByteString
-  deriving (Show, Eq, Ord, Binary)
+  deriving (Show, Eq, Ord, Generic)
 
-data RemoteProcessId = RPID
-  { remoteNid :: NodeId
+instance Binary ProcessId
+
+data RemoteProcessId = RemoteProcessId
+  { remoteNodeId :: NodeId
   , remotePid :: ProcessId
   } deriving (Show, Eq, Ord, Generic)
 
 instance Binary RemoteProcessId
 
-type Sendable a = Typeable a
-
 
 makeLenses ''InnerNode
 
 
-createNode :: NT.Transport -> IO Node
-createNode transport = do
+startNode :: NT.Transport -> IO Node
+startNode transport = do
   endpoint <- NT.newEndPoint transport <&> either (error . show) id
   salt <- getEntropy 32
   let _lastPid = ""
-      _subscribers = mempty
       _processes = mempty
   tInnerNode <- newTVarIO Inner{..}
-  pure Node{..}
+  let node = Node{..}
+  nodeSpawn node networkHandler
+  pure node
 
 
 readInnerNode :: Node -> STM InnerNode
@@ -134,8 +153,8 @@ modifyInnerNode_ node f = modifyInnerNode node $ \i -> (f i, ())
 
 
 
-getSelfPid :: Process ProcessId
-getSelfPid = asks myPid
+getMyPid :: Process ProcessId
+getMyPid = asks myPid
 
 nextProcessId :: Node -> STM ProcessId
 nextProcessId node@Node{..} = do
@@ -157,79 +176,108 @@ nodeSpawn node act = do
   nodeSpawnNamed node pid act
   pure pid
 
-nodeSpawnNamed :: MonadIO m => Node -> ProcessId -> Process () -> m ()
+nodeSpawnNamed :: MonadIO m => Node -> ProcessId -> Process () -> m Proc
 nodeSpawnNamed node pid act = do
   chan <- newTQueueIO
 
   t <- atomically $ newEmptyTMVar
-  a <- liftIO $ async do
+  async' <- liftIO $ async do
     r <- PD node pid chan <$> atomically (takeTMVar t)
     runReaderT (unProcess act) r
 
+  let proc = Proc chan async'
+
   atomically do
-    modifyInnerNode_ node $ processes . at pid .~ Just (Proc chan a)
-    putTMVar t a
+    modifyInnerNode_ node $ processes . at pid .~ Just proc
+    putTMVar t async'
+
+  pure proc
 
 
 
 spawn :: Process () -> Process ProcessId
-spawn p = do
-  asks node >>= flip nodeSpawn p
+spawn act = do
+  asks node >>= flip nodeSpawn act
+
+spawnNamed :: ProcessId -> Process () -> Process ()
+spawnNamed pid act = do
+  asks node >>= \node -> nodeSpawnNamed node pid act
+  pure ()
 
 
-repeatMatch :: Int -> [Match ()] -> Process ()
-repeatMatch timeout matches = do
+
+receiveDuring :: Typeable a => Int -> (a -> Process ()) -> Process ()
+receiveDuring timeout act = do
   startTime <- liftIO $ getCurrentTime
   fix $ \f -> do
     d <- liftIO $ timeDelta startTime
     let us = timeout - d
     when (us > 0) $
-       receiveTimeout us matches >>= maybe (pure ()) (const f)
+       receiveTimeout us >>= maybe (pure ()) act
+
+receiveDuringS :: Typeable a => Int -> (a -> Process ()) -> Process ()
+receiveDuringS s = receiveDuring (s * 1000000)
+
 
 -- Spawns a process and links it to it's parent so that
 -- it will die when it's parent dies
 spawnChild :: Process () -> Process ProcessId
-spawnChild proc = do
+spawnChild act = do
   parent <- asks myAsync
   spawn do
     child <- asks myAsync
     pure () <* forkIO do
       waitCatch parent >>= \_ -> uninterruptibleCancel child
-    proc
+    act
+
+-- TODO: DRY
+spawnChildNamed :: ProcessId -> Process () -> Process ()
+spawnChildNamed pid act = do
+  parent <- asks myAsync
+  spawnNamed pid do
+    child <- asks myAsync
+    pure () <* forkIO do
+      waitCatch parent >>= \_ -> uninterruptibleCancel child
+    act
+
+
+
+monitorRemote :: NodeId -> Process () -> Process ()
+monitorRemote nodeId onTerminate = do
+  node@Node{..} <- asks node
+  -- TODO: atomic, mask, etc
+  (pid, Proc{..}) <- getForwarder node nodeId
+  spawn do
+    waitCatch procAsync >>= \_ -> onTerminate
+  pure ()
+
+
+
+killProcess :: MonadIO m => Node -> ProcessId -> m ()
+killProcess node pid = do
+  atomically (getProcessById node pid) >>=
+    \case
+      Nothing -> pure ()
+      Just Proc{..} -> uninterruptibleCancel procAsync
 
 
 closeNode :: Node -> IO ()
-closeNode = undefined
+closeNode Node{..} = do
+  NT.closeEndPoint endpoint
+  NT.closeTransport transport
 
-whereis :: String -> Process (Maybe a)
-whereis = undefined
-
-register :: String -> ProcessId -> Process ()
-register s p = do
-  node <- asks node
-  atomically do
-    modifyInnerNode_ node $
-      subscribers %~ (<> Map.singleton s (Set.singleton p))
-
-
-
-
-type Match a = Dynamic -> Maybe (Process a)
-
-match :: Sendable a => (a -> Process b) -> Match b
-match f dyn = f <$> fromDynamic dyn
 
 
 say :: String -> Process ()
 say = error "say"
 
-send :: Sendable a => ProcessId -> a -> Process ()
+send :: Typeable a => ProcessId -> a -> Process ()
 send pid msg = do
   node <- asks node
   atomically $ sendSTM node pid msg
 
 
-sendSTM :: Sendable a => Node -> ProcessId -> a -> STM ()
+sendSTM :: Typeable a => Node -> ProcessId -> a -> STM ()
 sendSTM node pid msg = do
   getProcessById node pid >>=
     \case
@@ -237,40 +285,29 @@ sendSTM node pid msg = do
       Just proc -> sendProcSTM proc msg
 
 
-sendProcSTM :: Sendable a => Proc -> a -> STM ()
+sendProcSTM :: Typeable a => Proc -> a -> STM ()
 sendProcSTM Proc{..} = writeTQueue procChan . toDyn
 
-type Topic = String
-
-
-nsend :: Sendable a => Topic -> a -> Process ()
-nsend topic msg = do
-  node <- asks node
-  atomically do
-    Inner{..} <- readInnerNode node
-    let recips = Map.findWithDefault mempty topic _subscribers :: Set.Set ProcessId
-    forM_ recips $ \pid -> sendSTM node pid msg
-
-
-data RemoteCommand = PeerMsg ProcessId PeerMsg
-  deriving (Typeable)
-
-
-data PeerMsg = SendMsg BSL.ByteString
+data SendToPeer = SendToPeer ProcessId BSL.ByteString
   deriving (Typeable, Generic)
 
-instance Binary PeerMsg
+instance Binary SendToPeer
 
 
-getRemoteConnection :: MonadIO m => Node -> NodeId -> m ProcessId
-getRemoteConnection node@Node{..} nodeId = do
-  let pid = ProcessId $ blake2b $ salt <> BS8.pack (show nodeId)
+-- | Each peer connection has a local forwarder process.
+--   The forwarder process has a salted key so it can't be
+--   guessed by other nodes. When it's attached connection goes down,
+--   it gets killed. Other processes can listen for it's demise to 
+--   perform cleanups.
+getForwarder :: MonadIO m => Node -> NodeId -> m (ProcessId, Proc)
+getForwarder node@Node{..} nodeId = do
+  let pid = getForwarderId salt nodeId
+
+  -- TODO: this needs to be atomic. withAtomicIO :: Node -> ...
   mproc <- atomically $ getProcessById node pid
-  case mproc of
-    Nothing -> do
-      nodeSpawnNamed node pid run
-    Just _ -> pure ()
-  pure pid
+  proc <- maybe (nodeSpawnNamed node pid run) pure mproc
+
+  pure (pid, proc)
 
   where
   run = do
@@ -279,12 +316,16 @@ getRemoteConnection node@Node{..} nodeId = do
             Just conn -> loopHandle conn
 
   loopHandle conn = do
-    receiveWait [match pure] >>= 
-      \case
-        PeerMsg topic msg -> do
-          _ <- liftIO $ NT.send conn (BSL.toChunks $ encode msg) -- TODO: failure?
-          loopHandle conn
+    receiveWait >>=
+      -- This is all wrong. It should be a RemoteMessage
+      \pm@(SendToPeer _ _) -> do
+        _ <- liftIO $ NT.send conn (BSL.toChunks $ encode pm) -- TODO: failure? Die on failure
+        loopHandle conn
 
+
+getForwarderId :: BS.ByteString -> NodeId -> ProcessId
+getForwarderId salt nodeId = 
+  ProcessId $ blake2b $ salt <> BS8.pack (show nodeId)
 
 
 setupConn :: NT.EndPoint -> NodeId -> IO (Maybe NT.Connection)
@@ -304,69 +345,115 @@ setupConn endpoint nodeId = do
 
 
 
-
-
-sendRemote :: (Sendable a, Binary a) => RemoteProcessId -> a -> Process ()
-sendRemote (RPID nodeId theirPid) msg = do
+sendRemote :: (Binary a) => NodeId -> ProcessId -> a -> Process ()
+sendRemote nodeId theirPid msg = do
   node <- asks node
-  pid <- getRemoteConnection node nodeId
-  send pid $ PeerMsg theirPid $ SendMsg $ encode msg
+  (_, proc) <- getForwarder node nodeId
+  atomically $
+    -- TODO: RemoteMessage??
+    sendProcSTM proc $ SendToPeer theirPid $ encode msg
 
 
+receiveMaybe :: Typeable a => Process (Maybe a)
+receiveMaybe = receiveTimeout 0
 
-receiveWait :: Sendable a => [Match a] -> Process a
-receiveWait matchers = do
-  inbox <- asks inbox
-  msg <- atomically $ readTQueue inbox
-  let matched = matchMessage matchers msg
-  maybe (receiveWait matchers) id matched
 
-matchMessage :: Sendable a => [Match a] -> Dynamic -> Maybe (Process a)
-matchMessage matchers msg =
-  listToMaybe $ catMaybes [f msg | f <- matchers]
+receiveWait :: Typeable a => Process a
+receiveWait = do
+  r <- asks inbox >>= atomically . readTQueue
+  case fromDynamic r of
+    Nothing -> receiveWait
+    Just a -> pure a
 
 
 -- TODO: Does this function peg CPU?
-receiveTimeout :: Typeable a => Int -> [Match a] -> Process (Maybe a)
-receiveTimeout us matchers = do
+receiveTimeout :: Typeable a => Int -> Process (Maybe a)
+receiveTimeout us = do
   PD{..} <- ask
   delay <- registerDelay us
-  join $
-    atomically do
-      md <- tryReadTQueue inbox
-      case md >>= matchMessage matchers of
-        Nothing -> (readTVar delay >>= check) *> pure (pure Nothing)
-        Just ma -> pure $ Just <$> ma
+  atomically do
+    tryReadTQueue inbox >>=
+      \case
+        Nothing -> do
+          readTVar delay >>= check
+          pure Nothing
+        Just d ->
+          case fromDynamic d of
+            Nothing -> retry
+            Just msg -> pure (Just msg)
 
+receiveTimeoutS :: Typeable a => Int -> Process (Maybe a)
+receiveTimeoutS s = receiveTimeout (s * 1000000)
+
+
+
+
+-- | Network Handler
+
+networkHandler :: Process ()
+networkHandler = do
+  node@Node{..} <- asks node
+
+  fix1 mempty $
+    \go !conns -> do
+
+      evt <- liftIO $ NT.receive endpoint
+      case evt of
+        NT.ConnectionOpened connId _ theirEndpoint -> do
+          go $ Map.insert connId (NodeId theirEndpoint) conns
+
+        NT.Received connId bss -> do
+          case Map.lookup connId conns of
+            Nothing -> do
+              go conns                                        --  TODO: log very bad thing?
+            Just nodeId -> do
+              let bs = BSL.fromChunks bss
+              case decodeOrFail (BSL.fromChunks bss) of
+                Left (_, _, errStr) -> go conns               -- TODO: log?
+                Right (rem, _, to) -> do
+                  send to $ RemoteMessage nodeId rem
+                  go conns
+
+        NT.ErrorEvent (NT.TransportError err description) -> do
+          case err of
+            NT.EventEndPointFailed -> error "Unrecoverable: Local endpoint failed"   -- TODO: panic
+            NT.EventTransportFailed -> error "Unrecoverable: Local transport failed" -- TODO: panic
+            NT.EventConnectionLost addr -> do
+              let nodeId = NodeId addr
+              killProcess node $ getForwarderId salt nodeId
+              go $ Map.filter (== nodeId) conns
+
+        -- TODO: Maybe we don't need to run killProcess on
+        -- ConnectionClosed and EventConnectionLost. One should imply the other, which comes first?
+        NT.ConnectionClosed connId -> do
+          case Map.lookup connId conns of
+            Nothing -> pure ()
+            Just nodeId -> do
+              killProcess node $ getForwarderId salt nodeId
+              go $ Map.delete connId conns
+
+        NT.ReceivedMulticast _ _ -> go conns              -- TODO: log?
+        NT.EndPointClosed -> pure ()                      -- TODO: log
+
+
+
+withRemoteMessage :: Binary i => (NodeId -> i -> Process ()) -> RemoteMessage -> Process ()
+withRemoteMessage act (RemoteMessage nodeId bs) = do
+  case decodeOrFail bs of
+    Right ("", _, a) -> act nodeId a
+    Right (_, _, _) -> pure () -- TODO: log
+    Left _ -> pure () -- TODO: log
 
     
-
-
---
-
-processNodeId :: ProcessId -> NodeId
-processNodeId = undefined
-
-monitor :: ProcessId -> Process ()
-monitor = undefined
-
-unmonitor :: String -> Process ()
-unmonitor = undefined
-
-expectTimeout :: Sendable a => Integer -> Process (Maybe a)
-expectTimeout = undefined
-
-releaseNode :: Node -> IO ()
-releaseNode = undefined
 
 
 
 -- | Utils -----------
 
 
-timeDelta :: UTCTime -> IO Int
-timeDelta t = us <$> (diffUTCTime <$> getCurrentTime <*> pure t)
-  where us = round . (*1000000) . realToFrac
+timeDelta :: MonadIO m => UTCTime -> m Int
+timeDelta t = f <$> liftIO getCurrentTime where
+  f now = round . (*1000000) . realToFrac $ diffUTCTime now t
 
 
 blake2b :: BS.ByteString -> BS.ByteString
@@ -377,4 +464,8 @@ serviceId :: BS.ByteString -> ProcessId
 serviceId = ProcessId . blake2b
 
 remoteServiceId :: NodeId -> BS.ByteString -> RemoteProcessId
-remoteServiceId nodeId = RPID nodeId . serviceId
+remoteServiceId nodeId = RemoteProcessId nodeId . serviceId
+
+
+fix1 :: a -> ((a -> b) -> a -> b) -> b
+fix1 a f = fix f a

@@ -24,20 +24,18 @@ module Zeno.Consensus.Round
 import           Control.Monad.Reader
 import           Control.Monad.State
 
-import           Network.NQE
-
 import qualified Data.ByteString as BS
 import qualified Data.Binary as Bin
+import           Data.Binary (Binary)
 import qualified Data.Map as Map
 
 import           Network.Ethereum.Crypto
+import           Network.Distributed
 
 import           Zeno.Prelude
-import           Zeno.Prelude.Lifted (getCurrentTime, timeDelta)
 import qualified Zeno.Consensus.P2P as P2P
 import           Zeno.Consensus.Step
 import           Zeno.Consensus.Types
-import           Zeno.Consensus.Utils
 
 import           UnliftIO.STM
 
@@ -52,8 +50,8 @@ runConsensus params@ConsensusParams{..} topicData act = do
   ConsensusNode node <- asks $ has
   liftIO $ do
     handoff <- newEmptyTMVarIO
-    runProcess node $ do
-      _ <- spawnLocalLink P2P.peerNotifier
+    nodeSpawn (P2P.p2pNode node) $ do
+      -- TODO: _ <- spawnLocalLink P2P.peerNotifier
       act' >>= atomically . putTMVar handoff
     atomically $ takeTMVar handoff
 
@@ -68,17 +66,17 @@ step' collect obj = do
   topic <- readTVarIO mtopic
   let sig = sign sk topic
   let ballot = Ballot myAddr sig obj
-  lift $ do
-    (send, recv) <- newChan
-    _ <- spawnLocalLink $ runStep topic ballot members $ sendChan send
-    collect recv timeout members
 
-stepWithTopic :: Binary a => Topic -> Collect a -> a -> Consensus (Inventory a)
+  lift do
+    spawnStep topic ballot members
+    collect timeout members
+
+stepWithTopic :: Sendable a => Topic -> Collect a -> a -> Consensus (Inventory a)
 stepWithTopic topic collect o = do
   asks mtopic >>= atomically . flip writeTVar topic
   step' collect o
 
-step :: Binary a => Collect a -> a -> Consensus (Inventory a)
+step :: Sendable a => Collect a -> a -> Consensus (Inventory a)
 step collect o = permuteTopic () >> step' collect o
 
 -- 1. Determine a starting proposer
@@ -131,7 +129,7 @@ determineProposers = do
       proposers = take 3 $ drop i $ cycle members
   pure $ [(p, p == myAddr) | p <- proposers]
 
-permuteTopic :: Bin.Binary a => a -> Consensus Topic
+permuteTopic :: Sendable a => a -> Consensus Topic
 permuteTopic key = do
   tv <- asks mtopic
   atomically do
@@ -150,23 +148,25 @@ collectMajority = collectGeneric haveMajority
 
 -- | Wait for results from specific members
 collectMembers :: Sendable a => [Address] -> Collect a
-collectMembers addrs = collectGeneric $ \_ -> allSigned
-  where allSigned inv = all id [Map.member a inv | a <- addrs]
+collectMembers addrs = collectGeneric allSigned
+  where allSigned _ inv = all id [Map.member a inv | a <- addrs]
 
 collectThreshold :: Sendable a => Int -> Collect a
 collectThreshold t = collectGeneric $ \_ inv -> length inv == t
 
 collectGeneric :: Sendable a => ([Address] -> Inventory a -> Bool) -> Collect a
-collectGeneric test recv timeout members = do
-  startTime <- getCurrentTime
+collectGeneric test timeout members = do
+  startTime <- liftIO getCurrentTime
   fix $ \f -> do
     d <- timeDelta startTime
     let us = timeout - min timeout d
-    minv <- receiveChanTimeout us recv
+    minv <- receiveTimeout us
     case minv of
-         Nothing -> throw $ ConsensusTimeout $ "collect timeout after %i seconds" % quot timeout 1000000
-         Just inv | test members inv -> pure inv
-         _ -> f
+      Nothing -> throw errTimeout
+      Just inv | test members inv -> pure inv
+      _ -> f
+  where
+  errTimeout = ConsensusTimeout $ "collect timeout after %i seconds" % quot timeout 1000000
 
 haveMajority :: [Address] -> Inventory a -> Bool
 haveMajority members inv =
@@ -174,3 +174,6 @@ haveMajority members inv =
 
 majorityThreshold :: Int -> Int
 majorityThreshold m = floor $ (fromIntegral m) / 2 + 1
+
+
+say = error "say"
