@@ -29,7 +29,7 @@ instance Binary a => Binary (Ballot a)
 
 type Authenticated a = (CompactRecSig, a)
 type Inventory a = Map Address (CompactRecSig, a)
-type Collect a = Timeout -> [Address] -> Process (Inventory a)
+type Collect a = Timeout -> [Address] -> Consensus (Inventory a)
 type Sendable a = (Binary a, Typeable a)
 
 unInventory :: Inventory a -> [Ballot a]
@@ -49,7 +49,16 @@ data ConsensusParams = ConsensusParams
 -- Monad ----------------------------------------------------------------------
 
 type Topic = Msg
-type Consensus = ReaderT ConsensusParams Process
+data ConsensusProcess = ConsensusProcess
+  { cpParams :: ConsensusParams
+  , cpProc   :: ProcessData
+  , cpP2P    :: P2P
+  }
+type Consensus = Zeno ConsensusProcess
+
+instance Process Consensus where
+  procAsks = cpProc <$> ask
+  runProcess = runZeno
 
 data ConsensusException = ConsensusTimeout String
                         | ConsensusMischief String
@@ -58,4 +67,6 @@ instance Exception ConsensusException
 
 
 withTimeout :: Int -> Consensus a -> Consensus a
-withTimeout t = withReaderT $ \c -> c { timeout' = t }
+withTimeout t =
+  zenoReader $
+    \ConsensusProcess{..} -> ConsensusProcess { cpParams = cpParams { timeout' = t } }

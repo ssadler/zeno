@@ -57,7 +57,7 @@ instance Serialize Sha3 where
   get = Sha3 <$> getByteString 32
 
 sha3AsBytes32 :: Sha3 -> Bytes 32
-sha3AsBytes32 (Sha3 b) = Bytes b
+sha3AsBytes32 (Sha3 b) = unsafeBytes b
 
 failableSha3 :: (Monad m, MonadFail m) => ByteString -> m Sha3
 failableSha3 bs = 

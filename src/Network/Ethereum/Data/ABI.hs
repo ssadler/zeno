@@ -128,10 +128,7 @@ instance PutABI a => PutABI [a] where
     putDynamic (length xs) innerLen $ mapM_ putABI xs
 
 instance forall n. (KnownNat n, n <= 32) => PutABI (Bytes n) where
-  putABI (Bytes bs) =
-    if BS.length bs > bytesGetN (Proxy :: Proxy n)
-       then error "Bytes: data too long"
-       else putData $ bytesPad bs False
+  putABI bs = putData $ bytesPad (unBytes bs) False
 
 instance PutABI Bool where
   putABI = putABI . fromEnum

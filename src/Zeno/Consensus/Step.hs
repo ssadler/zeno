@@ -42,33 +42,33 @@ data StepMessage a =
   | InventoryData (Inventory a)
   deriving (Generic)
 
-instance Binary a => Binary (StepMessage a)
+instance Sendable a => Binary (StepMessage a)
 
 data Step a = Step
   { topic   :: ProcessId
   , tInv    :: TVar (Inventory a)
   , members :: [Address]
-  , yield   :: (Inventory a -> Process ())
+  , yieldTo :: ProcessId
   , mySig   :: CompactRecSig
   , message :: Msg
   }
 
 
-spawnStep :: forall a. (Binary a, Typeable a)
+spawnStep :: forall a. (Sendable a, Typeable a)
         => Msg
         -> Ballot a
         -> [Address]
-        -> Process ()
+        -> Consensus ()
 spawnStep message myBallot members = do
 
-  yield <- send <$> getMyPid
+  yieldTo <- getMyPid
 
   -- Build the step context
   tInv <- newTVarIO Map.empty
   -- Hash the message as the topic so it's obfuscated
   let topic = ProcessId $ getMsg $ hashMsg $ getMsg message
       (Ballot myAddr mySig myData) = myBallot
-      step = Step topic tInv members yield mySig message
+      step = Step topic tInv members yieldTo mySig message
 
 
   spawnChildNamed topic do
@@ -99,13 +99,13 @@ spawnStep message myBallot members = do
                 -- TODO: new peer
 
 
-onNewPeer :: forall a. Binary a => Step a -> P2P.NewPeer -> Process ()
+onNewPeer :: forall a. Sendable a => Step a -> P2P.NewPeer -> Consensus ()
 onNewPeer Step{..} (P2P.NewPeer nodeId) = do
   inv <- readTVarIO tInv
   let idx = inventoryIndex members inv
   sendRemote nodeId topic (mySig, InventoryIndex idx :: StepMessage a)
 
-onInventoryData :: forall a. Binary a => Step a -> Inventory a -> Process ()
+onInventoryData :: forall a. Sendable a => Step a -> Inventory a -> Consensus ()
 onInventoryData Step{..} theirInv = do
 
   -- TODO, very important:
@@ -118,11 +118,11 @@ onInventoryData Step{..} theirInv = do
   inv <- readTVarIO tInv
   let idx = inventoryIndex members inv
   when (0 /= idx .&. complement oldIdx) $ do
-    yield inv
+    send yieldTo inv
     P2P.sendPeers topic (mySig, InventoryIndex idx :: StepMessage a)
 
 
-authenticate :: Step a -> (b -> Process ()) -> (CompactRecSig, b) -> Process ()
+authenticate :: Step a -> (b -> Consensus ()) -> (CompactRecSig, b) -> Consensus ()
 authenticate step@Step{..} act (theirSig, obj) =
   case recoverAddr message theirSig of
        Just addr ->
@@ -137,7 +137,7 @@ say = error "say"
 
 -- | Inventory builder, continually builds and dispatches queries for remote inventory
 
-inventoryBuilder :: forall a. Binary a => Step a -> Process ()
+inventoryBuilder :: forall a. Sendable a => Step a -> Consensus ()
 inventoryBuilder step@Step{..} = do
   forever $ do
     getInventoryQueries step >>=
@@ -147,7 +147,7 @@ inventoryBuilder step@Step{..} = do
     threadDelay $ 100 * 1000
 
 
-getInventoryQueries :: Step a -> Process [(NodeId, Integer)]
+getInventoryQueries :: Step a -> Consensus [(NodeId, Integer)]
 getInventoryQueries Step{..} = do
   idxs <- recvAll
   inv <- readTVarIO tInv

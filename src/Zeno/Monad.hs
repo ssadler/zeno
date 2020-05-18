@@ -9,11 +9,13 @@ import           Control.Monad.Catch
 import           Control.Monad.Logger
 import           Control.Monad.Reader
 
+import           UnliftIO
+
 import Control.Exception.Safe (MonadMask)
 
 
 newtype Zeno r a = Zeno { unZeno :: ReaderT r (LoggingT IO) a }
-  deriving (MonadReader r, MonadThrow, MonadCatch, MonadMask)
+  deriving (MonadReader r, MonadThrow, MonadCatch, MonadMask, MonadUnliftIO)
 
 instance Functor (Zeno r) where
   fmap f (Zeno a) = Zeno $ fmap f a

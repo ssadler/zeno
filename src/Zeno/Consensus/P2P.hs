@@ -16,9 +16,10 @@ import Network.Transport.TCP
 import Network.Distributed
 
 import Control.Monad
+import Control.Monad.Reader
 
 import qualified Data.ByteString.Char8 as BS
-import qualified Data.Set as S
+import qualified Data.Set as Set
 import Data.Binary
 import Data.Typeable
 
@@ -30,15 +31,34 @@ import UnliftIO
 import UnliftIO.Concurrent
 
 
-getPeers :: Process [NodeId]
-getPeers = error "getPeers"
-
-
 -- * Peer-to-peer API
 
 
+getPeers :: HasP2P p => p [NodeId]
+getPeers = do
+  PeerState peers <- p2pState <$> getP2P
+  Set.toList <$> readTVarIO peers
 
-type Peers = S.Set NodeId
+
+sendPeers :: (Process p, HasP2P p, Binary a) => ProcessId -> a -> p ()
+sendPeers pid msg = do
+  peers <- getPeers
+  forM_ peers $ \peer -> sendRemote peer pid msg
+
+
+class (MonadIO p, Monad p) => HasP2P p where
+  getP2P :: p P2P
+
+
+data PeerData = PeerData
+  { peerP2P :: P2P
+  , peerProc :: ProcessData
+  }
+
+
+
+
+type Peers = Set.Set NodeId
 
 data PeerState = PeerState { p2pPeers :: TVar Peers }
 
@@ -105,7 +125,7 @@ startP2P host port seeds = do
     createTransport tcpHost tcpParams <&>
       either (error . show) id
 
-  peerController :: PeerState -> [NodeId] -> Process ()
+  peerController :: PeerState -> [NodeId] -> ReaderT ProcessData IO ()
   peerController state seeds = do
     forever do
       mapM_ doDiscover seeds
@@ -117,7 +137,7 @@ startP2P host port seeds = do
                (Peers peers) -> do
                  known <- readTVarIO $ p2pPeers state
                  -- Do a discovery here so when we get a response we know the node is up
-                 mapM_ doDiscover $ S.toList $ S.difference peers known
+                 mapM_ doDiscover $ Set.toList $ Set.difference peers known
 
 
 
@@ -143,25 +163,25 @@ dumpPeers PeerState{..} = do
 
 
 -- 0: A node probes another node
-doDiscover :: NodeId -> Process ()
+doDiscover :: Process p => NodeId -> p ()
 doDiscover nodeId =
   sendRemote nodeId peerControllerPid Hello
 
 
 -- 2: When there's a request to share peers
-onPeerHello :: PeerState -> NodeId -> Process ()
+onPeerHello :: Process p => PeerState -> NodeId -> p ()
 onPeerHello s@PeerState{..} peer = do
   peers <- readTVarIO p2pPeers
   sendRemote peer peerControllerPid peers
   newPeer s peer
 
 
-newPeer :: PeerState -> NodeId -> Process ()
+newPeer :: Process p => PeerState -> NodeId -> p ()
 newPeer state@(PeerState{..}) peer = do
   peers <- readTVarIO p2pPeers
-  unless (S.member peer peers) do
+  unless (Set.member peer peers) do
     say $ "New peer: " ++ show peer
-    atomically $ writeTVar p2pPeers $ S.insert peer peers
+    atomically $ writeTVar p2pPeers $ Set.insert peer peers
     monitorRemote peer dropPeer
     -- nsend peerListenerService $ NewPeer $ processNodeId pid -- TODO
     sendRemote peer peerControllerPid Hello
@@ -169,17 +189,11 @@ newPeer state@(PeerState{..}) peer = do
   where
   dropPeer = do
     say $ "Peer disconnect: " ++ show peer
-    atomically $ modifyTVar p2pPeers $ S.delete peer
+    atomically $ modifyTVar p2pPeers $ Set.delete peer
  
 say = undefined
  
 
--- 
--- | Broadcast a message to a specific service on all peers.
-sendPeers :: Binary a => ProcessId -> a -> Process ()
-sendPeers pid msg = do
-  peers <- getPeers
-  forM_ peers $ \peer -> sendRemote peer pid msg
 
 -- 
 -- 
