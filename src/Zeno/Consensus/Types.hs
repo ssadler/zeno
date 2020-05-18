@@ -41,7 +41,7 @@ type Timeout = Int
 
 data ConsensusParams = ConsensusParams
   { members' :: [Address]
-  , getIdent' :: EthIdent
+  , ident' :: EthIdent
   , timeout' :: Timeout
   , mtopic :: TVar Msg
   }
@@ -49,6 +49,7 @@ data ConsensusParams = ConsensusParams
 -- Monad ----------------------------------------------------------------------
 
 type Topic = Msg
+
 data ConsensusProcess = ConsensusProcess
   { cpParams :: ConsensusParams
   , cpProc   :: ProcessData
@@ -57,8 +58,11 @@ data ConsensusProcess = ConsensusProcess
 type Consensus = Zeno ConsensusProcess
 
 instance Process Consensus where
-  procAsks = cpProc <$> ask
-  runProcess = runZeno
+  procAsks f = f . cpProc <$> ask
+  procWith r = zenoReader (\p -> p {cpProc = r})
+
+instance HasP2P Consensus where
+  getP2P = asks cpP2P
 
 data ConsensusException = ConsensusTimeout String
                         | ConsensusMischief String
@@ -69,4 +73,4 @@ instance Exception ConsensusException
 withTimeout :: Int -> Consensus a -> Consensus a
 withTimeout t =
   zenoReader $
-    \ConsensusProcess{..} -> ConsensusProcess { cpParams = cpParams { timeout' = t } }
+    \ConsensusProcess{..} -> ConsensusProcess { cpParams = cpParams { timeout' = t }, .. }

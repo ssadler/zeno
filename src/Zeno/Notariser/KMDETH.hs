@@ -129,9 +129,9 @@ notariseToETH nc@NotariserConfig{..} height32 = do
   -- we already have all the data for the call to set the new block height
   -- in our ethereum contract. so create the call.
 
-  blockHash <- bytes . unHex <$> queryBitcoin "getblockhash" [height]
+  blockHash <- queryBitcoin "getblockhash" [height]
   let notariseCallData = abi "notarise(uint256,bytes32,bytes)"
-                             (height, blockHash :: Bytes 32, "" :: ByteString)
+                             (height, blockHash :: Bytes32, "" :: ByteString)
       proxyParams = (notarisationsContract, height, notariseCallData)
       sighash = ethMakeProxySigMessage proxyParams
 
@@ -208,7 +208,7 @@ getBackNotarisation NotariserConfig{..} NOE{..} = do
   pure $ NOR
     { blockHash = (sha3AsBytes32 foreignHash)
     , blockNumber = foreignHeight
-    , txHash = maxBytes
+    , txHash = newFixed 0xFF
     , symbol = kmdChainSymbol
     , mom = nullBytes
     , momDepth = 0

@@ -33,7 +33,7 @@ import           Network.Ethereum.Crypto
 import           Network.Distributed
 
 import           Zeno.Prelude
-import qualified Zeno.Consensus.P2P as P2P
+import           Zeno.Consensus.P2P
 import           Zeno.Consensus.Step
 import           Zeno.Consensus.Types
 
@@ -46,14 +46,15 @@ runConsensus :: (Sendable a, Has ConsensusNode r) => ConsensusParams
              -> a -> Consensus b -> Zeno r b
 runConsensus params@ConsensusParams{..} topicData act = do
   atomically $ writeTVar mtopic $ hashMsg $ toStrict $ Bin.encode topicData
-  let act' = runReaderT act params
-  ConsensusNode node <- asks $ has
-  liftIO $ do
-    handoff <- newEmptyTMVarIO
-    nodeSpawn (P2P.p2pNode node) $ do
-      -- TODO: _ <- spawnLocalLink P2P.peerNotifier
-      act' >>= atomically . putTMVar handoff
-    atomically $ takeTMVar handoff
+  ConsensusNode p2p <- asks has
+  handoff <- newEmptyTMVarIO
+  nodeSpawn (p2pNode p2p) $
+    \pd -> do
+      let ctx = ConsensusProcess params pd p2p
+      liftIO $ runZeno ctx do
+        -- TODO: _ <- spawnLocalLink P2P.peerNotifier
+        act >>= atomically . putTMVar handoff
+  atomically $ takeTMVar handoff
 
 -- Coordinate Round -----------------------------------------------------------
 
@@ -62,18 +63,17 @@ runConsensus params@ConsensusParams{..} topicData act = do
 --   
 step' :: Sendable a => Collect a -> a -> Consensus (Inventory a)
 step' collect obj = do
-  ConsensusParams members (EthIdent sk myAddr) timeout mtopic <- ask
+  ConsensusParams{ident' = EthIdent sk myAddr, ..} <- asks cpParams
   topic <- readTVarIO mtopic
   let sig = sign sk topic
   let ballot = Ballot myAddr sig obj
 
-  lift do
-    spawnStep topic ballot members
-    collect timeout members
+  spawnStep topic ballot members'
+  collect timeout' members'
 
 stepWithTopic :: Sendable a => Topic -> Collect a -> a -> Consensus (Inventory a)
 stepWithTopic topic collect o = do
-  asks mtopic >>= atomically . flip writeTVar topic
+  asks (mtopic . cpParams) >>= atomically . flip writeTVar topic
   step' collect o
 
 step :: Sendable a => Collect a -> a -> Consensus (Inventory a)
@@ -93,13 +93,13 @@ propose mObj = do
         permuteTopic pAddr
 
         let nextProposer (ConsensusTimeout _) = do
-              lift $ say $ "Timeout collecting for proposer: " ++ show pAddr
+              logInfo $ "Timeout collecting for proposer: " ++ show pAddr
               go xs
             nextProposer e = throw e
 
         obj <-
           if isMe
-             then (lift $ say "I am the chosen one.") >> (Just <$> mObj)
+             then logInfo "I am the chosen one." >> (Just <$> mObj)
              else pure Nothing
 
         handle nextProposer $ do
@@ -108,7 +108,7 @@ propose mObj = do
             case Map.lookup pAddr results of
                  Just (s, Just obj2) -> pure $ Ballot pAddr s obj2
                  _                   -> do
-                   lift $ say $ "Mischief: missing proposal from: " ++ show pAddr
+                   logWarn $ "Mischief: missing proposal from: " ++ show pAddr
                    throw (ConsensusMischief $ printf "Missing proposal from %s" $ show pAddr)
 
 determineProposers :: Consensus [(Address, Bool)]
@@ -122,7 +122,7 @@ determineProposers = do
       dist[d%64] += 1
   print dist
   -}
-  ConsensusParams members (EthIdent _ myAddr)  _ mtopic <- ask
+  ConsensusParams members (EthIdent _ myAddr)  _ mtopic <- asks cpParams
   let msg2sum = sum . map fromIntegral . BS.unpack . getMsg
   topic <- readTVarIO mtopic
   let i = mod (msg2sum topic) (length members)
@@ -131,7 +131,7 @@ determineProposers = do
 
 permuteTopic :: Sendable a => a -> Consensus Topic
 permuteTopic key = do
-  tv <- asks mtopic
+  tv <- asks $ mtopic . cpParams
   atomically do
     cur <- readTVar tv <&> getMsg
     let r = hashMsg $ toStrict $ Bin.encode (key, cur)

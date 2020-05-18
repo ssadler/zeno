@@ -2,6 +2,7 @@
 
 module Zeno.Consensus.P2P
   ( NewPeer(..)
+  , HasP2P(..)
   , P2P(..)
   , startP2P
   , makeNodeId
@@ -104,7 +105,8 @@ startP2P host port seeds = do
   t <- getTransport
   node <- startNode t
   peerState <- PeerState <$> newTVarIO mempty
-  nodeSpawnNamed node peerControllerPid $ peerController peerState seeds
+  nodeSpawnNamed node peerControllerPid $
+    runReaderT $ peerController peerState seeds
   installHandler sigUSR1 (Catch $ dumpPeers peerState) Nothing
   pure $ P2P node peerState
 

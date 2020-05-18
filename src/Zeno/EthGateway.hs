@@ -70,9 +70,9 @@ ethMakeProxyCallData (dest, proxyNonce, proxyCallData) sigs =
   proxySig = "proxy(address,uint256,bytes,bytes32[],bytes32[],bytes)"
 
 
-exportMultisigABI :: [CompactRecSig] -> ([Bytes 32], [Bytes 32], ByteString)
+exportMultisigABI :: [CompactRecSig] -> ([Bytes32], [Bytes32], ByteString)
 exportMultisigABI sigs =
-  let f = bytes . fromShort
+  let f = toFixed . fromShort
    in ( f . sigR <$> sigs
       , f . sigS <$> sigs
       , BS.pack $ getV <$> sigs

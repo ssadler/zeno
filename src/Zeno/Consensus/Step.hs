@@ -66,7 +66,7 @@ spawnStep message myBallot members = do
   -- Build the step context
   tInv <- newTVarIO Map.empty
   -- Hash the message as the topic so it's obfuscated
-  let topic = ProcessId $ getMsg $ hashMsg $ getMsg message
+  let topic = serviceId $ getMsg message
       (Ballot myAddr mySig myData) = myBallot
       step = Step topic tInv members yieldTo mySig message
 

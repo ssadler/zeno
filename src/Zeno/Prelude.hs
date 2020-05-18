@@ -35,7 +35,7 @@ import Data.Map as ALL (Map)
 import Data.Maybe as ALL (catMaybes, isJust, fromJust, fromMaybe, mapMaybe, listToMaybe)
 import Data.Monoid as ALL
 import Data.Set as ALL (Set)
-import Data.SizedBytes as ALL
+import Data.FixedBytes as ALL
 import Data.String.Conv as ALL
 import Data.String as ALL (IsString, fromString)
 import Data.Text as ALL (Text, unpack)

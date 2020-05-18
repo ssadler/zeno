@@ -16,8 +16,8 @@ module Network.Distributed
   , NodeId(..)
   , Process(..)
   , ProcessData(..)
-  , ProcessId(..)
-  , RunProcess(..)
+  , ProcessId
+  , RunProcess
   , Typeable
   , RemoteMessage(..)
   , closeNode
@@ -50,7 +50,9 @@ import qualified Data.ByteArray as BA
 import Data.Maybe
 import Data.Dynamic
 import Data.Hashable (Hashable)
+import Data.FixedBytes
 import Control.Exception (AsyncException(..))
+import Control.Exception.Safe
 import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.Reader
@@ -80,41 +82,38 @@ import UnliftIO.Concurrent hiding (Chan)
 -- | Monad
 --------------------------------------------------------------------------------
 
-class ( Monad p, MonadIO p
-      , MonadThrow p, MonadCatch p
-      , MonadUnliftIO p
-      ) => Process p where
+type ProcessBase m = (MonadUnliftIO m, MonadThrow m, MonadCatch m)
+
+class ProcessBase p => Process p where
   procAsks :: (ProcessData -> a) -> p a
   procWith :: ProcessData -> p () -> p ()
-
-class ( Monad m, MonadIO m
-      , MonadThrow m, MonadCatch m
-      , MonadUnliftIO m, Process p
-      ) => RunProcess p m where
-  runProcess :: p () -> ProcessData -> m ()
 
 instance Process (ReaderT ProcessData IO) where
   procAsks = asks
   procWith r p = withReaderT (const r) p
 
-instance RunProcess (ReaderT ProcessData IO) IO where
-  runProcess = runReaderT
 
-instance Process p => RunProcess p p where
-  runProcess act r = procWith r act
-
+type RunProcess m = ProcessData -> m ()
 
 --------------------------------------------------------------------------------
 -- | Data types
 --------------------------------------------------------------------------------
 
 
-newtype ProcessId = ProcessId BS.ByteString
+newtype ProcessId = ProcessId { unProcessId :: Bytes16 }
   deriving (Show, Eq, Ord, Generic, Hashable, Binary)
 
 
 newtype NodeId = NodeId { endpointAddress :: NT.EndPointAddress }
   deriving (Show, Eq, Ord, Binary)
+
+
+data ProcessData = ProcData
+  { node    :: Node
+  , myPid   :: ProcessId
+  , inbox   :: TQueue Dynamic
+  , myAsync :: Async ()
+  }
 
 
 -- TODO: The queue should be an IO write action rather than a queue
@@ -132,13 +131,6 @@ data Node = Node
   , processes :: STM.Map ProcessId ProcessHandle
   }
 
-
-data ProcessData = ProcData
-  { node    :: Node
-  , myPid   :: ProcessId
-  , inbox   :: TQueue Dynamic
-  , myAsync :: Async ()
-  }
 
 
 data RemoteMessage = RemoteMessage NodeId BSL.ByteString
@@ -163,7 +155,7 @@ startNode transport = do
   lastPid <- newTVarIO ""
   processes <- STM.newIO
   let node = Node{..}
-  nodeSpawn node networkHandler
+  nodeSpawn node $ runReaderT networkHandler
   pure node
 
 
@@ -175,9 +167,9 @@ getMyPid = procAsks myPid
 newPid :: Node -> STM ProcessId
 newPid node@Node{..} = do
   lp <- readTVar lastPid
-  let np = blake2b (salt <> lp)
+  let np = blake2b_160 (salt <> lp)
   writeTVar lastPid np
-  pure $ ProcessId np
+  pure $ ProcessId $ toFixed np
 
 
 getProcessById :: Node -> ProcessId -> STM (Maybe ProcessHandle)
@@ -185,38 +177,42 @@ getProcessById Node{..} pid = do
   STM.lookup pid processes
 
 
-nodeSpawn :: RunProcess p m => Node -> p () -> m ProcessId
+nodeSpawn :: ProcessBase m => Node -> RunProcess m -> m ProcessId
 nodeSpawn node act = do
   pid <- atomically $ newPid node
   nodeSpawnNamed node pid act
   pure pid
 
-nodeSpawnNamed :: RunProcess p m => Node -> ProcessId -> p () -> m ProcessHandle
-nodeSpawnNamed node pid act = do
-  chan <- newTQueueIO
 
-  t <- newEmptyTMVarIO
+nodeSpawnNamed :: ProcessBase m => Node -> ProcessId -> RunProcess m -> m ProcessHandle
+nodeSpawnNamed node@Node{processes} pid act = do
+  atomically (STM.lookup pid processes) >>=
+    maybe (pure ()) (\_ -> throw ProcessNameConflict)
+
+  chan <- newTQueueIO
+  handoff <- newEmptyTMVarIO
+
   async' <- async do
-    r <- ProcData node pid chan <$> atomically (takeTMVar t)
-    runProcess act r
+    r <- ProcData node pid chan <$> atomically (takeTMVar handoff)
+    act r
 
   let proc = Proc chan async'
 
   atomically do
-    STM.insert proc pid $ processes node
-    putTMVar t async'
+    STM.insert proc pid processes
+    putTMVar handoff async'
 
   pure proc
 
 
-
 spawn :: Process p => p () -> p ProcessId
 spawn act = do
-  procAsks node >>= \n -> nodeSpawn n act
+  procAsks node >>= \n -> nodeSpawn n (flip procWith act)
+
 
 spawnNamed :: Process p => ProcessId -> p () -> p ()
 spawnNamed pid act = do
-  procAsks node >>= \node -> nodeSpawnNamed node pid act
+  procAsks node >>= \node -> nodeSpawnNamed node pid (flip procWith act)
   pure ()
 
 
@@ -324,9 +320,8 @@ getForwarder node@Node{..} nodeId = do
   pure (pid, proc)
 
   where
-  run :: ReaderT ProcessData IO ()
-  run = do
-    liftIO (setupConn endpoint nodeId) >>= 
+  run = runReaderT do
+    liftIO (setupConn endpoint nodeId) >>=
       \case Nothing   -> pure ()                -- TODO: log?
             Just conn -> loopHandle conn
 
@@ -340,7 +335,7 @@ getForwarder node@Node{..} nodeId = do
 
 getForwarderId :: BS.ByteString -> NodeId -> ProcessId
 getForwarderId salt nodeId = 
-  ProcessId $ blake2b $ salt <> BS8.pack (show nodeId)
+  ProcessId $ toFixed $ blake2b_160 $ salt <> BS8.pack (show nodeId)
 
 
 setupConn :: NT.EndPoint -> NodeId -> IO (Maybe NT.Connection)
@@ -471,12 +466,12 @@ timeDelta t = f <$> liftIO getCurrentTime where
   f now = round . (*1000000) . realToFrac $ diffUTCTime now t
 
 
-blake2b :: BS.ByteString -> BS.ByteString
-blake2b b = BS.pack (BA.unpack (hash b :: Digest Blake2b_256))
+blake2b_160 :: BS.ByteString -> BS.ByteString
+blake2b_160 b = BS.pack (BA.unpack (hash b :: Digest Blake2b_160))
 
 
 serviceId :: BS.ByteString -> ProcessId
-serviceId = ProcessId . blake2b
+serviceId = ProcessId . toFixed . blake2b_160
 
 
 fix1 :: a -> ((a -> b) -> a -> b) -> b

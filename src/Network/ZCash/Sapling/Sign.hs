@@ -53,9 +53,9 @@ makeSigHashOverwintered net inputIdx H.SigInput{..} tx
     putByteString prevOutsHash
     putByteString sequencesHash
     putByteString outputsHash
-    put (nullBytes :: Bytes 32)           -- join splits not supported
-    put (nullBytes :: Bytes 32)           -- shielded inputs not supported
-    put (nullBytes :: Bytes 32)           -- shielded outputs not supported
+    put (nullBytes :: Bytes32)           -- join splits not supported
+    put (nullBytes :: Bytes32)           -- shielded inputs not supported
+    put (nullBytes :: Bytes32)           -- shielded outputs not supported
     putWord32le (H.txLockTime tx)
     putWord32le expiryHeight
     putWord64le 0                         -- Don't support shielded spends

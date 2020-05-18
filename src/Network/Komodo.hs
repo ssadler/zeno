@@ -122,14 +122,14 @@ getOutPoint utxo = H.OutPoint (utxoTxid utxo) (utxoVout utxo)
 --
 
 data NotarisationData = NOR
-  { blockHash :: Bytes 32
+  { blockHash :: Bytes32
   , blockNumber :: Word32
-  , txHash :: Bytes 32 -- for back notarisation
+  , txHash :: Bytes32 -- for back notarisation
   , symbol :: String
-  , mom :: Bytes 32
+  , mom :: Bytes32
   , momDepth  :: Word16
   , ccId :: Word16
-  , momom :: Bytes 32
+  , momom :: Bytes32
   , momomDepth :: Word32
   } deriving (Eq, Show)
 
