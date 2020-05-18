@@ -12,7 +12,7 @@
 
 
 module Network.Distributed 
-  ( Node
+  ( Node(..)
   , NodeId(..)
   , Process(..)
   , ProcessData(..)

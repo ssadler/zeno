@@ -109,6 +109,7 @@ tests:
     - -with-rtsopts=-N
     dependencies:
     - zeno
+    - network-transport-inmemory
     - tasty
     - tasty-hunit
     - tasty-hspec

@@ -27,7 +27,7 @@ test_solidityExamples = testGroup "solidity examples"
 
   , testCase "example2" $
 
-      iso ("abc"::Bytes 3, "def"::Bytes 3)
+      iso ("abc"::FixedBytes 3, "def"::FixedBytes 3)
           ("6162630000000000000000000000000000000000000000000000000000000000" <>
            "6465660000000000000000000000000000000000000000000000000000000000"
           )
@@ -82,11 +82,11 @@ test_misc = testGroup "misc"
   , testCase "misc3" $ abiPass (U256 1, U256 2)
   , testCase "misc4" $ abiPass [("ABC"::ByteString,True)]
   , testCase "misc5" $ abiPass [("ABC"::ByteString,True),("DEF",False)]
-  , testCase "misc6" $ abiPass ([["ABC"::ByteString,"DEF"],["GHI"]], [("a"::Bytes 1, "def"::ByteString)])
+  , testCase "misc6" $ abiPass ([["ABC"::ByteString,"DEF"],["GHI"]], [("a"::FixedBytes 1, "def"::ByteString)])
   , testCase "misc7" $ abiPass ("abc"::ByteString,("def"::ByteString,True))
   , testCase "misc8" $ abiPass ([([(U256 1,"abc"::ByteString)],True)],0::Int)
-  , testCase "misc9" $ abiPass (""::Bytes 0)
-  , testCase "fail1" $ abiFail ("1"::Bytes 32) (undefined::Int)
+  , testCase "misc9" $ abiPass (""::FixedBytes 0)
+  , testCase "fail1" $ abiFail ("1"::FixedBytes 32) (undefined::Int)
   , testCase "fail2" $ isLeft (decodeABI "" :: Either String Int) @? "string is not long enough"
   ]
 
