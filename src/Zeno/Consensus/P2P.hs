@@ -15,18 +15,21 @@
 -- >     liftIO $ threadDelay 1000000 -- give dispatcher a second to discover other nodes
 -- >     P2P.nsendPeers "myService" ("some", "message")
 
-module Zeno.Consensus.P2P (
-    -- * Starting peer controller
-    NewPeer(..),
-    startP2P,
-    makeNodeId,
-    getPeers,
-    nsendPeers,
-    peerController,
-    peerListenerService,
-    runSeed,
-    peerNotifier
-) where
+module Zeno.Consensus.P2P
+  ( NewPeer(..)
+  , startP2P
+  , makeNodeId
+  , getPeers
+  , nsendPeers
+  , peerController
+  , peerListenerService
+  , runSeed
+  , peerNotifier
+  -- for testing
+  , WhereIsReply(..)
+  , Hello(..)
+  , peerControllerService
+  ) where
 
 import Control.Distributed.Process
 import Control.Distributed.Process.Node
@@ -190,7 +193,7 @@ newPeer (PeerState{..}) pid = do
 
 
 data Hello = Hello
-  deriving (Typeable, Generic)
+  deriving (Show, Typeable, Generic)
 
 instance Binary Hello
 
