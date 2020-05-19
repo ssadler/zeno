@@ -58,7 +58,7 @@ spawnStep :: forall a. (Sendable a, Typeable a)
         => Msg
         -> Ballot a
         -> [Address]
-        -> Consensus ()
+        -> Consensus ProcessHandle
 spawnStep message myBallot members = do
 
   yieldTo <- getMyPid
@@ -73,7 +73,7 @@ spawnStep message myBallot members = do
 
   spawnChildNamed topic do
     -- Spawn our inventory builder
-    builder <- spawnChild $ inventoryBuilder step
+    builder <- procId <$> spawnChild (inventoryBuilder step)
 
     -- Register so that we get new peer events
     -- TODO nsend P2P.peerListenerService myPid

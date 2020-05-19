@@ -16,14 +16,18 @@ module Network.Distributed
   , NodeId(..)
   , Process(..)
   , ProcessData(..)
+  , ProcessHandle(..)
   , ProcessId
   , RunProcess
   , Typeable
   , RemoteMessage(..)
   , closeNode
   , getMyPid
+  , getProcessById
+  , killProcess
   , monitorRemote
   , nodeSpawn
+  , nodeSpawn'
   , nodeSpawnNamed
   , receiveDuring
   , receiveDuringS
@@ -52,9 +56,8 @@ import Data.Dynamic
 import Data.Hashable (Hashable)
 import Data.FixedBytes
 import Control.Exception (AsyncException(..))
-import Control.Exception.Safe
 import Control.Monad
-import Control.Monad.Catch
+import Control.Monad.Catch (MonadThrow, MonadCatch)
 import Control.Monad.Reader
 import Control.Applicative
 import Control.Monad.IO.Class
@@ -120,6 +123,7 @@ data ProcessData = ProcData
 data ProcessHandle = Proc
   { procChan :: TQueue Dynamic
   , procAsync :: Async ()
+  , procId :: ProcessId
   }
 
 
@@ -177,26 +181,29 @@ getProcessById Node{..} pid = do
   STM.lookup pid processes
 
 
-nodeSpawn :: ProcessBase m => Node -> RunProcess m -> m ProcessId
-nodeSpawn node act = do
+nodeSpawn :: ProcessBase m => Node -> RunProcess m -> m ProcessHandle
+nodeSpawn node act = nodeSpawn' node act
+
+nodeSpawn' :: ProcessBase m => Node -> RunProcess m -> m ProcessHandle
+nodeSpawn' node act = do
   pid <- atomically $ newPid node
   nodeSpawnNamed node pid act
-  pure pid
 
 
 nodeSpawnNamed :: ProcessBase m => Node -> ProcessId -> RunProcess m -> m ProcessHandle
 nodeSpawnNamed node@Node{processes} pid act = do
   atomically (STM.lookup pid processes) >>=
-    maybe (pure ()) (\_ -> throw ProcessNameConflict)
+    maybe (pure ()) (\_ -> throwIO ProcessNameConflict)
 
   chan <- newTQueueIO
   handoff <- newEmptyTMVarIO
 
   async' <- async do
     r <- ProcData node pid chan <$> atomically (takeTMVar handoff)
-    act r
+    finally (act r) do
+      atomically $ STM.delete pid processes
 
-  let proc = Proc chan async'
+  let proc = Proc chan async' pid
 
   atomically do
     STM.insert proc pid processes
@@ -205,15 +212,14 @@ nodeSpawnNamed node@Node{processes} pid act = do
   pure proc
 
 
-spawn :: Process p => p () -> p ProcessId
+spawn :: Process p => p () -> p ProcessHandle
 spawn act = do
   procAsks node >>= \n -> nodeSpawn n (flip procWith act)
 
 
-spawnNamed :: Process p => ProcessId -> p () -> p ()
+spawnNamed :: Process p => ProcessId -> p () -> p ProcessHandle
 spawnNamed pid act = do
   procAsks node >>= \node -> nodeSpawnNamed node pid (flip procWith act)
-  pure ()
 
 
 receiveDuring :: (Process p, Typeable a) => Int -> (a -> p ()) -> p ()
@@ -231,7 +237,7 @@ receiveDuringS s = receiveDuring (s * 1000000)
 
 -- Spawns a process and links it to it's parent so that
 -- it will die when it's parent dies
-spawnChild :: Process p => p () -> p ProcessId
+spawnChild :: Process p => p () -> p ProcessHandle
 spawnChild act = do
   parent <- procAsks myAsync
   spawn do
@@ -241,7 +247,7 @@ spawnChild act = do
     act
 
 -- TODO: DRY
-spawnChildNamed :: Process p => ProcessId -> p () -> p ()
+spawnChildNamed :: Process p => ProcessId -> p () -> p ProcessHandle
 spawnChildNamed pid act = do
   parent <- procAsks myAsync
   spawnNamed pid do
