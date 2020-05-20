@@ -66,12 +66,12 @@ nodeSpawnNamed node@Node{processes} pid act = do
 
 spawn :: Process p => p () -> p ProcessHandle
 spawn act = do
-  procAsks node >>= \n -> nodeSpawn n (flip procWith act)
+  procAsks myNode >>= \n -> nodeSpawn n (flip procWith act)
 
 
 spawnNamed :: Process p => ProcessId -> p () -> p ProcessHandle
 spawnNamed pid act = do
-  procAsks node >>= \node -> nodeSpawnNamed node pid (flip procWith act)
+  procAsks myNode >>= \node -> nodeSpawnNamed node pid (flip procWith act)
 
 
 
@@ -97,7 +97,7 @@ sendProcSTM Proc{..} = writeTQueue procChan . toDyn
 
 send :: (Process p, Typeable a) => ProcessId -> a -> p ()
 send pid msg = do
-  node <- procAsks node
+  node <- procAsks myNode
   atomically $ sendSTM node pid msg
 
 

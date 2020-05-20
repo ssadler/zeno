@@ -17,7 +17,11 @@ import           UnliftIO
 
 import           Zeno.Consensus.P2P
 
-data ConsensusNode = ConsensusNode { unConsensusNode :: P2P }
+
+data ConsensusNode = ConsensusNode
+  { node :: Node
+  , peerState :: PeerState
+  }
 
 data Ballot a = Ballot
   { bMember :: Address
@@ -53,7 +57,7 @@ type Topic = Msg
 data ConsensusProcess = ConsensusProcess
   { cpParams :: ConsensusParams
   , cpProc   :: ProcessData
-  , cpP2P    :: P2P
+  , cpNode   :: ConsensusNode
   }
 type Consensus = Zeno ConsensusProcess
 
@@ -62,7 +66,7 @@ instance Process Consensus where
   procWith r = zenoReader (\p -> p {cpProc = r})
 
 instance HasP2P Consensus where
-  getP2P = asks cpP2P
+  getPeerState = asks $ peerState . cpNode
 
 data ConsensusException = ConsensusTimeout String
                         | ConsensusMischief String

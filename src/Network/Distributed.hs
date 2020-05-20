@@ -105,7 +105,7 @@ receiveDuringS s = receiveDuring (s * 1000000)
 
 spawnChild :: Process p => p () -> p ProcessHandle
 spawnChild act = do
-  pid <- procAsks node >>= atomically . newPid
+  pid <- procAsks myNode >>= atomically . newPid
   spawnChildNamed pid act
 
 

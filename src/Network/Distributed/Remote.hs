@@ -70,7 +70,7 @@ getForwarderId salt nodeId =
 
 sendRemote :: (Binary a, Process p) => NodeId -> ProcessId -> a -> p ()
 sendRemote nodeId theirPid msg = do
-  node <- procAsks node
+  node <- procAsks myNode
   proc <- liftIO $ getForwarder node nodeId
   atomically $
     sendProcSTM proc $ ForwardMessage theirPid $ encode msg
@@ -78,7 +78,7 @@ sendRemote nodeId theirPid msg = do
 
 monitorRemote :: Process p => NodeId -> p () -> p ()
 monitorRemote nodeId onTerminate = do
-  node@Node{..} <- procAsks node
+  node@Node{..} <- procAsks myNode
   -- TODO: atomic, mask, etc
   Proc{..} <- liftIO $ getForwarder node nodeId
   spawn do
@@ -108,7 +108,7 @@ receiveWaitRemote = do
 
 networkHandler :: ReaderT ProcessData IO ()
 networkHandler = do
-  node@Node{..} <- procAsks node
+  node@Node{..} <- procAsks myNode
 
   fix1 mempty $
     \go !conns -> do

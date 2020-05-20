@@ -3,12 +3,10 @@
 module Zeno.Consensus.P2P
   ( NewPeer(..)
   , HasP2P(..)
-  , P2P(..)
+  , PeerState
   , startP2P
-  , makeNodeId
   , getPeers
   , sendPeers
-  , runSeed
   ) where
 
 import Network.Transport (EndPointAddress(..), Transport)
@@ -19,7 +17,6 @@ import Network.Distributed
 import Control.Monad
 import Control.Monad.Reader
 
-import qualified Data.ByteString.Char8 as BS
 import qualified Data.Set as Set
 import Data.Binary
 import Data.Typeable
@@ -34,12 +31,13 @@ import UnliftIO.Concurrent
 
 -- * Peer-to-peer API
 
+class (MonadIO p, Monad p, MonadLogger p) => HasP2P p where
+  getPeerState :: p PeerState
 
 getPeers :: HasP2P p => p [NodeId]
 getPeers = do
-  PeerState peers <- p2pState <$> getP2P
+  PeerState peers <- getPeerState
   Set.toList <$> readTVarIO peers
-
 
 sendPeers :: (Process p, HasP2P p, Binary a) => ProcessId -> a -> p ()
 sendPeers pid msg = do
@@ -47,87 +45,37 @@ sendPeers pid msg = do
   forM_ peers $ \peer -> sendRemote peer pid msg
 
 
-class (MonadIO p, Monad p) => HasP2P p where
-  getP2P :: p P2P
-
-
-data PeerData = PeerData
-  { peerP2P :: P2P
-  , peerProc :: ProcessData
-  }
-
-
-
+-- * Types
 
 type Peers = Set.Set NodeId
 
 data PeerState = PeerState { p2pPeers :: TVar Peers }
 
-data P2P = P2P
-  { p2pNode :: Node
-  , p2pState :: PeerState
-  }
+type PeerController = Zeno ProcessData
 
+instance Process (Zeno ProcessData) where
+  procAsks = asks
+  procWith pd = zenoReader (const pd)
 
-data WhereIsReply = WhereIsReply String (Maybe ProcessId)
-  deriving (Generic, Typeable)
-
-instance Binary WhereIsReply
-
-
-runSeed :: String -> Word16 -> IO ()
-runSeed host port = do
-  putStrLn $ "Now seeding on %s:%i" % (host, port)
-  startP2P host port []
-  threadDelay $ 2^64
-
-
--- ** Initialization
-
--- | Make a NodeId from "host:port" string.
-makeNodeId :: Word16 -> String -> NodeId
-makeNodeId port addr = NodeId . EndPointAddress . BS.concat $ [BS.pack addr', ":0"]
-  where addr' = addr ++ maybe (':' : show port) (\_ -> "") (elemIndex ':' addr)
 
 
 
 peerControllerPid :: ProcessId
 peerControllerPid = serviceId "peerController"
 
-
-
 startP2P
-  :: HostName
-  -> Word16
+  :: Node
   -> [NodeId]
-  -> IO P2P
-startP2P host port seeds = do
-  t <- getTransport
-  node <- startNode t
-  peerState <- PeerState <$> newTVarIO mempty
+  -> IO PeerState
+startP2P node seeds = do
+  ps <- PeerState <$> newTVarIO mempty
   nodeSpawnNamed node peerControllerPid $
-    runReaderT $ peerController peerState seeds
-  installHandler sigUSR1 (Catch $ dumpPeers peerState) Nothing
-  pure $ P2P node peerState
+    \pd -> runZeno pd $ peerController ps seeds
+  installHandler sigUSR1 (Catch $ dumpPeers ps) Nothing
+  pure ps
 
   where
-  myNodeId = makeNodeId port host
-
-  (bindAddr, hostAddr) =
-    case elemIndex '/' host of
-      Nothing -> (host, host)
-      Just idx -> let (a, _:b) = splitAt idx host in (a, b)
-
-  tcpHost = Addressable $
-    TCPAddrInfo bindAddr (show port) ((,) hostAddr)
-
-  getTransport :: IO Transport
-  getTransport = do
-    let tcpParams = defaultTCPParameters { tcpCheckPeerHost = True }
-    createTransport tcpHost tcpParams <&>
-      either (error . show) id
-
-  peerController :: PeerState -> [NodeId] -> ReaderT ProcessData IO ()
+  peerController :: PeerState -> [NodeId] -> PeerController ()
   peerController state seeds = do
     forever do
       mapM_ doDiscover seeds
@@ -165,24 +113,24 @@ dumpPeers PeerState{..} = do
 
 
 -- 0: A node probes another node
-doDiscover :: Process p => NodeId -> p ()
+doDiscover :: NodeId -> PeerController ()
 doDiscover nodeId =
   sendRemote nodeId peerControllerPid Hello
 
 
 -- 2: When there's a request to share peers
-onPeerHello :: Process p => PeerState -> NodeId -> p ()
+onPeerHello :: PeerState -> NodeId -> PeerController ()
 onPeerHello s@PeerState{..} peer = do
   peers <- readTVarIO p2pPeers
   sendRemote peer peerControllerPid peers
   newPeer s peer
 
 
-newPeer :: Process p => PeerState -> NodeId -> p ()
+newPeer :: PeerState -> NodeId -> PeerController ()
 newPeer state@(PeerState{..}) peer = do
   peers <- readTVarIO p2pPeers
   unless (Set.member peer peers) do
-    say $ "New peer: " ++ show peer
+    logDebug $ "New peer: " ++ show peer
     atomically $ writeTVar p2pPeers $ Set.insert peer peers
     monitorRemote peer dropPeer
     -- nsend peerListenerService $ NewPeer $ processNodeId pid -- TODO
@@ -190,11 +138,8 @@ newPeer state@(PeerState{..}) peer = do
 
   where
   dropPeer = do
-    say $ "Peer disconnect: " ++ show peer
+    logDebug $ "Peer disconnect: " ++ show peer
     atomically $ modifyTVar p2pPeers $ Set.delete peer
- 
-say = undefined
- 
 
 
 -- 

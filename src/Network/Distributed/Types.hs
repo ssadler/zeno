@@ -50,7 +50,7 @@ newtype NodeId = NodeId { endpointAddress :: NT.EndPointAddress }
 
 
 data ProcessData = ProcData
-  { node    :: Node
+  { myNode    :: Node
   , myPid   :: ProcessId
   , inbox   :: TQueue Dynamic
   , myAsync :: Async ()

@@ -46,11 +46,11 @@ runConsensus :: (Sendable a, Has ConsensusNode r) => ConsensusParams
              -> a -> Consensus b -> Zeno r b
 runConsensus params@ConsensusParams{..} topicData act = do
   atomically $ writeTVar mtopic $ hashMsg $ toStrict $ Bin.encode topicData
-  ConsensusNode p2p <- asks has
+  cn@ConsensusNode{..} <- asks has
   handoff <- newEmptyTMVarIO
-  nodeSpawn (p2pNode p2p) $
+  nodeSpawn node $
     \pd -> do
-      let ctx = ConsensusProcess params pd p2p
+      let ctx = ConsensusProcess params pd cn
       liftIO $ runZeno ctx do
         -- TODO: _ <- spawnLocalLink P2P.peerNotifier
         act >>= atomically . putTMVar handoff

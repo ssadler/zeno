@@ -14,14 +14,15 @@ module Zeno.Consensus
   , majorityThreshold
   ) where
 
-import Control.Exception.Safe
-
+import qualified Data.ByteString as BS
+import qualified Data.ByteString.Char8 as BS8
 import Network.Transport
+import Network.Transport.TCP
 import Network.Distributed
 
 import Zeno.Consensus.Types
 import Zeno.Consensus.Round
-import Zeno.Consensus.P2P as P2P
+import Zeno.Consensus.P2P
 
 import Zeno.Config
 import Zeno.Prelude
@@ -31,13 +32,38 @@ import Zeno.Prelude
 
 spawnConsensusNode :: ConsensusNetworkConfig -> IO ConsensusNode
 spawnConsensusNode CNC{..} = do
-  let seeds' = P2P.makeNodeId port <$> seeds
-  node <- P2P.startP2P host port seeds'
-  pure $ ConsensusNode node
+  t <- getTransport
+  node <- startNode t
+  p2p <- startP2P node seeds'
+  pure $ ConsensusNode node p2p
+
+  where
+  myNodeId = makeNodeId port host
+  seeds' = makeNodeId port <$> seeds
+
+  (bindAddr, hostAddr) =
+    case elemIndex '/' host of
+      Nothing -> (host, host)
+      Just idx -> let (a, _:b) = splitAt idx host in (a, b)
+
+  tcpHost = Addressable $
+    TCPAddrInfo bindAddr (show port) ((,) hostAddr)
+
+  getTransport :: IO Transport
+  getTransport = do
+    let tcpParams = defaultTCPParameters { tcpCheckPeerHost = True }
+    createTransport tcpHost tcpParams <&>
+      either (error . show) id
+
+
+  -- | Make a NodeId from "host:port" string.
+  makeNodeId :: Word16 -> String -> NodeId
+  makeNodeId port addr = NodeId . EndPointAddress $ BS8.pack addr' <> ":0"
+    where addr' = addr ++ maybe (':' : show port) (\_ -> "") (elemIndex ':' addr)
 
 
 withConsensusNode :: ConsensusNetworkConfig -> (ConsensusNode -> IO a) -> IO a
 withConsensusNode conf = do
  bracket (spawnConsensusNode conf)
-         (error "closeNode - should inform peers of end and kill everything") -- closeNode . unConsensusNode)
+         (closeNode . node)
 

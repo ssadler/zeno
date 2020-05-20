@@ -56,7 +56,7 @@ test_process = testGroup "process management"
 
   , testCase "spawnChild: parent returns normally terminates child" do
       node <- createTransport >>= startNode
-      syncChild <- newEmptyMVar
+      syncChild <- newMVar ()
       handoffChild <- newEmptyMVar
       parent <- nodeSpawn' node $ runReaderT do
         child <- spawnChild do
@@ -64,8 +64,9 @@ test_process = testGroup "process management"
           putMVar syncChild ()               -- will block
         putMVar handoffChild child
 
-      readMVar syncChild
+      takeMVar syncChild
       assertNProcs node 2
+      readMVar syncChild
       child <- readMVar handoffChild
       Right () <- waitCatch (procAsync parent)
 
