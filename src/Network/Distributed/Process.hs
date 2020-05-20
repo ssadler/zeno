@@ -101,7 +101,6 @@ send pid msg = do
   atomically $ sendSTM node pid msg
 
 
-
 receiveWait :: (Process p, Typeable a) => p a
 receiveWait = do
   r <- procAsks inbox >>= atomically . readTQueue

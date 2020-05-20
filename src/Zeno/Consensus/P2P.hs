@@ -1,4 +1,3 @@
-{-# LANGUAGE OverloadedStrings, RecordWildCards, MonoLocalBinds, DeriveGeneric #-}
 
 module Zeno.Consensus.P2P
   ( NewPeer(..)
@@ -9,25 +8,19 @@ module Zeno.Consensus.P2P
   , sendPeers
   ) where
 
-import Network.Transport (EndPointAddress(..), Transport)
-import Network.Socket (HostName, ServiceName)
-import Network.Transport.TCP
 import Network.Distributed
 
 import Control.Monad
-import Control.Monad.Reader
 
 import qualified Data.Set as Set
 import Data.Binary
-import Data.Typeable
 
 import Zeno.Prelude
 
-import GHC.Generics (Generic)
 import System.Posix.Signals
 import UnliftIO
-import UnliftIO.Concurrent
 
+import Debug.Trace
 
 -- * Peer-to-peer API
 
@@ -68,27 +61,20 @@ startP2P
   -> [NodeId]
   -> IO PeerState
 startP2P node seeds = do
+  traceM "startP2P"
   ps <- PeerState <$> newTVarIO mempty
   nodeSpawnNamed node peerControllerPid $
     \pd -> runZeno pd $ peerController ps seeds
   installHandler sigUSR1 (Catch $ dumpPeers ps) Nothing
   pure ps
-
   where
-  peerController :: PeerState -> [NodeId] -> PeerController ()
-  peerController state seeds = do
-    forever do
-      mapM_ doDiscover seeds
-      receiveDuringS 60 $
-        withRemoteMessage $
-          \peer ->
-             \case 
-               Hello     -> onPeerHello state peer
-               (Peers peers) -> do
-                 known <- readTVarIO $ p2pPeers state
-                 -- Do a discovery here so when we get a response we know the node is up
-                 mapM_ doDiscover $ Set.toList $ Set.difference peers known
 
+  dumpPeers PeerState{..} = do
+    peers <- atomically $ readTVar p2pPeers
+    runZeno () $ do
+      logInfo "Got signal USR1"
+      forM_ peers $ \p ->
+        logInfo $ show p
 
 
 data PeerMsg =
@@ -98,31 +84,36 @@ data PeerMsg =
 
 instance Binary PeerMsg
 
-newtype GetPeers = GetPeers ProcessId
-  deriving (Typeable)
 
-dumpPeers :: PeerState -> IO ()
-dumpPeers PeerState{..} = do
-  peers <- atomically $ readTVar p2pPeers
-
-  runZeno () $ do
-    logInfo "Got signal USR1"
-    forM_ peers $ \p ->
-      logInfo $ show p
-
+peerController :: PeerState -> [NodeId] -> PeerController ()
+peerController state seeds = do
+  traceM "peerController"
+  forever do
+    mapM_ doDiscover seeds
+    receiveDuringS 60 $
+      withRemoteMessage $
+        \peer ->
+           \case 
+             Hello     -> onPeerHello state peer
+             (Peers peers) -> do
+               known <- readTVarIO $ p2pPeers state
+               -- Do a discovery here so when we get a response we know the node is up
+               mapM_ doDiscover $ Set.toList $ Set.difference peers known
 
 
 -- 0: A node probes another node
 doDiscover :: NodeId -> PeerController ()
-doDiscover nodeId =
+doDiscover nodeId = do
+  traceShowM ("Discover", nodeId)
   sendRemote nodeId peerControllerPid Hello
 
 
 -- 2: When there's a request to share peers
 onPeerHello :: PeerState -> NodeId -> PeerController ()
 onPeerHello s@PeerState{..} peer = do
+  traceShowM ("Hello", peer)
   peers <- readTVarIO p2pPeers
-  sendRemote peer peerControllerPid peers
+  sendRemote peer peerControllerPid $ Peers peers
   newPeer s peer
 
 

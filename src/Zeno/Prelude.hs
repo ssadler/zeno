@@ -53,7 +53,7 @@ import Text.Printf as ALL (PrintfArg, printf)
 
 import System.Directory
 
-import Debug.Trace as ALL (traceShowId)
+import Debug.Trace as ALL (traceShowId, traceM, traceShowM)
 
 (<&>) :: Functor f => f a -> (a -> b) -> f b
 (<&>) = flip fmap

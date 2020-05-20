@@ -91,7 +91,7 @@ bytesReverse (Bytes b) = Bytes $ BS.reverse b
 
 bytesFromHex :: forall n. KnownNat n => ByteString -> Either String (FixedBytes n)
 bytesFromHex bsHex
-  | r /= ""           = Left "Invalid hex"
+  | r /= ""           = Left $ "Invalid hex: " ++ show bsHex
   | BS.length bs /= n = Left "Incorrect length"
   | otherwise         = Right $ Bytes bs
   where

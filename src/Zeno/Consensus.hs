@@ -1,6 +1,7 @@
 
 module Zeno.Consensus
   ( module Zeno.Consensus.Types
+  , startSeedNode
   , spawnConsensusNode
   , withConsensusNode
   , runConsensus
@@ -62,8 +63,16 @@ spawnConsensusNode CNC{..} = do
     where addr' = addr ++ maybe (':' : show port) (\_ -> "") (elemIndex ':' addr)
 
 
+
 withConsensusNode :: ConsensusNetworkConfig -> (ConsensusNode -> IO a) -> IO a
 withConsensusNode conf = do
  bracket (spawnConsensusNode conf)
          (closeNode . node)
 
+
+
+startSeedNode :: String -> Word16 -> IO ()
+startSeedNode host port = do
+  let cnc = CNC [] host port
+  _ <- spawnConsensusNode cnc
+  threadDelay $ 2^62

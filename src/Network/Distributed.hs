@@ -119,25 +119,32 @@ spawnChildNamed pid act = do
     act
 
 
+receiveMaybeSTM :: Typeable a => ProcessData -> STM (Maybe a)
+receiveMaybeSTM ProcData{..} = do
+  tryReadTQueue inbox >>=
+    \case
+      Nothing -> pure Nothing
+      Just d ->
+        maybe retry (pure . Just) (fromDynamic d)
+
+
 receiveMaybe :: (Process p, Typeable a) => p (Maybe a)
-receiveMaybe = receiveTimeout 0
+receiveMaybe = do
+  procAsks id >>= atomically . receiveMaybeSTM
 
 
--- TODO: Does this function peg CPU?
 receiveTimeout :: (Process p, Typeable a) => Int -> p (Maybe a)
 receiveTimeout us = do
-  ProcData{..} <- procAsks id
+  pd <- procAsks id
   delay <- registerDelay us
   atomically do
-    tryReadTQueue inbox >>=
+    receiveMaybeSTM pd >>=
       \case
+        Just o -> pure (Just o)
         Nothing -> do
           readTVar delay >>= check
           pure Nothing
-        Just d ->
-          case fromDynamic d of
-            Nothing -> retry
-            Just msg -> pure (Just msg)
+
 
 receiveTimeoutS :: (Process p, Typeable a) => Int -> p (Maybe a)
 receiveTimeoutS s = receiveTimeout (s * 1000000)

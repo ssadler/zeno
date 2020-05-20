@@ -8,7 +8,6 @@ module Zeno.Consensus.Round
   , step
   , stepWithTopic
   , propose
-  , say
   , collectMembers
   , collectMajority
   , collectThreshold
@@ -176,4 +175,3 @@ majorityThreshold :: Int -> Int
 majorityThreshold m = floor $ (fromIntegral m) / 2 + 1
 
 
-say = error "say"

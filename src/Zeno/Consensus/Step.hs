@@ -119,20 +119,20 @@ onInventoryData Step{..} theirInv = do
   let idx = inventoryIndex members inv
   when (0 /= idx .&. complement oldIdx) $ do
     send yieldTo inv
+    traceM "sendPeers"
     P2P.sendPeers topic (mySig, InventoryIndex idx :: StepMessage a)
 
 
+-- TODO: Track who sends bad data
 authenticate :: Step a -> (b -> Consensus ()) -> (CompactRecSig, b) -> Consensus ()
 authenticate step@Step{..} act (theirSig, obj) =
   case recoverAddr message theirSig of
        Just addr ->
          if elem addr members
             then act obj
-            else say $ "Not member or wrong step: " ++ show addr
+            else logWarn $ "Not member or wrong step: " ++ show addr
        Nothing -> do
-         say "Signature recovery failed"
-
-say = error "say"
+         logWarn "Signature recovery failed"
 
 
 -- | Inventory builder, continually builds and dispatches queries for remote inventory

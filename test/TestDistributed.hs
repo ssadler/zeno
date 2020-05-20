@@ -92,6 +92,39 @@ test_process = testGroup "process management"
   ]
 
 
+test_messaging = testGroup "local messaging"
+  [
+    testCase "receiveTimeout Nothing" do
+      node <- createTransport >>= startNode
+
+      sync <- newEmptyMVar
+    
+      p1 <-
+        nodeSpawn node $ runReaderT do
+          receiveTimeoutS 0 >>=
+            \case Nothing -> putMVar sync ()
+                  Just () -> fail "Should not be here"
+
+      takeMVar sync
+
+  , testCase "receiveTimeout Just" do
+      node <- createTransport >>= startNode
+
+      sync <- newEmptyMVar
+
+      p1 <-
+        nodeSpawn node $ runReaderT do
+          Just () <- receiveTimeoutS 1
+          putMVar sync ()
+
+      p2 <-
+        nodeSpawn node $ runReaderT do
+          send (procId p1) ()
+
+      takeMVar sync
+
+  ]
+
 
 test_remote = testGroup "remote send/receive"
   [
