@@ -32,6 +32,7 @@ module Network.Distributed
   , receiveTimeout
   , receiveTimeoutS
   , receiveWait
+  , receiveWaitRemote
   , send
   , sendRemote
   , serviceId
@@ -83,6 +84,12 @@ startNode transport = do
   pure node
 
 
+closeNode :: Node -> IO ()
+closeNode Node{..} = do
+  NT.closeEndPoint endpoint
+  NT.closeTransport transport
+
+
 receiveDuring :: (Process p, Typeable a) => Int -> (a -> p ()) -> p ()
 receiveDuring timeout act = do
   startTime <- liftIO $ getCurrentTime
@@ -110,14 +117,6 @@ spawnChildNamed pid act = do
     pure () <* forkIO do
       waitCatch parent >>= \_ -> uninterruptibleCancel child
     act
-
-
-
-
-closeNode :: Node -> IO ()
-closeNode Node{..} = do
-  NT.closeEndPoint endpoint
-  NT.closeTransport transport
 
 
 receiveMaybe :: (Process p, Typeable a) => p (Maybe a)

@@ -106,7 +106,7 @@ receiveWait :: (Process p, Typeable a) => p a
 receiveWait = do
   r <- procAsks inbox >>= atomically . readTQueue
   case fromDynamic r of
-    Nothing -> receiveWait
+    Nothing -> liftIO (print "receiveWait miss") >> receiveWait
     Just a -> pure a
 
 blake2b_160 :: BS.ByteString -> BS.ByteString

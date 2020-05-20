@@ -35,6 +35,7 @@ instance Process (ReaderT ProcessData IO) where
 
 type RunProcess m = ProcessData -> m ()
 
+
 --------------------------------------------------------------------------------
 -- | Data types
 --------------------------------------------------------------------------------
@@ -72,6 +73,9 @@ data Node = Node
   , processes :: STM.Map ProcessId ProcessHandle
   }
 
+
+getNodeId :: Node -> NodeId
+getNodeId = NodeId . NT.address . endpoint
 
 
 data ProcessNameConflict = ProcessNameConflict

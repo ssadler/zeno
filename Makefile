@@ -3,7 +3,7 @@ dev:
 	ghcid -c 'stack repl zeno:lib'
 
 dev-test:
-	ghcid -c 'stack repl zeno --test --main-is :zeno-test' --test ':main -p distributed --color always'
+	ghcid -c 'stack repl zeno --test --main-is :zeno-test' --test ':main --color always'
 
 
 dot:

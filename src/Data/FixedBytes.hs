@@ -60,7 +60,7 @@ instance forall n. KnownNat n => Serialize (FixedBytes n) where
     n = fixedGetN (Proxy :: Proxy n)
 
 instance forall n. KnownNat n => Bin.Binary (FixedBytes n) where
-  put = Bin.putList . BS.unpack . unFixed
+  put = mapM_ Bin.put . BS.unpack . unFixed
   get = Bytes <$> mbs where
     n = fixedGetN (Proxy :: Proxy n)
     mbs = BS.pack <$> replicateM n Bin.get
