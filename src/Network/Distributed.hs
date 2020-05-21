@@ -15,13 +15,17 @@ module Network.Distributed
   , ProcessData(..)
   , ProcessHandle(..)
   , ProcessId
+  , RemoteMessage(..)
+  , RemoteProcess
+  , RemoteProcessData
   , RunProcess
   , Typeable
-  , RemoteMessage(..)
   , closeNode
   , getMyPid
   , getProcessById
+  , getVoidProcessById
   , killProcess
+  , monitorLocal
   , monitorRemote
   , nodeSpawn
   , nodeSpawn'
@@ -29,6 +33,7 @@ module Network.Distributed
   , receiveDuring
   , receiveDuringS
   , receiveMaybe
+  , receiveMaybeRemote
   , receiveTimeout
   , receiveTimeoutS
   , receiveWait
@@ -65,6 +70,8 @@ import System.Entropy
 import UnliftIO hiding (Chan)
 import UnliftIO.Concurrent hiding (Chan)
 
+import Debug.Trace
+
 
 -- TODO
 -- The node should not be neccesary. The processmap should only be required
@@ -90,26 +97,26 @@ closeNode Node{..} = do
   NT.closeTransport transport
 
 
-receiveDuring :: (Process p, Typeable a) => Int -> (a -> p ()) -> p ()
+receiveDuring :: Process i p => Int -> (i -> p ()) -> p ()
 receiveDuring timeout act = do
   startTime <- liftIO $ getCurrentTime
   fix $ \f -> do
     d <- liftIO $ timeDelta startTime
     let us = timeout - d
-    when (us > 0) $
-       receiveTimeout us >>= maybe (pure ()) act
+    receiveTimeout us >>= maybe (pure ()) act
+    when (us > 0) f
 
-receiveDuringS :: (Process p, Typeable a) => Int -> (a -> p ()) -> p ()
+receiveDuringS :: Process i p => Int -> (i -> p ()) -> p ()
 receiveDuringS s = receiveDuring (s * 1000000)
 
 
-spawnChild :: Process p => p () -> p ProcessHandle
+spawnChild :: (SpawnProcess p i2 p2, Process i p) => p2 () -> p (ProcessHandle i2)
 spawnChild act = do
   pid <- procAsks myNode >>= atomically . newPid
   spawnChildNamed pid act
 
 
-spawnChildNamed :: Process p => ProcessId -> p () -> p ProcessHandle
+spawnChildNamed :: (SpawnProcess p i2 p2, Process i p) => ProcessId -> p2 () -> p (ProcessHandle i2)
 spawnChildNamed pid act = do
   parent <- procAsks myAsync
   spawnNamed pid do
@@ -119,21 +126,8 @@ spawnChildNamed pid act = do
     act
 
 
-receiveMaybeSTM :: Typeable a => ProcessData -> STM (Maybe a)
-receiveMaybeSTM ProcData{..} = do
-  tryReadTQueue inbox >>=
-    \case
-      Nothing -> pure Nothing
-      Just d ->
-        maybe retry (pure . Just) (fromDynamic d)
 
-
-receiveMaybe :: (Process p, Typeable a) => p (Maybe a)
-receiveMaybe = do
-  procAsks id >>= atomically . receiveMaybeSTM
-
-
-receiveTimeout :: (Process p, Typeable a) => Int -> p (Maybe a)
+receiveTimeout :: Process i p => Int -> p (Maybe i)
 receiveTimeout us = do
   pd <- procAsks id
   delay <- registerDelay us
@@ -146,7 +140,7 @@ receiveTimeout us = do
           pure Nothing
 
 
-receiveTimeoutS :: (Process p, Typeable a) => Int -> p (Maybe a)
+receiveTimeoutS :: Process i p => Int -> p (Maybe i)
 receiveTimeoutS s = receiveTimeout (s * 1000000)
 
 

@@ -5,6 +5,7 @@
 
 module Zeno.Prelude
   ( module ALL
+  , LazyByteString
   , PercentFormat(..)
   , (<&>)
   , traceE
@@ -27,6 +28,7 @@ import Data.ByteString as ALL (ByteString)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Base16 as B16
 import Data.ByteString.Lazy as ALL (toStrict, fromStrict)
+import qualified Data.ByteString.Lazy as BSL (ByteString)
 import Data.ByteString.Short as ALL (ShortByteString, toShort, fromShort)
 import Data.Either as ALL (fromRight)
 import Data.Function as ALL (fix)
@@ -54,6 +56,8 @@ import Text.Printf as ALL (PrintfArg, printf)
 import System.Directory
 
 import Debug.Trace as ALL (traceShowId, traceM, traceShowM)
+
+type LazyByteString = BSL.ByteString
 
 (<&>) :: Functor f => f a -> (a -> b) -> f b
 (<&>) = flip fmap

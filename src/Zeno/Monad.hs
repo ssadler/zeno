@@ -8,7 +8,6 @@ module Zeno.Monad where
 import           Control.Monad.Catch
 import           Control.Monad.Logger
 import           Control.Monad.Reader
-import           Network.Distributed
 
 import           UnliftIO
 

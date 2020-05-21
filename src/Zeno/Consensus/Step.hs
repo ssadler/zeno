@@ -35,18 +35,9 @@ import           UnliftIO.Concurrent
 
 -- TODO: All messages should be authenticated
 
-
-data StepMessage a =
-    InventoryIndex Integer
-  | GetInventory Integer
-  | InventoryData (Inventory a)
-  deriving (Generic)
-
-instance Sendable a => Binary (StepMessage a)
-
-data Step a = Step
+data Step i = Step
   { topic   :: ProcessId
-  , tInv    :: TVar (Inventory a)
+  , tInv    :: TVar (Inventory i)
   , members :: [Address]
   , yieldTo :: ProcessId
   , mySig   :: CompactRecSig
@@ -54,11 +45,8 @@ data Step a = Step
   }
 
 
-spawnStep :: forall a. (Sendable a, Typeable a)
-        => Msg
-        -> Ballot a
-        -> [Address]
-        -> Consensus ProcessHandle
+spawnStep :: forall i. (Sendable i)
+          => Msg -> Ballot i -> [Address] -> (Consensus i (ProcessHandle (RemoteMessage LazyByteString)))
 spawnStep message myBallot members = do
 
   yieldTo <- getMyPid
@@ -76,8 +64,7 @@ spawnStep message myBallot members = do
     builder <- procId <$> spawnChild (inventoryBuilder step)
 
     -- Register so that we get new peer events
-    -- TODO nsend P2P.peerListenerService myPid
-
+    P2P.onNewPeer $ onNewPeer step
 
     onInventoryData step $ Map.singleton myAddr (mySig, myData)
 
@@ -93,19 +80,19 @@ spawnStep message myBallot members = do
                 GetInventory wanted -> do
                   inv <- readTVarIO tInv
                   let subset = getInventorySubset wanted members inv
-                  sendRemote peer topic (mySig, InventoryData subset)
+                  sendAuthenticated step peer $ InventoryData subset
 
                 InventoryData inv -> onInventoryData step inv
                 -- TODO: new peer
 
 
-onNewPeer :: forall a. Sendable a => Step a -> P2P.NewPeer -> Consensus ()
-onNewPeer Step{..} (P2P.NewPeer nodeId) = do
+onNewPeer :: forall i i2 p. (Sendable i, Process i2 p) => Step i -> NodeId -> p ()
+onNewPeer Step{..} peer = do
   inv <- readTVarIO tInv
   let idx = inventoryIndex members inv
-  sendRemote nodeId topic (mySig, InventoryIndex idx :: StepMessage a)
+  sendAuthenticated Step{..} peer (InventoryIndex idx :: StepMessage a)
 
-onInventoryData :: forall a. Sendable a => Step a -> Inventory a -> Consensus ()
+onInventoryData :: forall i. Sendable i => Step i -> Inventory i -> Consensus i ()
 onInventoryData Step{..} theirInv = do
 
   -- TODO, very important:
@@ -120,11 +107,41 @@ onInventoryData Step{..} theirInv = do
   when (0 /= idx .&. complement oldIdx) $ do
     send yieldTo inv
     traceM "sendPeers"
-    P2P.sendPeers topic (mySig, InventoryIndex idx :: StepMessage a)
+    P2P.sendPeers topic (mySig, InventoryIndex idx :: StepMessage i)
 
+
+-- | Inventory builder, continually builds and dispatches queries for remote inventory
+
+inventoryBuilder :: Sendable i => Step i -> Consensus i ()
+inventoryBuilder step@Step{..} = do
+  forever do
+    getInventoryQueries step >>=
+      mapM_ \(peer, wanted) ->
+        sendAuthenticated step peer $ GetInventory wanted
+
+    threadDelay $ 100 * 1000
+
+
+getInventoryQueries :: (Sendable i) => Step i -> Consensus i [(NodeId, Integer)]
+getInventoryQueries Step{..} = do
+  idxs <- recvAll
+  inv <- readTVarIO tInv
+  let ordered = prioritiseRemoteInventory members inv idxs
+  pure $ dedupeInventoryQueries ordered
+  where
+  recvAll = receiveMaybeRemote >>= maybe (pure []) (\a -> (rMsg a:) <$> recvAll)
+
+--------------------------------------------------------------------------------
+-- | Message authentication
+--------------------------------------------------------------------------------
+
+sendAuthenticated :: (Sendable i, Process i2 p) => Step i -> NodeId -> StepMessage i -> p ()
+sendAuthenticated Step{..} peer msg = do
+  traceShowM ("sendAuthenticated", peer)
+  sendRemote peer topic (mySig, msg)
 
 -- TODO: Track who sends bad data
-authenticate :: Step a -> (b -> Consensus ()) -> (CompactRecSig, b) -> Consensus ()
+authenticate :: Step i -> (b -> Consensus i ()) -> (CompactRecSig, b) -> Consensus i ()
 authenticate step@Step{..} act (theirSig, obj) =
   case recoverAddr message theirSig of
        Just addr ->
@@ -134,30 +151,9 @@ authenticate step@Step{..} act (theirSig, obj) =
        Nothing -> do
          logWarn "Signature recovery failed"
 
-
--- | Inventory builder, continually builds and dispatches queries for remote inventory
-
-inventoryBuilder :: forall a. Sendable a => Step a -> Consensus ()
-inventoryBuilder step@Step{..} = do
-  forever $ do
-    getInventoryQueries step >>=
-      mapM_ (\(peer, wanted) -> do
-        sendRemote peer topic (mySig, GetInventory wanted :: StepMessage a))
-    
-    threadDelay $ 100 * 1000
-
-
-getInventoryQueries :: Step a -> Consensus [(NodeId, Integer)]
-getInventoryQueries Step{..} = do
-  idxs <- recvAll
-  inv <- readTVarIO tInv
-  let ordered = prioritiseRemoteInventory members inv idxs
-  pure $ dedupeInventoryQueries ordered
-  where
-  recvAll = receiveMaybe >>= maybe (pure []) (\a -> (a:) <$> recvAll)
-
-
--- | Pure functions for inventory building ------------------------------------
+--------------------------------------------------------------------------------
+-- | Pure functions for inventory building
+--------------------------------------------------------------------------------
 
 -- | Get a bit array of what inventory we have
 inventoryIndex :: [Address] -> Map Address a -> Integer

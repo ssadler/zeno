@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE ConstraintKinds #-}
 
 module Network.Distributed.Remote where
 
@@ -18,9 +19,18 @@ import qualified Network.Transport as NT
 
 import UnliftIO
 
+import Debug.Trace
 
-data RemoteMessage = RemoteMessage NodeId BSL.ByteString
-  deriving (Typeable)
+type RemoteProcess i = Process (RemoteMessage BSL.ByteString)
+type RemoteProcessData = ProcessData (RemoteMessage BSL.ByteString)
+
+data RemoteMessage i = RemoteMessage
+  { rNodeId :: NodeId
+  , rMsg :: i
+  } deriving (Typeable)
+
+instance Functor RemoteMessage where
+  fmap f (RemoteMessage nodeId a) = RemoteMessage nodeId (f a)
 
 data ForwardMessage = ForwardMessage ProcessId BSL.ByteString
   deriving (Typeable)
@@ -30,7 +40,7 @@ data ForwardMessage = ForwardMessage ProcessId BSL.ByteString
 --   guessed by other nodes. When it's attached connection goes down,
 --   it gets killed. Other processes can listen for it's demise to 
 --   perform cleanups.
-getForwarder :: Node -> NodeId -> IO ProcessHandle
+getForwarder :: Node -> NodeId -> IO (ProcessHandle ForwardMessage)
 getForwarder node@Node{..} nodeId = do
   let pid = getForwarderId salt nodeId
 
@@ -68,7 +78,7 @@ getForwarderId salt nodeId =
   ProcessId $ toFixed $ blake2b_160 $ salt <> BSL.toStrict (encode nodeId)
 
 
-sendRemote :: (Binary a, Process p) => NodeId -> ProcessId -> a -> p ()
+sendRemote :: (Binary o, Process i p) => NodeId -> ProcessId -> o -> p ()
 sendRemote nodeId theirPid msg = do
   node <- procAsks myNode
   proc <- liftIO $ getForwarder node nodeId
@@ -76,7 +86,7 @@ sendRemote nodeId theirPid msg = do
     sendProcSTM proc $ ForwardMessage theirPid $ encode msg
 
 
-monitorRemote :: Process p => NodeId -> p () -> p ()
+monitorRemote :: (SpawnProcess p () p2, Process i p) => NodeId -> p2 () -> p ()
 monitorRemote nodeId onTerminate = do
   node@Node{..} <- procAsks myNode
   -- TODO: atomic, mask, etc
@@ -94,19 +104,31 @@ nodeMonitorRemote node remoteNodeId onTerminate = do
   pure ()
 
 
-receiveWaitRemote :: (Binary a, Process p) => p (NodeId, a)
+receiveWaitRemote :: (Binary i, Process (RemoteMessage BSL.ByteString) p) => p (RemoteMessage i)
 receiveWaitRemote = do
-  RemoteMessage nodeId bs <- receiveWait
+  pd <- procAsks id
+  atomically do
+    receiveWaitSTM pd >>= decodeReceivedOrRetry
+
+decodeReceivedOrRetry :: Binary i => RemoteMessage BSL.ByteString -> STM (RemoteMessage i)
+decodeReceivedOrRetry (RemoteMessage nodeId bs) = do
   case decodeOrFail bs of
-    Right ("", _, a) -> pure (nodeId, a)
-    Right (_, _, _) -> receiveWaitRemote -- TODO: log
-    Left _ -> receiveWaitRemote -- TODO: log
-  
+    Right ("", _, a) -> pure $ RemoteMessage nodeId a
+    _ -> do
+      traceM "receiveWaitRemote miss"
+      retrySTM -- TODO: log
+
+
+receiveMaybeRemote :: (Binary i, Process (RemoteMessage BSL.ByteString) p) => p (Maybe (RemoteMessage i))
+receiveMaybeRemote = do
+  pd <- procAsks id
+  atomically do
+    receiveMaybeSTM pd >>= maybe (pure Nothing) (fmap Just . decodeReceivedOrRetry)
 
 
 -- | Network Event Handler
 
-networkHandler :: ReaderT ProcessData IO ()
+networkHandler :: ReaderT (ProcessData ()) IO ()
 networkHandler = do
   node@Node{..} <- procAsks myNode
 
@@ -153,15 +175,17 @@ networkHandler = do
               go $ Map.delete connId conns
 
         NT.ReceivedMulticast _ _ -> do
+          traceM "Received Multicast??"
           go conns              -- TODO: log?
         NT.EndPointClosed -> do
+          traceM "EndpointClosed"
           pure ()               -- TODO: log
 
 
 
 -- TODO: This should really go away. It confuses the API.
 
-withRemoteMessage :: (Process p, Binary i) => (NodeId -> i -> p ()) -> RemoteMessage -> p ()
+withRemoteMessage :: (Process i2 p, Binary i) => (NodeId -> i -> p ()) -> RemoteMessage BSL.ByteString -> p ()
 withRemoteMessage act (RemoteMessage nodeId bs) = do
   case decodeOrFail bs of
     Right ("", _, a) -> act nodeId a

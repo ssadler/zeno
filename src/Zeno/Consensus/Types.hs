@@ -33,11 +33,21 @@ instance Binary a => Binary (Ballot a)
 
 type Authenticated a = (CompactRecSig, a)
 type Inventory a = Map Address (CompactRecSig, a)
-type Collect a = Timeout -> [Address] -> Consensus (Inventory a)
+type Collect a = Timeout -> [Address] -> (Consensus a (Inventory a))
 type Sendable a = (Binary a, Typeable a)
 
 unInventory :: Inventory a -> [Ballot a]
 unInventory inv = [Ballot a s o | (a, (s, o)) <- Map.toAscList inv]
+
+data StepMessage a =
+    InventoryIndex Integer
+  | GetInventory Integer
+  | InventoryData (Inventory a)
+  deriving (Generic)
+
+instance Sendable a => Binary (StepMessage a)
+
+
 
 -- Params ---------------------------------------------------------------------
 
@@ -54,18 +64,18 @@ data ConsensusParams = ConsensusParams
 
 type Topic = Msg
 
-data ConsensusProcess = ConsensusProcess
+data ConsensusProcess a = ConsensusProcess
   { cpParams :: ConsensusParams
-  , cpProc   :: ProcessData
+  , cpProc   :: RemoteProcessData
   , cpNode   :: ConsensusNode
   }
-type Consensus = Zeno ConsensusProcess
+type Consensus a = Zeno (ConsensusProcess a)
 
-instance Process Consensus where
+instance Typeable i => Process (RemoteMessage LazyByteString) (Consensus i) where
   procAsks f = f . cpProc <$> ask
   procWith r = zenoReader (\p -> p {cpProc = r})
 
-instance HasP2P Consensus where
+instance HasP2P (Consensus a) where
   getPeerState = asks $ peerState . cpNode
 
 data ConsensusException = ConsensusTimeout String
@@ -74,7 +84,7 @@ data ConsensusException = ConsensusTimeout String
 instance Exception ConsensusException
 
 
-withTimeout :: Int -> Consensus a -> Consensus a
+withTimeout :: Int -> (Consensus i) a -> (Consensus i) a
 withTimeout t =
   zenoReader $
     \ConsensusProcess{..} -> ConsensusProcess { cpParams = cpParams { timeout' = t }, .. }

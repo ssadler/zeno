@@ -2,25 +2,45 @@
 module Network.Distributed.Process where
 
 
-import Data.Dynamic
+import Crypto.Hash
+
+import Data.Void
+import Data.Typeable
 import Data.FixedBytes
 import qualified Data.ByteString as BS
 import qualified Data.ByteArray as BA
-import UnliftIO
 import qualified StmContainers.Map as STM
 
 import Network.Distributed.Types
 
-import Crypto.Hash
+import UnliftIO
+import UnliftIO.Exception
+
+import Unsafe.Coerce
+
+import Debug.Trace
 
 
-
-getProcessById :: Node -> ProcessId -> STM (Maybe ProcessHandle)
-getProcessById Node{..} pid = do
-  STM.lookup pid processes
+getVoidProcessById :: Node -> ProcessId -> STM (Maybe (ProcessHandle Void))
+getVoidProcessById Node{..} pid = STM.lookup pid processes
 
 
-getMyPid :: Process p => p ProcessId
+getProcessById :: Typeable i => Node -> ProcessId -> STM (Maybe (ProcessHandle i))
+getProcessById node pid = do
+  getVoidProcessById node pid >>=
+    \case
+      Nothing -> pure Nothing
+      Just wph -> pure $ Just $ safeCoerceProcessHandle wph
+
+
+safeCoerceProcessHandle :: forall i. Typeable i => ProcessHandle Void -> ProcessHandle i
+safeCoerceProcessHandle proc = do
+  if procQType proc == typeRep (Proxy :: Proxy i)
+     then unsafeCoerce proc
+     else error "Cannot coerce queue"
+
+
+getMyPid :: Process i p => p ProcessId
 getMyPid = procAsks myPid
 
 
@@ -33,57 +53,72 @@ newPid node@Node{..} = do
 
 
 
-nodeSpawn :: ProcessBase m => Node -> RunProcess m -> m ProcessHandle
+nodeSpawn :: (Typeable i, ProcessBase m) => Node -> RunProcess i m -> m (ProcessHandle i)
 nodeSpawn node act = nodeSpawn' node act
 
-nodeSpawn' :: ProcessBase m => Node -> RunProcess m -> m ProcessHandle
+nodeSpawn' :: (Typeable i, ProcessBase m) => Node -> RunProcess i m -> m (ProcessHandle i)
 nodeSpawn' node act = do
   pid <- atomically $ newPid node
   nodeSpawnNamed node pid act
 
 
-nodeSpawnNamed :: ProcessBase m => Node -> ProcessId -> RunProcess m -> m ProcessHandle
+nodeSpawnNamed :: forall i m. (Typeable i, ProcessBase m)
+               => Node -> ProcessId -> RunProcess i m -> m (ProcessHandle i)
 nodeSpawnNamed node@Node{processes} pid act = do
   atomically (STM.lookup pid processes) >>=
     maybe (pure ()) (\_ -> throwIO ProcessNameConflict)
 
   chan <- newTQueueIO
   handoff <- newEmptyTMVarIO
+  let rep = typeRep (Proxy :: Proxy i)
 
   async' <- async do
-    r <- ProcData node pid chan <$> atomically (takeTMVar handoff)
-    finally (act r) do
+    r <- ProcData node pid chan rep <$> atomically (takeTMVar handoff)
+    finally (catchAny (act r) traceShowM) do
       atomically $ STM.delete pid processes
 
-  let proc = Proc chan async' pid
+  let proc = Proc chan rep async' pid
+      vproc = unsafeCoerce proc
 
   atomically do
-    STM.insert proc pid processes
+    STM.insert vproc pid processes
     putTMVar handoff async'
 
   pure proc
 
 
-spawn :: Process p => p () -> p ProcessHandle
+spawn :: (Process i p, SpawnProcess p i2 p2) => p2 () -> p (ProcessHandle i2)
 spawn act = do
-  procAsks myNode >>= \n -> nodeSpawn n (flip procWith act)
+  procAsks myNode >>= \n -> nodeSpawn n (runProcess act)
 
 
-spawnNamed :: Process p => ProcessId -> p () -> p ProcessHandle
+spawnNamed :: (Process i p, SpawnProcess p i2 p2) => ProcessId -> p2 () -> p (ProcessHandle i2)
 spawnNamed pid act = do
-  procAsks myNode >>= \node -> nodeSpawnNamed node pid (flip procWith act)
+  procAsks myNode >>= \node -> nodeSpawnNamed node pid (runProcess act)
+
+
+monitorLocal :: (Process i p, SpawnProcess p i2 p2) => ProcessId -> p2 () -> p ()
+monitorLocal pid act = do
+  node <- procAsks myNode
+  atomically (getVoidProcessById node pid) >>=
+    \case
+      Nothing -> pure ()
+      Just Proc{..} -> do
+        spawn do
+          waitCatch procAsync >>= \e -> act
+        pure ()
 
 
 
 killProcess :: MonadIO m => Node -> ProcessId -> m ()
 killProcess node pid = do
-  atomically (getProcessById node pid) >>=
+  atomically (getVoidProcessById node pid) >>=
     \case
       Nothing -> pure ()
       Just Proc{..} -> uninterruptibleCancel procAsync
 
 
-sendSTM :: Typeable a => Node -> ProcessId -> a -> STM ()
+sendSTM :: Typeable i => Node -> ProcessId -> i -> STM ()
 sendSTM node pid msg = do
   getProcessById node pid >>=
     \case
@@ -91,22 +126,34 @@ sendSTM node pid msg = do
       Just proc -> sendProcSTM proc msg
 
 
-sendProcSTM :: Typeable a => ProcessHandle -> a -> STM ()
-sendProcSTM Proc{..} = writeTQueue procChan . toDyn
+sendProcSTM :: Typeable i => ProcessHandle i -> i -> STM ()
+sendProcSTM Proc{..} = writeTQueue procChan
 
 
-send :: (Process p, Typeable a) => ProcessId -> a -> p ()
+send :: (Process i p, Typeable a) => ProcessId -> a -> p ()
 send pid msg = do
   node <- procAsks myNode
   atomically $ sendSTM node pid msg
 
 
-receiveWait :: (Process p, Typeable a) => p a
+receiveWait :: Process i p => p i
 receiveWait = do
-  r <- procAsks inbox >>= atomically . readTQueue
-  case fromDynamic r of
-    Nothing -> liftIO (print "receiveWait miss") >> receiveWait
-    Just a -> pure a
+ procAsks id >>= atomically . receiveWaitSTM
+
+
+receiveWaitSTM :: ProcessData i -> STM i
+receiveWaitSTM ProcData{..} = readTQueue inbox
+{-# INLINE receiveWaitSTM #-}
+
+
+
+receiveMaybeSTM :: Typeable i => (ProcessData i) -> STM (Maybe i)
+receiveMaybeSTM ProcData{..} = tryReadTQueue inbox
+
+
+receiveMaybe :: Process i p => p (Maybe i)
+receiveMaybe = do
+  procAsks id >>= atomically . receiveMaybeSTM
 
 blake2b_160 :: BS.ByteString -> BS.ByteString
 blake2b_160 b = BS.pack (BA.unpack (hash b :: Digest Blake2b_160))

@@ -15,6 +15,8 @@ import Network.Transport.InMemory
 import qualified Network.Transport.TCP as TCP
 import UnliftIO
 
+runTestProc :: ReaderT (ProcessData ()) IO () -> ProcessData () -> IO ()
+runTestProc = runReaderT
 
 test_process = testGroup "process management"
   [
@@ -27,10 +29,10 @@ test_process = testGroup "process management"
   , testCase "spawn: Cleanup" do
       node <- createTransport >>= startNode
       handoff <- newEmptyMVar
-      handle <- nodeSpawn' node $ runReaderT $ getMyPid >>= putMVar handoff
+      handle <- nodeSpawn' node $ runTestProc $ getMyPid >>= putMVar handoff
       takeMVar handoff >>= (@?= procId handle)
       Right () <- waitCatch (procAsync handle)
-      Nothing <- atomically $ getProcessById node $ procId handle
+      Nothing <- atomically $ getVoidProcessById node $ procId handle
 
       assertNProcs node 1
 
@@ -38,7 +40,7 @@ test_process = testGroup "process management"
       node <- createTransport >>= startNode
       syncChild <- newEmptyMVar
       handoffChild <- newEmptyMVar
-      parent <- nodeSpawn' node $ runReaderT do
+      parent <- nodeSpawn' node $ runTestProc do
         child <- spawnChild do
           putMVar syncChild ()
           putMVar syncChild ()               -- will block
@@ -58,7 +60,7 @@ test_process = testGroup "process management"
       node <- createTransport >>= startNode
       syncChild <- newMVar ()
       handoffChild <- newEmptyMVar
-      parent <- nodeSpawn' node $ runReaderT do
+      parent <- nodeSpawn' node $ runTestProc do
         child <- spawnChild do
           putMVar syncChild ()
           putMVar syncChild ()               -- will block
@@ -82,7 +84,7 @@ test_process = testGroup "process management"
       p1 <- nodeSpawn node $ runReaderT do
         receiveWait >>= putMVar sync
 
-      p2 <- nodeSpawn node $ runReaderT do
+      p2 <- nodeSpawn node $ runTestProc do
         send (procId p1) ("Hello" :: String)
 
       waitCatch (procAsync p1) >>= (\e -> show e @?= "Right ()")
@@ -94,7 +96,17 @@ test_process = testGroup "process management"
 
 test_messaging = testGroup "local messaging"
   [
-    testCase "receiveTimeout Nothing" do
+    testCase "local send / receive" do
+      sync <- newEmptyMVar
+      node <- createTransport >>= startNode
+      p1 <- nodeSpawn node $ runReaderT do
+        receiveWait >>= putMVar sync
+      p2 <- nodeSpawn node $ runTestProc do
+        send (procId p1) ()
+      () <- readMVar sync
+      pure ()
+
+  , testCase "receiveTimeout Nothing" do
       node <- createTransport >>= startNode
 
       sync <- newEmptyMVar
@@ -118,7 +130,7 @@ test_messaging = testGroup "local messaging"
           putMVar sync ()
 
       p2 <-
-        nodeSpawn node $ runReaderT do
+        nodeSpawn node $ runTestProc do
           send (procId p1) ()
 
       takeMVar sync
@@ -136,10 +148,10 @@ test_remote = testGroup "remote send/receive"
 
       p1 <- nodeSpawn node $ runReaderT do
         receiveWaitRemote >>=
-          \(theirNodeId, msg) -> do
+          \(RemoteMessage theirNodeId msg) -> do
             putMVar sync msg
 
-      p2 <- nodeSpawn node $ runReaderT do
+      p2 <- nodeSpawn node $ runTestProc do
         sendRemote myNodeId (procId p1) ("Hello" :: String)
 
       waitCatch (procAsync p1) >>= (\e -> show e @?= "Right ()")
@@ -165,12 +177,12 @@ test_remote = testGroup "remote send/receive"
       sync <- newEmptyMVar
 
       p1 <- nodeSpawn node1 $ runReaderT do
-        (_, True) <- receiveWaitRemote
+        RemoteMessage _ True  <- receiveWaitRemote
         putMVar sync ()
         readMVar fin
         fail "should not be here because node1 got closed"
 
-      p2 <- nodeSpawn node2 $ runReaderT do
+      p2 <- nodeSpawn node2 $ runTestProc do
         sendRemote end1 (procId p1) True
         monitorRemote end1 do
           putMVar fin ()
