@@ -9,9 +9,10 @@
 
 
 module Network.Distributed 
-  ( Node(..)
+  ( ForkProcess(..)
+  , MonadProcess(..)
+  , Node(..)
   , NodeId(..)
-  , Process(..)
   , ProcessData(..)
   , ProcessHandle(..)
   , ProcessId
@@ -87,7 +88,7 @@ startNode transport = do
   lastPid <- newTVarIO ""
   processes <- STM.newIO
   let node = Node{..}
-  nodeSpawn node $ runReaderT networkHandler
+  nodeSpawn node $ runProcessT networkHandler
   pure node
 
 
@@ -97,7 +98,7 @@ closeNode Node{..} = do
   NT.closeTransport transport
 
 
-receiveDuring :: Process i p => Int -> (i -> p ()) -> p ()
+receiveDuring :: MonadProcess i m p => Int -> (i -> p i m ()) -> p i m ()
 receiveDuring timeout act = do
   startTime <- liftIO $ getCurrentTime
   fix $ \f -> do
@@ -106,17 +107,17 @@ receiveDuring timeout act = do
     receiveTimeout us >>= maybe (pure ()) act
     when (us > 0) f
 
-receiveDuringS :: Process i p => Int -> (i -> p ()) -> p ()
+receiveDuringS :: MonadProcess i m p => Int -> (i -> p i m ()) -> p i m ()
 receiveDuringS s = receiveDuring (s * 1000000)
 
 
-spawnChild :: (SpawnProcess p i2 p2, Process i p) => p2 () -> p (ProcessHandle i2)
+spawnChild :: (MonadProcess i m p, MonadProcess i2 m p) => p i2 m () -> p i m (ProcessHandle i2)
 spawnChild act = do
   pid <- procAsks myNode >>= atomically . newPid
   spawnChildNamed pid act
 
 
-spawnChildNamed :: (SpawnProcess p i2 p2, Process i p) => ProcessId -> p2 () -> p (ProcessHandle i2)
+spawnChildNamed :: (MonadProcess i2 m p, MonadProcess i m p) => ProcessId -> p i2 m () -> p i m (ProcessHandle i2)
 spawnChildNamed pid act = do
   parent <- procAsks myAsync
   spawnNamed pid do
@@ -127,7 +128,7 @@ spawnChildNamed pid act = do
 
 
 
-receiveTimeout :: Process i p => Int -> p (Maybe i)
+receiveTimeout :: MonadProcess i m p => Int -> p i m (Maybe i)
 receiveTimeout us = do
   pd <- procAsks id
   delay <- registerDelay us
@@ -140,7 +141,7 @@ receiveTimeout us = do
           pure Nothing
 
 
-receiveTimeoutS :: Process i p => Int -> p (Maybe i)
+receiveTimeoutS :: MonadProcess i m p => Int -> p i m (Maybe i)
 receiveTimeoutS s = receiveTimeout (s * 1000000)
 
 

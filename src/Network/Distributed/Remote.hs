@@ -21,7 +21,7 @@ import UnliftIO
 
 import Debug.Trace
 
-type RemoteProcess i = Process (RemoteMessage BSL.ByteString)
+type RemoteProcess i = MonadProcess (RemoteMessage BSL.ByteString)
 type RemoteProcessData = ProcessData (RemoteMessage BSL.ByteString)
 
 data RemoteMessage i = RemoteMessage
@@ -34,6 +34,8 @@ instance Functor RemoteMessage where
 
 data ForwardMessage = ForwardMessage ProcessId BSL.ByteString
   deriving (Typeable)
+
+type RemotePacket = RemoteMessage BSL.ByteString
 
 -- | Each peer connection has a local forwarder process.
 --   The forwarder process has a salted key so it can't be
@@ -60,7 +62,7 @@ getForwarder node@Node{..} nodeId = do
         case didSend of
           Left _   -> do
             putStrLn "Forwarded: Error setting up lightweight connection, did not send"
-          Right () -> runReaderT (loopForward conn) procData
+          Right () -> runProcessT (loopForward conn) procData
       
       Left err -> do
         putStrLn $ "Forwarded: Error setting up lightweight connection: " ++ show err
@@ -78,7 +80,7 @@ getForwarderId salt nodeId =
   ProcessId $ toFixed $ blake2b_160 $ salt <> BSL.toStrict (encode nodeId)
 
 
-sendRemote :: (Binary o, Process i p) => NodeId -> ProcessId -> o -> p ()
+sendRemote :: (Binary o, MonadProcess i m p) => NodeId -> ProcessId -> o -> p i m ()
 sendRemote nodeId theirPid msg = do
   node <- procAsks myNode
   proc <- liftIO $ getForwarder node nodeId
@@ -86,12 +88,12 @@ sendRemote nodeId theirPid msg = do
     sendProcSTM proc $ ForwardMessage theirPid $ encode msg
 
 
-monitorRemote :: (SpawnProcess p () p2, Process i p) => NodeId -> p2 () -> p ()
+monitorRemote :: MonadProcess i m p => NodeId -> p i m () -> p i m ()
 monitorRemote nodeId onTerminate = do
   node@Node{..} <- procAsks myNode
   -- TODO: atomic, mask, etc
   Proc{..} <- liftIO $ getForwarder node nodeId
-  spawn do
+  async do
     waitCatch procAsync >>= \e -> onTerminate
   pure ()
 
@@ -104,7 +106,7 @@ nodeMonitorRemote node remoteNodeId onTerminate = do
   pure ()
 
 
-receiveWaitRemote :: (Binary i, Process (RemoteMessage BSL.ByteString) p) => p (RemoteMessage i)
+receiveWaitRemote :: (Binary i, MonadProcess RemotePacket m p) => p RemotePacket m (RemoteMessage i)
 receiveWaitRemote = do
   pd <- procAsks id
   atomically do
@@ -119,7 +121,8 @@ decodeReceivedOrRetry (RemoteMessage nodeId bs) = do
       retrySTM -- TODO: log
 
 
-receiveMaybeRemote :: (Binary i, Process (RemoteMessage BSL.ByteString) p) => p (Maybe (RemoteMessage i))
+receiveMaybeRemote :: (Binary i, MonadProcess (RemoteMessage BSL.ByteString) m p)
+                   => p RemotePacket m (Maybe (RemoteMessage i))
 receiveMaybeRemote = do
   pd <- procAsks id
   atomically do
@@ -128,7 +131,7 @@ receiveMaybeRemote = do
 
 -- | Network Event Handler
 
-networkHandler :: ReaderT (ProcessData ()) IO ()
+networkHandler :: ProcessT (ProcessData ()) IO ()
 networkHandler = do
   node@Node{..} <- procAsks myNode
 
@@ -185,15 +188,13 @@ networkHandler = do
 
 -- TODO: This should really go away. It confuses the API.
 
-withRemoteMessage :: (Process i2 p, Binary i) => (NodeId -> i -> p ()) -> RemoteMessage BSL.ByteString -> p ()
+withRemoteMessage :: (MonadProcess RemotePacket m p, Binary i)
+                  => (NodeId -> i -> p RemotePacket m ()) -> RemoteMessage BSL.ByteString -> p RemotePacket m ()
 withRemoteMessage act (RemoteMessage nodeId bs) = do
   case decodeOrFail bs of
     Right ("", _, a) -> act nodeId a
     Right (_, _, _) -> pure () -- TODO: log
     Left _ -> pure () -- TODO: log
-
-    
-
 
 
 fix1 :: a -> ((a -> b) -> a -> b) -> b

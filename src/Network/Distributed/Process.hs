@@ -10,6 +10,7 @@ import Data.FixedBytes
 import qualified Data.ByteString as BS
 import qualified Data.ByteArray as BA
 import qualified StmContainers.Map as STM
+import Control.Monad.Reader
 
 import Network.Distributed.Types
 
@@ -40,7 +41,7 @@ safeCoerceProcessHandle proc = do
      else error "Cannot coerce queue"
 
 
-getMyPid :: Process i p => p ProcessId
+getMyPid :: MonadProcess i m p => p i m ProcessId
 getMyPid = procAsks myPid
 
 
@@ -87,17 +88,17 @@ nodeSpawnNamed node@Node{processes} pid act = do
   pure proc
 
 
-spawn :: (Process i p, SpawnProcess p i2 p2) => p2 () -> p (ProcessHandle i2)
+spawn :: (MonadProcess i m p, MonadProcess i2 m p2) => p2 i2 m () -> p i m (ProcessHandle i2)
 spawn act = do
-  procAsks myNode >>= \n -> nodeSpawn n (runProcess act)
+  procAsks myNode >>= \n -> procLift (nodeSpawn n (procRun act))
 
 
-spawnNamed :: (Process i p, SpawnProcess p i2 p2) => ProcessId -> p2 () -> p (ProcessHandle i2)
+spawnNamed :: (MonadProcess i m p, MonadProcess i2 m p2) => ProcessId -> p2 i2 m () -> p i m (ProcessHandle i2)
 spawnNamed pid act = do
-  procAsks myNode >>= \node -> nodeSpawnNamed node pid (runProcess act)
+  procAsks myNode >>= \node -> procLift (nodeSpawnNamed node pid (procRun act))
 
 
-monitorLocal :: (Process i p, SpawnProcess p i2 p2) => ProcessId -> p2 () -> p ()
+monitorLocal :: ForkProcess p i p2 Void m => ProcessId -> p2 Void m () -> p i m ()
 monitorLocal pid act = do
   node <- procAsks myNode
   atomically (getVoidProcessById node pid) >>=
@@ -107,7 +108,6 @@ monitorLocal pid act = do
         spawn do
           waitCatch procAsync >>= \e -> act
         pure ()
-
 
 
 killProcess :: MonadIO m => Node -> ProcessId -> m ()
@@ -130,13 +130,13 @@ sendProcSTM :: Typeable i => ProcessHandle i -> i -> STM ()
 sendProcSTM Proc{..} = writeTQueue procChan
 
 
-send :: (Process i p, Typeable a) => ProcessId -> a -> p ()
+send :: (MonadProcess i m p, Typeable a) => ProcessId -> a -> p i m ()
 send pid msg = do
   node <- procAsks myNode
   atomically $ sendSTM node pid msg
 
 
-receiveWait :: Process i p => p i
+receiveWait :: MonadProcess i m p => p i m i
 receiveWait = do
  procAsks id >>= atomically . receiveWaitSTM
 
@@ -151,7 +151,7 @@ receiveMaybeSTM :: Typeable i => (ProcessData i) -> STM (Maybe i)
 receiveMaybeSTM ProcData{..} = tryReadTQueue inbox
 
 
-receiveMaybe :: Process i p => p (Maybe i)
+receiveMaybe :: MonadProcess i m p => p i m (Maybe i)
 receiveMaybe = do
   procAsks id >>= atomically . receiveMaybeSTM
 

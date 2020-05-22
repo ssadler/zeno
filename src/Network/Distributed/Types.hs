@@ -1,6 +1,7 @@
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE FunctionalDependencies #-}
+{-# LANGUAGE KindSignatures #-}
 
 module Network.Distributed.Types where
 
@@ -25,32 +26,45 @@ import GHC.Generics (Generic)
 -- | Monad
 --------------------------------------------------------------------------------
 
-type ProcessBase m = (MonadUnliftIO m, MonadThrow m, MonadCatch m)
+--type ProcessBase m = (MonadUnliftIO m, MonadThrow m, MonadCatch m)
+type ProcessBase m = MonadUnliftIO m
 
-class (Typeable i, ProcessBase p) => Process i p | p -> i where
-  procAsk :: p (ProcessData i)
+class (Typeable i, ProcessBase (p i m), ProcessBase m) => MonadProcess i m p where
+  procAsk :: p i m (ProcessData i)
+  procLift :: MonadProcess i m p => m a -> p i m a
+  procRun :: p i m () -> ProcessData i -> m ()
 
-procAsks :: Process i p => (ProcessData i -> a) -> p a
+procAsks :: MonadProcess i m p => (ProcessData i -> a) -> p i m a
 procAsks f = f <$> procAsk
-
-class Process i p => SpawnProcess m i p where
-  runProcess :: p () -> RunProcess i m
 
 type RunProcess i m = ProcessData i -> m ()
 
--- ReaderT process
+class (MonadProcess i m p, MonadProcess i2 m p2) => ForkProcess p i p2 i2 m where
+  procFork :: p2 i2 m () -> ProcessData i2 -> p i m ()
 
-type ProcessReaderT i m = ReaderT (ProcessData i) m
+-------------------------------------------------------------------------------
+-- | ProcessT
+-------------------------------------------------------------------------------
 
-instance (ProcessBase m, Typeable i) => Process i (ProcessReaderT i m) where
+newtype ProcessT i m a = ProcessT (ReaderT (ProcessData i) m a)
+  deriving (Functor, Applicative, Monad, MonadReader (ProcessData i)
+           , MonadTrans, MonadIO)
+
+runProcessT :: ProcessT i m a -> ProcessData i -> m a
+runProcessT (ProcessT act) = runReaderT act
+
+instance MonadIO m => MonadUnliftIO (ProcessT i m)
+-- instance MonadThrow m => MonadThrow (ProcessT i m)
+-- instance MonadCatch m => MonadCatch (ProcessT i m)
+
+instance (ProcessBase m, Typeable i) => MonadProcess i m ProcessT where
   procAsk = ask
+  procLift = lift
+  procRun (ProcessT ma) = runReaderT ma
 
-instance (ProcessBase m, Typeable i) => SpawnProcess m i (ProcessReaderT i m) where
-  runProcess act r = runReaderT act r
-
-instance (Typeable i, Typeable i2, ProcessBase m) => SpawnProcess (ProcessReaderT i2 m) i (ProcessReaderT i m) where
-  runProcess act = lift . runProcess act
-
+instance (Typeable i, Typeable i2, ProcessBase m)
+         => ForkProcess ProcessT i ProcessT i2 m where
+  procFork (ProcessT act) r = lift $ runReaderT act r
 
 
 --------------------------------------------------------------------------------
@@ -64,7 +78,6 @@ newtype ProcessId = ProcessId { unProcessId :: Bytes16 }
 
 newtype NodeId = NodeId { endpointAddress :: NT.EndPointAddress }
   deriving (Show, Eq, Ord, Binary)
-
 
 data ProcessData a = ProcData
   { myNode  :: Node
@@ -100,5 +113,4 @@ data ProcessNameConflict = ProcessNameConflict
   deriving (Show, Eq)
 
 instance Exception ProcessNameConflict
-
 

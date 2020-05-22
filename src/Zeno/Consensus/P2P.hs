@@ -34,12 +34,12 @@ getPeers = do
   PeerState peers <- getPeerState
   Set.toList <$> readTVarIO peers
 
-sendPeers :: (RemoteProcess i p, HasP2P p, Binary i) => ProcessId -> i -> p ()
+sendPeers :: (RemoteProcess i m p, HasP2P p, Binary i) => ProcessId -> i -> p ()
 sendPeers pid msg = do
   peers <- getPeers
   forM_ peers $ \peer -> sendRemote peer pid msg
 
-onNewPeer :: Process i p => (NodeId -> PeerNotifier ()) -> p ()
+onNewPeer :: MonadProcess i m p => (NodeId -> PeerNotifier ()) -> p ()
 onNewPeer act = do
   pid <- getMyPid
   send peerNotifierPid $ SubscribeNewPeers pid act
@@ -52,8 +52,16 @@ data PeerState = PeerState { p2pPeers :: TVar Peers }
 
 type PeerController = Zeno RemoteProcessData
 
-instance Typeable i => Process i (Zeno (ProcessData i)) where
+newtype ZenoProcess i m a = ZenoProcess (Zeno (ProcessData i) a)
+  deriving (Functor, Applicative, Monad)
+
+instance Typeable i => MonadProcess i IO ZenoProcess where
   procAsk = ask
+  procLift = liftIO
+  procRun = flip runZeno
+
+instance (Typeable i, Typeable i2)
+         => ForkProcess (ZenoProcess i) i (ZenoProcess i2) i2 IO where
 
 
 startP2P
