@@ -39,8 +39,8 @@ procAsks f = f <$> procAsk
 
 type RunProcess i m = ProcessData i -> m ()
 
-class (MonadProcess i m p, MonadProcess i2 m p2) => ForkProcess p i p2 i2 m where
-  procFork :: p2 i2 m () -> ProcessData i2 -> p i m ()
+class (MonadProcess i m p, MonadProcess i2 m p) => ForkProcess p i i2 m where
+  procFork :: p i2 m () -> ProcessData i2 -> p i m ()
 
 -------------------------------------------------------------------------------
 -- | ProcessT
@@ -63,7 +63,7 @@ instance (ProcessBase m, Typeable i) => MonadProcess i m ProcessT where
   procRun (ProcessT ma) = runReaderT ma
 
 instance (Typeable i, Typeable i2, ProcessBase m)
-         => ForkProcess ProcessT i ProcessT i2 m where
+         => ForkProcess ProcessT i i2 m where
   procFork (ProcessT act) r = lift $ runReaderT act r
 
 

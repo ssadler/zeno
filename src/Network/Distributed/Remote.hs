@@ -21,8 +21,10 @@ import UnliftIO
 
 import Debug.Trace
 
-type RemoteProcess i = MonadProcess (RemoteMessage BSL.ByteString)
-type RemoteProcessData = ProcessData (RemoteMessage BSL.ByteString)
+
+type RemotePacket = RemoteMessage BSL.ByteString
+type RemoteProcess i m p = MonadProcess RemotePacket m p
+type RemoteProcessData = ProcessData RemotePacket
 
 data RemoteMessage i = RemoteMessage
   { rNodeId :: NodeId
@@ -34,8 +36,6 @@ instance Functor RemoteMessage where
 
 data ForwardMessage = ForwardMessage ProcessId BSL.ByteString
   deriving (Typeable)
-
-type RemotePacket = RemoteMessage BSL.ByteString
 
 -- | Each peer connection has a local forwarder process.
 --   The forwarder process has a salted key so it can't be

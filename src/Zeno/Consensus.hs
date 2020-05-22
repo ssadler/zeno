@@ -63,12 +63,10 @@ spawnConsensusNode CNC{..} = do
     where addr' = addr ++ maybe (':' : show port) (\_ -> "") (elemIndex ':' addr)
 
 
-
 withConsensusNode :: ConsensusNetworkConfig -> (ConsensusNode -> IO a) -> IO a
 withConsensusNode conf = do
  bracket (spawnConsensusNode conf)
          (closeNode . node)
-
 
 
 startSeedNode :: String -> Word16 -> IO ()

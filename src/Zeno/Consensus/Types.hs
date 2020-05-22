@@ -69,11 +69,7 @@ data ConsensusProcess a = ConsensusProcess
   , cpProc   :: RemoteProcessData
   , cpNode   :: ConsensusNode
   }
-type Consensus a = Zeno (ConsensusProcess a)
-
-instance Typeable i => Process (RemoteMessage LazyByteString) (Consensus i) where
-  procAsks f = f . cpProc <$> ask
-  procWith r = zenoReader (\p -> p {cpProc = r})
+type Consensus a = ZenoProcess ConsensusProcess RemotePacket IO
 
 instance HasP2P (Consensus a) where
   getPeerState = asks $ peerState . cpNode
@@ -85,6 +81,6 @@ instance Exception ConsensusException
 
 
 withTimeout :: Int -> (Consensus i) a -> (Consensus i) a
-withTimeout t =
-  zenoReader $
-    \ConsensusProcess{..} -> ConsensusProcess { cpParams = cpParams { timeout' = t }, .. }
+withTimeout t = undefined
+--  zenoReader $
+--    \ConsensusProcess{..} -> ConsensusProcess { cpParams = cpParams { timeout' = t }, .. }

@@ -1,6 +1,9 @@
+{-# LANGUAGE KindSignatures #-}
 
 module Zeno.Consensus.P2P
   ( HasP2P(..)
+  , ZenoProcess(..)
+  , PeerNotifier
   , PeerState
   , startP2P
   , getPeers
@@ -11,6 +14,7 @@ module Zeno.Consensus.P2P
 import Network.Distributed
 
 import Control.Monad
+import Control.Monad.Reader
 
 import qualified Data.Map as Map
 import qualified Data.Set as Set
@@ -34,12 +38,12 @@ getPeers = do
   PeerState peers <- getPeerState
   Set.toList <$> readTVarIO peers
 
-sendPeers :: (RemoteProcess i m p, HasP2P p, Binary i) => ProcessId -> i -> p ()
+sendPeers :: (MonadProcess i m p, HasP2P (p i m), Binary o) => ProcessId -> o -> p i m ()
 sendPeers pid msg = do
   peers <- getPeers
   forM_ peers $ \peer -> sendRemote peer pid msg
 
-onNewPeer :: MonadProcess i m p => (NodeId -> PeerNotifier ()) -> p ()
+onNewPeer :: MonadProcess i m p => (NodeId -> PeerNotifier ()) -> p i m ()
 onNewPeer act = do
   pid <- getMyPid
   send peerNotifierPid $ SubscribeNewPeers pid act
@@ -50,19 +54,9 @@ type Peers = Set.Set NodeId
 
 data PeerState = PeerState { p2pPeers :: TVar Peers }
 
-type PeerController = Zeno RemoteProcessData
+-- * PeerController
 
-newtype ZenoProcess i m a = ZenoProcess (Zeno (ProcessData i) a)
-  deriving (Functor, Applicative, Monad)
-
-instance Typeable i => MonadProcess i IO ZenoProcess where
-  procAsk = ask
-  procLift = liftIO
-  procRun = flip runZeno
-
-instance (Typeable i, Typeable i2)
-         => ForkProcess (ZenoProcess i) i (ZenoProcess i2) i2 IO where
-
+type PeerController = ZenoProcess ProcessData RemotePacket IO
 
 startP2P
   :: Node
@@ -71,9 +65,9 @@ startP2P
 startP2P node seeds = do
   ps <- PeerState <$> newTVarIO mempty
   nodeSpawnNamed node peerControllerPid $
-    \pd -> runZeno pd $ peerController ps seeds
+    runZenoProcess $ peerController ps seeds
   nodeSpawnNamed node peerNotifierPid $
-    \pd -> runZeno pd peerNotifier
+    runZenoProcess peerNotifier
   installHandler sigUSR1 (Catch $ dumpPeers ps) Nothing
   pure ps
   where
@@ -134,7 +128,7 @@ peerController state@PeerState{..} seeds = do
 
 peerNotifierPid = serviceId "peerNotifier"
 
-type PeerNotifier = Zeno (ProcessData PeerNotifierMessage)
+type PeerNotifier = ZenoProcess ProcessData PeerNotifierMessage IO
 
 data PeerNotifierMessage =
     SubscribeNewPeers ProcessId (NodeId -> PeerNotifier ())

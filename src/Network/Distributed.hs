@@ -17,6 +17,7 @@ module Network.Distributed
   , ProcessHandle(..)
   , ProcessId
   , RemoteMessage(..)
+  , RemotePacket
   , RemoteProcess
   , RemoteProcessData
   , RunProcess

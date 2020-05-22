@@ -2,12 +2,16 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE KindSignatures #-}
+{-# LANGUAGE UndecidableInstances #-}
 
 module Zeno.Monad where
 
 import           Control.Monad.Catch
 import           Control.Monad.Logger
 import           Control.Monad.Reader
+
+import           Network.Distributed.Types
 
 import           UnliftIO
 
@@ -48,3 +52,22 @@ instance Has r r where
 
 hasReader :: Has r' r => Zeno r' a -> Zeno r a
 hasReader = zenoReader has
+
+-- Process
+
+newtype ZenoProcess r i (m :: * -> *) a = ZenoProcess (Zeno (r i) a)
+  deriving (Functor, Applicative, Monad, MonadIO, MonadReader (r i), MonadLogger)
+
+instance MonadUnliftIO (ZenoProcess r i m)
+
+instance Typeable i => MonadProcess i IO (ZenoProcess ProcessData) where
+  procAsk = ask
+  procLift = liftIO
+  procRun = runZenoProcess
+
+runZenoProcess (ZenoProcess act) pd = runZeno pd act
+
+instance (MonadProcess i IO (ZenoProcess r), MonadProcess i2 IO (ZenoProcess r))
+         => ForkProcess (ZenoProcess r) i i2 IO where
+
+

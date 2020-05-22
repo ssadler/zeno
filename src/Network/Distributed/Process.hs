@@ -98,7 +98,7 @@ spawnNamed pid act = do
   procAsks myNode >>= \node -> procLift (nodeSpawnNamed node pid (procRun act))
 
 
-monitorLocal :: ForkProcess p i p2 Void m => ProcessId -> p2 Void m () -> p i m ()
+monitorLocal :: ForkProcess p i Void m => ProcessId -> p Void m () -> p i m ()
 monitorLocal pid act = do
   node <- procAsks myNode
   atomically (getVoidProcessById node pid) >>=
