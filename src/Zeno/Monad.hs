@@ -5,36 +5,35 @@
 
 module Zeno.Monad where
 
+import           Control.Exception.Safe (MonadMask)
 import           Control.Monad.Catch
 import           Control.Monad.Logger
 import           Control.Monad.Reader
+import           System.IO.Unsafe     -- A good start
+import           UnliftIO
 
-import Control.Exception.Safe (MonadMask)
 
+type Zeno r = ZenoT r IO
 
-newtype Zeno r a = Zeno { unZeno :: ReaderT r (LoggingT IO) a }
-  deriving (MonadReader r, MonadThrow, MonadCatch, MonadMask)
+newtype ZenoT r m a = Zeno { unZeno :: ReaderT r m a }
+  deriving ( Functor, Applicative, Monad
+           , MonadIO
+           , MonadReader r
+           , MonadThrow, MonadCatch, MonadMask)
 
-instance Functor (Zeno r) where
-  fmap f (Zeno a) = Zeno $ fmap f a
+instance MonadIO m => MonadLogger (ZenoT r m) where
+  monadLoggerLog a b c d = liftIO $ logStdErr a b c (toLogStr d)
 
-instance Applicative (Zeno r) where
-  pure a = Zeno $ pure a
-  (Zeno f) <*> (Zeno a) = Zeno $ f <*> a
+instance MonadIO m => MonadLoggerIO (ZenoT r m) where
+  askLoggerIO = pure logStdErr
 
-instance Monad (Zeno r) where
-  (Zeno a) >>= f = Zeno $ a >>= unZeno . f
+-- A hack gives us the logging function
+logStdErr = unsafePerformIO $ runStderrLoggingT $ LoggingT pure
 
-instance MonadIO (Zeno r) where
-  liftIO a = Zeno $ liftIO a
+runZeno :: r -> ZenoT r m a -> m a
+runZeno r (Zeno act) = runReaderT act r
 
-instance MonadLogger (Zeno r) where
-  monadLoggerLog a b c d = Zeno $ monadLoggerLog a b c d
-
-runZeno :: r -> Zeno r a -> IO a
-runZeno r (Zeno act) = runStderrLoggingT $ runReaderT act r
-
-zenoReader :: (r -> r') -> Zeno r' a -> Zeno r a
+zenoReader :: (r -> r') -> ZenoT r' m a -> ZenoT r m a
 zenoReader f = Zeno . withReaderT f . unZeno
 
 -- The Has type
@@ -44,5 +43,5 @@ class Has r a where
 instance Has r r where
   has = id
 
-hasReader :: Has r' r => Zeno r' a -> Zeno r a
+hasReader :: Has r' r => ZenoT r' m a -> ZenoT r m a
 hasReader = zenoReader has
