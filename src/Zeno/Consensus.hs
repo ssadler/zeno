@@ -34,7 +34,7 @@ withConsensusNode :: ConsensusNetworkConfig -> (ConsensusNode -> IO a) -> IO a
 withConsensusNode CNC{..} act = do
   runZeno () do
     (_, node) <- allocate (getTransport >>= startNode) stopNode
-    zenoReader (\_ -> node) do
+    withZeno (\_ -> node) do
       p2p <- startP2P seeds'
       liftIO $ act $ ConsensusNode node p2p
   where

@@ -71,12 +71,13 @@ forkForwarder node@Node{..} nodeId chan = do
   where
   run :: Zeno r ()
   run = do
-    liftIO mkConn >>=
-      either warnDidNotSend
-        \conn -> do
+    withCloseResources do
+      (_, eConn) <- allocate (liftIO mkConn) (either (\_ -> pure ()) NT.close)
+      case eConn of
+        Left e -> warnDidNotSend e
+        Right conn -> do
           liftIO (NT.send conn [""]) >>=
             either warnDidNotSend (\() -> loopForward conn)
-            -- TODO: finally close conn
   
   mkConn :: IO (Either (NT.TransportError NT.ConnectErrorCode) NT.Connection)
   mkConn = NT.connect endpoint (endpointAddress nodeId) NT.ReliableOrdered NT.defaultConnectHints

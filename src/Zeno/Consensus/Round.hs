@@ -48,8 +48,8 @@ runConsensus params@ConsensusParams{..} topicData act = do
   atomically $ writeTVar mtopic $ hashMsg $ toStrict $ Bin.encode topicData
   cn <- asks has
   let ctx = ConsensusContext cn params
-  zenoReader (\_ -> ctx) do
-    withZenoCleanup act
+  withZeno (\_ -> ctx) do
+    withCloseResources act
 
 
 -- Coordinate Round -----------------------------------------------------------

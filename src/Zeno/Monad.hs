@@ -78,14 +78,14 @@ runZeno r (Zeno f) = do
           (f (\_ _ -> pure) r)
 
 -- | Cleanup resources on exit
-withZenoCleanup :: Zeno r a -> Zeno r a
-withZenoCleanup act = do
+withCloseResources :: Zeno r a -> Zeno r a
+withCloseResources act = do
   r <- ask
   liftIO $ runZeno r act
 
 
-zenoReader :: (r -> r') -> Zeno r' a -> Zeno r a
-zenoReader f (Zeno ma) = Zeno \rest r rti -> ma (\_ _ -> pure) (f r) rti >>= rest r rti
+withZeno :: (r -> r') -> Zeno r' a -> Zeno r a
+withZeno f (Zeno ma) = Zeno \rest r rti -> ma (\_ _ -> pure) (f r) rti >>= rest r rti
 
 
 -- The Has type
@@ -96,6 +96,6 @@ instance Has r r where
   has = id
 
 hasReader :: Has r' r => Zeno r' a -> Zeno r a
-hasReader = zenoReader has
+hasReader = withZeno has
 
 
