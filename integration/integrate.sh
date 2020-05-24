@@ -29,11 +29,11 @@ addr3="RL72qw2ymk56DzXk7mW36VvhiKwWzjggap"
 
 stack build --fast
 
+# 2 windows
 tmux split-window -h \; split-window -h \; select-layout even-horizontal
-
 tmux split-window -v -t 0
-tmux split-window -v -t 2
-tmux split-window -v -t 4
+# tmux split-window -v -t 2
+# tmux split-window -v -t 4
 
 CHAIN=TXSCLZDEV
 
@@ -43,13 +43,13 @@ ethkmd="kmdeth --gateway=$1 --seed=127.0.0.1:40440 --bind=127.0.0.1/127.0.0.1 --
 tmux send-keys -t 1 "$notarise seed --bind=127.0.0.1 --port=40440" Enter
 tmux send-keys -t 2 "$notarise $ethkmd --pubkey=$pk0 --port=40441" Enter
 tmux send-keys -t 3 "$notarise $ethkmd --pubkey=$pk1 --port=40442" Enter
-tmux send-keys -t 4 "$notarise $ethkmd --pubkey=$pk2 --port=40443" Enter
-tmux send-keys -t 5 "$notarise $ethkmd --pubkey=$pk3 --port=40444" Enter
+# tmux send-keys -t 4 "$notarise $ethkmd --pubkey=$pk2 --port=40443" Enter
+# tmux send-keys -t 5 "$notarise $ethkmd --pubkey=$pk3 --port=40444" Enter
 
 tmux select-pane -t 0
 
 function ctrl_c() {
-    for i in $(seq 5 -1 1); do
+    for i in $(seq 3 -1 1); do
         tmux send-keys -t $i C-c C-c Enter "exit" Enter
     done
 };
