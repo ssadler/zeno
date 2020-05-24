@@ -31,6 +31,7 @@ import Data.Time.Clock
 
 import UnliftIO
 import UnliftIO.Async
+import UnliftIO.STM
 
 import Zeno.Prelude
 import Zeno.Process.Types
@@ -41,20 +42,33 @@ import Zeno.Process.Node
 type MonadBase m = (MonadUnliftIO m, MonadResource m)
 
 
-spawn :: MonadBase m => (AsyncProcess i b -> m b) -> m (AsyncProcess i b)
-spawn forked = do
+spawn :: MonadBase m => String -> (AsyncProcess i b -> m b) -> m (AsyncProcess i b)
+spawn threadName forked = do
   handoff <- newEmptyMVar
   procMbox <- newEmptyTMVarIO
-
   UnliftIO unliftIO <- askUnliftIO
 
-  (_, procAsync) <- 
-    allocate (async $ unliftIO $ readMVar handoff >>= forked)
-             uninterruptibleCancel
+  let
+    runThread = do
+      traceM $ "start: " ++ threadName
+      atomically (modifyTVar globalThreadCount (+1))
+      async do
+        unliftIO $ readMVar handoff >>= forked
 
+    stopThread asnc = do
+      uninterruptibleCancel asnc
+      atomically (modifyTVar globalThreadCount (+(-1)))
+      readTVarIO globalThreadCount >>= print
+      traceM $ "kill: " ++ threadName
+
+  (_, procAsync) <- allocate runThread stopThread
   let proc = Process{..}
   putMVar handoff proc
   pure proc
+
+
+globalThreadCount :: TVar Int
+globalThreadCount = unsafePerformIO $ newTVarIO 0
 
 
 send :: MonadIO m => AsyncProcess i b -> i -> m ()

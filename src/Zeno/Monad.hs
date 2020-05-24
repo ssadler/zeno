@@ -72,8 +72,15 @@ logStderr = unsafePerformIO $ runStderrLoggingT $ LoggingT pure
 
 runZeno :: r -> Zeno r a -> IO a
 runZeno r (Zeno f) = do
+  -- TODO: bracket
   rti <- ResourceT.createInternalState
   f (\_ _ -> pure) r rti <* ResourceT.closeInternalState rti
+
+-- | Cleanup resources on exit
+withZenoCleanup :: Zeno r a -> Zeno r a
+withZenoCleanup act = do
+  r <- ask
+  liftIO $ runZeno r act
 
 
 zenoReader :: (r -> r') -> Zeno r' a -> Zeno r a

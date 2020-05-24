@@ -60,6 +60,7 @@ import Zeno.Logging as ALL
 import Text.Printf as ALL (PrintfArg, printf)
 
 import System.Directory
+import System.IO.Unsafe as ALL (unsafePerformIO)
 
 import Debug.Trace as ALL (traceShowId, traceM, traceShowM)
 

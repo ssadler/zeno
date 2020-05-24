@@ -16,7 +16,10 @@ import qualified Data.ByteString.Lazy as BSL
 import UnliftIO
 
 newtype ProcessId = ProcessId { unProcessId :: Bytes16 }
-  deriving (Show, Eq, Ord, Generic, Hashable, Binary)
+  deriving (Eq, Ord, Generic, Hashable, Binary)
+
+instance Show ProcessId where
+  show pid = "ProcessId " ++ show (unProcessId pid)
 
 
 newtype NodeId = NodeId { endpointAddress :: NT.EndPointAddress }

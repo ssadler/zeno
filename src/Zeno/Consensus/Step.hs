@@ -50,18 +50,22 @@ spawnStep :: forall a i. (Sendable i)
          -> Consensus (Process (Inventory i))
 spawnStep message myBallot members = do
 
-  spawn \process -> do
+  -- Build the step context
+  tInv <- newTVarIO Map.empty
 
-    -- Build the step context
-    tInv <- newTVarIO Map.empty
+  -- Hash the message as the topic so it's obfuscated
+  let topic = hashServiceId $ getMsg message
+      (Ballot myAddr mySig myData) = myBallot
+      stepName = "step: " ++ show topic
+      builderName = "inventory builder: " ++ show topic
 
-    -- Hash the message as the topic so it's obfuscated
-    let topic = hashServiceId $ getMsg message
-        (Ballot myAddr mySig myData) = myBallot
-        step = Step topic tInv members process mySig message
+  spawn stepName \process -> do
+
+    let step = Step topic tInv members process mySig message
 
     -- Spawn inventory builder
-    builder <- spawn $ inventoryBuilder step
+    builder <- spawn builderName $ inventoryBuilder step
+
     -- Register so that we get new peer events
     registerOnNewPeer $ onNewPeer step
 

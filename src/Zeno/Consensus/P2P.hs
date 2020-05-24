@@ -69,10 +69,10 @@ startP2P :: [NodeId] -> Zeno Node PeerState
 startP2P seeds = do
   p2pPeers <- newTVarIO mempty
   pnCount <- newTVarIO 0
-  pnProc <- spawn peerNotifier
+  pnProc <- spawn "peerNotifier" peerNotifier
   let p2pPeerNotifier = PeerNotifier{..}
   let state = PeerState{..}
-  _ <- spawn $ \_ -> peerController state seeds
+  _ <- spawn "peerController" $ \_ -> peerController state seeds
   withRunInIO \rio ->
     installHandler sigUSR1 (Catch $ rio $ dumpPeers state) Nothing
   pure state
