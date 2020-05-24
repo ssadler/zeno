@@ -3,7 +3,8 @@
 set -e
 
 
-# for l in `cat integration/integrate.sh  | grep wif | pyline 'l[6:-1]'`; do ../queryzeno.sh importprivkey $l; done
+# for l in `cat integration/integrate.sh  | grep '^wif' | pyline 'l[6:-1]'`; do ../queryzeno.sh importprivkey $l; done
+# for l in `cat integration/integrate.sh  | grep '^addr' | pyline 'l[7:-1]'`; do ../queryzeno.sh sendtoaddress $l 1; done
 
 sk0="4f3edf983ac636a65a842ce7c78d9aa706d3b113bce9c46f30d7d21715b23b1d"
 wif0="UrfazJ3uUn8pDuyrohe6dsGHHUw76yuNkSkHdBG8s9aXdtH4jyCR"

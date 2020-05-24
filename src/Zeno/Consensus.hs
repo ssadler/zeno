@@ -52,10 +52,16 @@ withConsensusNode CNC{..} act = do
 
   getTransport :: IO Transport
   getTransport = do
-    let tcpParams = defaultTCPParameters { tcpCheckPeerHost = True }
     createTransport tcpHost tcpParams <&>
       either (error . show) id
-
+  
+  -- TODO: get someone knowledgeable about networking to validate
+  -- https://hackage.haskell.org/package/network-transport-tcp-0.7.0/docs/src/Network.Transport.TCP.html#defaultTCPParameters
+  tcpParams = defaultTCPParameters
+    { tcpCheckPeerHost = True
+    , tcpMaxReceiveLength = 10000 -- 64 * 128 + margin
+    , tcpMaxAddressLength = 128
+    }
 
   -- | Make a NodeId from "host:port" string.
   makeNodeId :: Word16 -> String -> NodeId

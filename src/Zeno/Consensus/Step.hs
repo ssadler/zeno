@@ -106,7 +106,6 @@ onInventoryData Step{..} theirInv = do
   let idx = inventoryIndex members inv
   when (0 /= idx .&. complement oldIdx) do
     send yieldTo inv
-    traceM "sendPeers"
     sendPeers topic (mySig, InventoryIndex idx :: StepMessage i)
 
 
@@ -144,7 +143,6 @@ getInventoryQueries Step{..} mbox = do
 sendAuthenticated :: Sendable o
                   => Step o -> NodeId -> StepMessage o -> Consensus ()
 sendAuthenticated Step{..} peer msg = do
-  traceShowM ("sendAuthenticated", peer)
   sendRemote peer topic (mySig, msg)
 
 -- TODO: Track who sends bad data
