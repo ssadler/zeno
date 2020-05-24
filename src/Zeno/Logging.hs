@@ -16,8 +16,11 @@ import Data.Aeson
 import qualified Data.ByteString.Char8 as BS8
 import Data.ByteString.Lazy (toStrict)
 import Data.Time.Clock
+import Data.Time.Format
+import Data.Time.LocalTime
 import Control.Monad.IO.Class as ALL (liftIO, MonadIO)
 import Control.Monad.Logger as LOG hiding (logDebug, logInfo, logError, logWarn)
+import System.IO
 import System.IO.Unsafe
 
 import Data.String (fromString)
@@ -44,7 +47,12 @@ instance AsString Value where
   asString = asString . toStrict . encode
 
 -- A hack gives us the logging function
-logStderr = unsafePerformIO $ runStderrLoggingT $ LoggingT pure
+logStderr :: Loc -> LogSource -> LogLevel -> LogStr -> IO ()
+logStderr loc source level str = do
+  t <- formatTime defaultTimeLocale "[%T]" <$> getZonedTime
+  BS8.hPutStr stderr $ fromLogStr $ toLogStr t <> defaultLogStr loc source level str
+  where
+  logStr = defaultLogStr
 
 logTime :: (MonadIO m, MonadLogger m) => String -> m a -> m a
 logTime s act = do
