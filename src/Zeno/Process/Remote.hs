@@ -67,7 +67,7 @@ quitRemoteForwader Node{..} nodeId = do
 
 forkForwarder :: Node -> NodeId -> TQueue ForwardMessage -> Zeno r ThreadId
 forkForwarder node@Node{..} nodeId chan = do
-  forkIO $ finally run cleanup -- TODO: bracket, or forkIOWithUnmask
+  forkIOWithUnmask \restore -> finally (restore run) cleanup
   where
   run :: Zeno r ()
   run = do
