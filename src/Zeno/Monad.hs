@@ -70,7 +70,6 @@ instance MonadUnliftIO (Zeno r) where
 
 runZeno :: r -> Zeno r a -> IO a
 runZeno r (Zeno f) = do
-  -- TODO: bracket
   bracket ResourceT.createInternalState
           ResourceT.closeInternalState
           (f (\_ _ -> pure) r)

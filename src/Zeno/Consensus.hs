@@ -7,7 +7,6 @@ module Zeno.Consensus
   , propose
   , step
   , stepWithTopic
-  , collectGeneric
   , collectMajority
   , collectThreshold
   , collectMembers

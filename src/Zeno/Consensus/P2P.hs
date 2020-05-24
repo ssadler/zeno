@@ -122,10 +122,10 @@ peerController state@PeerState{..} seeds = do
     let PeerNotifier{..} = p2pPeerNotifier
     peers <- readTVarIO p2pPeers
     unless (Set.member nodeId peers) do
-      logDebug $ "New peer: " ++ show nodeId
+      -- logDebug $ "New peer: " ++ show nodeId
       atomically $ writeTVar p2pPeers $ Set.insert nodeId peers
       monitorRemote nodeId do
-        logDebug $ "Peer disconnect: " ++ show nodeId
+        -- logDebug $ "Peer disconnect: " ++ show nodeId
         atomically $ modifyTVar p2pPeers $ Set.delete nodeId
       send pnProc $ NewPeer nodeId
       sendRemote nodeId peerControllerPid GetPeers

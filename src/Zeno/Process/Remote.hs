@@ -27,36 +27,47 @@ import Zeno.Prelude hiding (finally)
 
 sendRemote :: (Binary a, Has Node r) => NodeId -> ProcessId -> a -> Zeno r ()
 sendRemote nodeId pid msg = do
-  chan <- getRemoteForwarder nodeId
+  node <- asks has
+  chan <- getRemoteForwarder node nodeId
   atomically $ writeTQueue chan $ Forward $ encode (pid, msg)
 
 
 monitorRemote :: Has Node r => NodeId -> Zeno r () -> Zeno r ()
 monitorRemote nodeId act = do
-  chan <- getRemoteForwarder nodeId
+  node <- asks has
+  chan <- getRemoteForwarder node nodeId
   ioAct <- toIO act
   atomically $ writeTQueue chan $ OnShutdown $ ioAct
 
 
-getRemoteForwarder :: Has Node r => NodeId -> Zeno r Forwarder
-getRemoteForwarder nodeId = do
-  node@Node{mforwarders} <- asks has
+getRemoteForwarder :: Node -> NodeId -> Zeno r Forwarder
+getRemoteForwarder node@Node{mforwarders} nodeId = do
+  mask \restore -> do
+    (chan, created) <- getChan
+    when created do
+      let run = runForwarder node nodeId chan
+      forkIO (restore run `finally` cleanup chan)
+      pure ()
+    pure chan
 
-  -- TODO: Mask
-  
-  (chan, created) <- atomically do
-    STM.lookup nodeId mforwarders >>=
-      \case
-        Just chan -> pure (chan, False)
-        Nothing -> do
-          chan <- newTQueue
-          STM.insert chan nodeId mforwarders
-          pure (chan, True)
+  where
+  getChan =
+    atomically do
+      STM.lookup nodeId mforwarders >>=
+        \case
+          Just chan -> pure (chan, False)
+          Nothing -> do
+            chan <- newTQueue
+            STM.insert chan nodeId mforwarders
+            pure (chan, True)
 
-  when created do
-    forkForwarder node nodeId chan
-    pure ()
-  pure chan
+  cleanup chan = do
+    atomically do
+      STM.lookup nodeId mforwarders >>=
+        mapM_ \chan' -> do
+          when (chan' == chan) do
+            writeTQueue chan Quit
+            STM.delete nodeId mforwarders
 
 quitRemoteForwader :: Node -> NodeId -> STM ()
 quitRemoteForwader Node{..} nodeId = do
@@ -65,20 +76,17 @@ quitRemoteForwader Node{..} nodeId = do
       writeTQueue fwd Quit
       STM.delete nodeId mforwarders
 
-forkForwarder :: Node -> NodeId -> TQueue ForwardMessage -> Zeno r ThreadId
-forkForwarder node@Node{..} nodeId chan = do
-  forkIOWithUnmask \restore -> finally (restore run) cleanup
-  where
-  run :: Zeno r ()
-  run = do
-    withCloseResources do
-      (_, eConn) <- allocate (liftIO mkConn) (either (\_ -> pure ()) NT.close)
-      case eConn of
-        Left e -> warnDidNotSend e
-        Right conn -> do
-          liftIO (NT.send conn [""]) >>=
-            either warnDidNotSend (\() -> loopForward conn)
+runForwarder :: Node -> NodeId -> TQueue ForwardMessage -> Zeno r ()
+runForwarder node@Node{..} nodeId chan = do
+  withCloseResources do
+    (_, eConn) <- allocate (liftIO mkConn) (either (\_ -> pure ()) NT.close)
+    case eConn of
+      Left e -> warnDidNotSend e
+      Right conn -> do
+        liftIO (NT.send conn [""]) >>=
+          either warnDidNotSend (\() -> loopForward conn)
   
+  where
   mkConn :: IO (Either (NT.TransportError NT.ConnectErrorCode) NT.Connection)
   mkConn = NT.connect endpoint (endpointAddress nodeId) NT.ReliableOrdered NT.defaultConnectHints
 
@@ -94,14 +102,6 @@ forkForwarder node@Node{..} nodeId chan = do
           Quit -> do
             liftIO $
               sequence_ handlers
-
-  cleanup = do
-    atomically do
-      STM.lookup nodeId mforwarders >>=
-        mapM_ \chan' -> do
-          when (chan' == chan) do
-            writeTQueue chan Quit
-            STM.delete nodeId mforwarders
 
   warnDidNotSend :: Show e => e -> Zeno r ()
   warnDidNotSend err = do

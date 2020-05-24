@@ -5,7 +5,7 @@ module Zeno.Process
   , RemoteReceiver
   , RemoteMessage(..)
   , Process
-  , ProcessId -- This is a misnomer, it refers to remote process IDs. Should be topic.
+  , ProcessId(..) -- This is a misnomer, it refers to remote process IDs. Should be topic.
   , NodeId(..)
   , Node
   , monitorRemote
@@ -50,7 +50,7 @@ spawn threadName forked = do
   UnliftIO unliftIO <- askUnliftIO
 
   let
-    debugThreads = True
+    debugThreads = False
 
     runThread = do
       when debugThreads do
@@ -63,12 +63,11 @@ spawn threadName forked = do
             logThreadDied
 
     stopThread asnc = do
-      uninterruptibleCancel asnc
+      cancel asnc
       when debugThreads do
         traceM $ emot emFrogFace ++ " : " ++ threadName
         atomically (modifyTVar globalThreadCount (+(-1)))
         readTVarIO globalThreadCount >>= print
-        traceM $ "kill: " ++ threadName
 
   (_, procAsync) <- allocate runThread stopThread
   let proc = Process{..}

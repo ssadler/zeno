@@ -46,7 +46,6 @@ instance AsString BS8.ByteString where
 instance AsString Value where
   asString = asString . toStrict . encode
 
--- A hack gives us the logging function
 logStderr :: Loc -> LogSource -> LogLevel -> LogStr -> IO ()
 logStderr loc source level str = do
   t <- formatTime defaultTimeLocale "[%T]" <$> getZonedTime

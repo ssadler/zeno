@@ -40,31 +40,30 @@ runNotariseKmdToEth pk gateway networkConfig gethConfig kmdConfPath = do
         runForever do
           nc@NotariserConfig{..} <- getNotariserConfig "KMDETH"
           asks has >>= checkConfig nc
-          notariserStep nc
+          -- Config will be refeshed if there is an exception
+          forever $ notariserStep nc
 
   where
-
     getNotariserConfig configName = do
       gateway <- asks getEthGateway
       (threshold, members) <- ethCallABI gateway "getMembers()" ()
       JsonInABI nc <- ethCallABI gateway "getConfig(string)" (configName :: Text)
       pure $ nc { members, threshold }
 
-    checkConfig NotariserConfig{..} (EthIdent _ addr) = do
-      when (majorityThreshold (length members) < kmdNotarySigs) $ do
-        logError "Majority threshold is less than required notary sigs"
-        impureThrow ConfigException 
-      when (not $ elem addr members) $ do
-        logError "I am not in the members list"
-        impureThrow ConfigException
+    checkConfig NotariserConfig{..} (EthIdent _ addr)
+      | not (elem addr members)        = ce "I am not in the members list"
+      | length members < kmdNotarySigs = ce "Not enough members to sign tx on KMD"
+      | length members < threshold     = ce "Not enough members to sign tx on ETH"
+      | otherwise = pure ()
+      where ce = throwIO . ConfigException
 
     runForever act = forever $ act `catches` handlers
       where
         handlers =
-          [ Handler $ \e -> recover logInfo 5 (e :: ConsensusException)
-          , Handler $ \e -> recover logWarn 60 (fmtHttpException e)
-          , Handler $ \e -> recover logWarn 60 (e :: RPCException)
-          , Handler $ \e -> recover logError 600 (e :: ConfigException)
+          [ Handler $ \e -> recover logInfo 3 (e :: ConsensusException)
+          , Handler $ \e -> recover logWarn 20 (fmtHttpException e)
+          , Handler $ \e -> recover logWarn 20 (e :: RPCException)
+          , Handler $ \e -> recover logError 60 (e :: ConfigException)
           ]
         recover f d e = do
           f $ show e

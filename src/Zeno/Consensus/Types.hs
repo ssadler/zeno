@@ -61,7 +61,7 @@ instance Binary a => Binary (Ballot a)
 
 type Authenticated a = (CompactRecSig, a)
 type Inventory a = Map Address (CompactRecSig, a)
-type Collect a = Timeout -> [Address] -> Process (Inventory a) -> Consensus (Inventory a)
+type Collect a = Inventory a -> Consensus Bool
 type Sendable a = (Binary a, Typeable a)
 
 unInventory :: Inventory a -> [Ballot a]

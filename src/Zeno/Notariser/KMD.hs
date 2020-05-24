@@ -32,7 +32,7 @@ notariseToKMD nc@NotariserConfig{..} ndata = do
     -- Step 1 - Key on opret, collect UTXOs
     run $ logDebug "Step 1: Collect inputs"
     utxoBallots <- step collectMajority (kmdPubKeyI, getOutPoint utxo)
-  
+
     -- Step 2 - TODO: Key on proposer
     run $ logDebug "Step 2: Get proposed inputs"
     let proposal = proposeInputs kmdNotarySigs $ unInventory utxoBallots
@@ -108,11 +108,10 @@ compileFinalTx tx@SaplingTx{..} ballots = tx { txIn = mergedIns }
            Just signed -> unsigned { H.scriptInput = H.scriptInput signed }
 
 collectOutpoints :: [H.OutPoint] -> Collect (Maybe H.TxIn)
-collectOutpoints given = collectGeneric test
-  where test _ inv =
-          let getOPs = map H.prevOutput . catMaybes . map bData
-              vals = getOPs $ unInventory inv
-           in sortOn show vals == sortOn show given
+collectOutpoints given inv = do
+  let getOPs = map H.prevOutput . catMaybes . map bData
+      vals = getOPs $ unInventory inv
+   in pure $ sortOn show vals == sortOn show given
 
 submitNotarisation :: NotariserConfig -> NotarisationData -> SaplingTx -> Zeno EthNotariser ()
 submitNotarisation NotariserConfig{..} ndata tx = do

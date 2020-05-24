@@ -11,8 +11,6 @@ module Zeno.Consensus.Round
   , collectMembers
   , collectMajority
   , collectThreshold
-  , haveMajority
-  , collectGeneric
   , runConsensus
   , inventoryIndex
   , prioritiseRemoteInventory
@@ -54,9 +52,10 @@ runConsensus params@ConsensusParams{..} topicData act = do
 
 -- Coordinate Round -----------------------------------------------------------
 
--- | step initiates the procedure of exchanging signed messages.
---   The messages contain a signature which is based on 
---   
+
+-- | Step initiates the procedure of exchanging signed messages.
+-- | The step is run in a separate thread, and this thread will wait
+-- | until the collect condition has been fulfilled.
 step' :: Sendable a => Collect a -> a -> Consensus (Inventory a)
 step' collect obj = do
   ConsensusParams{ident' = EthIdent sk myAddr, ..} <- asks ccParams
@@ -64,8 +63,20 @@ step' collect obj = do
   let sig = sign sk topic
   let ballot = Ballot myAddr sig obj
 
-  proc <- spawnStep topic ballot members'
-  collect timeout' members' proc
+  recv <- spawnStep topic ballot members'
+
+  startTime <- liftIO getCurrentTime
+  fix $ \f -> do
+    d <- timeDelta startTime
+    let us = timeout' - min timeout' d
+    minv <- receiveTimeout recv us
+    case minv of
+      Nothing -> throwIO $ errTimeout timeout'
+      Just inv -> do
+        pass <- collect inv
+        if pass then pure inv else f
+  where
+  errTimeout t = ConsensusTimeout ("Timeout after %i seconds" % quot t 1000000)
 
 stepWithTopic :: Sendable a => Topic -> Collect a -> a -> Consensus (Inventory a)
 stepWithTopic topic collect o = do
@@ -136,37 +147,17 @@ permuteTopic key = do
 
 -- Check Majority -------------------------------------------------------------
 
--- TODO: Refactor so that test is provided rather than collector
 
--- | Collects a majority
 collectMajority :: Sendable a => Collect a
-collectMajority = collectGeneric haveMajority
-
--- | Wait for results from specific members
-collectMembers :: Sendable a => [Address] -> Collect a
-collectMembers addrs = collectGeneric allSigned
-  where allSigned _ inv = all id [Map.member a inv | a <- addrs]
+collectMajority inv = do
+  ConsensusParams{..} <- asks has
+  pure $ length inv >= majorityThreshold (length members')
 
 collectThreshold :: Sendable a => Int -> Collect a
-collectThreshold t = collectGeneric $ \_ inv -> length inv == t
+collectThreshold n inv = pure $ length inv >= n
 
-collectGeneric :: Sendable a => ([Address] -> Inventory a -> Bool) -> Collect a
-collectGeneric test timeout members recv = do
-  startTime <- liftIO getCurrentTime
-  fix $ \f -> do
-    d <- timeDelta startTime
-    let us = timeout - min timeout d
-    minv <- receiveTimeout recv us
-    case minv of
-      Nothing -> throwIO errTimeout
-      Just inv | test members inv -> pure inv
-      _ -> f
-  where
-  errTimeout = ConsensusTimeout $ "collect timeout after %i seconds" % quot timeout 1000000
-
-haveMajority :: [Address] -> Inventory a -> Bool
-haveMajority members inv =
-   length inv >= majorityThreshold (length members)
+collectMembers :: Sendable a => [Address] -> Collect a
+collectMembers addrs inv = pure $ all (flip Map.member inv) addrs
 
 majorityThreshold :: Int -> Int
 majorityThreshold m = floor $ (fromIntegral m) / 2 + 1
