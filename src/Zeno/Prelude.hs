@@ -12,14 +12,15 @@ module Zeno.Prelude
   , fromHex
   , toHex
   , expandPath
+  , fix1
   ) where
 
 import Control.Applicative as ALL
-import Control.Exception.Safe as ALL
 import Control.Monad as ALL (forM, forM_, join, when, replicateM, foldM, forever)
 import Control.Monad.IO.Class as ALL (liftIO)
 import Control.Monad.Reader as ALL (ask, asks)
 import Control.Monad.Trans.Class as ALL
+import Control.Monad.Trans.Resource as ALL (MonadResource, allocate)
 import GHC.Generics as ALL (Generic)
 
 import Data.Aeson as ALL (Value)
@@ -46,6 +47,11 @@ import Data.Time.Clock as ALL (UTCTime, getCurrentTime)
 import Data.Word as ALL (Word8, Word16, Word32, Word64)
 
 import UnliftIO.Concurrent as ALL (threadDelay, forkIO)
+import UnliftIO.Exception as ALL
+  (Exception, Handler(..), catchAny, finally, throwIO
+  , withException, onException, handle, bracket, impureThrow
+  , catches
+  )
 
 import Network.Ethereum.Errors as ALL
 import Zeno.Monad as ALL
@@ -65,10 +71,7 @@ infixl 1 <&>
 
 traceE :: String -> Zeno r a -> Zeno r a
 traceE prefix act = do
-  r <- ask
-  let log e = do runZeno () (logError prefix) >> throw e
-  liftIO $ do
-    runZeno r act `catchAny` log
+  onException act $ logError prefix
 
 fromHex :: ByteString -> ByteString
 fromHex bs =
@@ -102,3 +105,7 @@ instance (PrintfArg a, PrintfArg b) => PercentFormat (a, b) where
 
 instance (PrintfArg a, PrintfArg b, PrintfArg c) => PercentFormat (a, b, c) where
   s % (a, b, c) = printf s a b c
+
+
+fix1 :: a -> ((a -> b) -> a -> b) -> b
+fix1 a f = fix f a

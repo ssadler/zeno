@@ -46,7 +46,7 @@ queryHttp req body = do
   let reqWithBody = setRequestBodyJSON body $ setRequestMethod "POST" req
   response <- httpJSONEither reqWithBody
   case getResponseBody response of
-       Left e -> throw $ RPCException (show e)
+       Left e -> throwIO $ RPCException (show e)
        Right out -> pure out
 
 queryIpc :: FilePath -> Value -> Zeno r Value
@@ -70,8 +70,8 @@ queryJsonRpc endpoint method params = do
     res <- transport req
     case res .? "{error}" of
       Just e | e /= Null ->
-        throw $ RPCException $ asString (e::Value)
+        throwIO $ RPCException $ asString (e::Value)
       _ ->
         case res .? "{result}" of
           Just r -> pure r
-          Nothing -> throw $ RPCUnexpected $ asString res
+          Nothing -> throwIO $ RPCUnexpected $ asString res

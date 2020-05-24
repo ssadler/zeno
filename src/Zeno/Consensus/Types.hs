@@ -4,24 +4,52 @@
 module Zeno.Consensus.Types where
 
 import qualified Data.Map as Map
+import qualified Data.Set as Set
 
 import           Control.Exception
 import           Control.Monad.Reader
 import           Control.Monad.State
-import           Network.Distributed
+import           Zeno.Process
 import           Network.Ethereum.Crypto
 import           GHC.Generics (Generic)
 import           Zeno.Prelude
 import           Data.Binary
 import           UnliftIO
 
-import           Zeno.Consensus.P2P
+import           Zeno.Process
 
+
+type Peers = Set.Set NodeId
+data PeerState = PeerState
+  { p2pPeers :: TVar Peers
+  , p2pPeerNotifier :: PeerNotifier
+  }
+
+data PeerNotifierMessage =
+    SubscribeNewPeers Int (NodeId -> IO ())
+  | UnsubscribeNewPeers Int
+  | NewPeer NodeId
+
+data PeerNotifier = PeerNotifier
+  { pnProc :: Process PeerNotifierMessage
+  , pnCount :: TVar Int
+  }
 
 data ConsensusNode = ConsensusNode
-  { node :: Node
-  , peerState :: PeerState
+  { cpNode :: Node
+  , cpPeers :: PeerState
   }
+instance Has Node ConsensusNode where has = cpNode 
+instance Has PeerState ConsensusNode where has = cpPeers
+
+data ConsensusContext = ConsensusContext
+  { ccNode   :: ConsensusNode
+  , ccParams :: ConsensusParams
+  }
+instance Has Node ConsensusContext where has = has . ccNode
+instance Has PeerState ConsensusContext where has = has . ccNode
+instance Has ConsensusParams ConsensusContext where has = ccParams
+
 
 data Ballot a = Ballot
   { bMember :: Address
@@ -33,7 +61,7 @@ instance Binary a => Binary (Ballot a)
 
 type Authenticated a = (CompactRecSig, a)
 type Inventory a = Map Address (CompactRecSig, a)
-type Collect a = Timeout -> [Address] -> (Consensus a (Inventory a))
+type Collect a = Timeout -> [Address] -> Process (Inventory a) -> Consensus (Inventory a)
 type Sendable a = (Binary a, Typeable a)
 
 unInventory :: Inventory a -> [Ballot a]
@@ -64,15 +92,7 @@ data ConsensusParams = ConsensusParams
 
 type Topic = Msg
 
-data ConsensusProcess a = ConsensusProcess
-  { cpParams :: ConsensusParams
-  , cpProc   :: RemoteProcessData
-  , cpNode   :: ConsensusNode
-  }
-type Consensus a = ZenoProcess ConsensusProcess RemotePacket IO
-
-instance HasP2P (Consensus a) where
-  getPeerState = asks $ peerState . cpNode
+type Consensus = ZenoR ConsensusContext
 
 data ConsensusException = ConsensusTimeout String
                         | ConsensusMischief String
@@ -80,7 +100,7 @@ data ConsensusException = ConsensusTimeout String
 instance Exception ConsensusException
 
 
-withTimeout :: Int -> (Consensus i) a -> (Consensus i) a
+withTimeout :: Int -> Consensus a -> Consensus a
 withTimeout t = undefined
 --  zenoReader $
 --    \ConsensusProcess{..} -> ConsensusProcess { cpParams = cpParams { timeout' = t }, .. }

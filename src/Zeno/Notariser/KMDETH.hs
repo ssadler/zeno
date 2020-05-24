@@ -19,14 +19,14 @@ import Zeno.Prelude
 
 
 runNotariseKmdToEth :: PubKey -> Address -> ConsensusNetworkConfig -> GethConfig -> FilePath -> IO ()
-runNotariseKmdToEth pk gateway consensusConfig gethConfig kmdConfPath = do
+runNotariseKmdToEth pk gateway networkConfig gethConfig kmdConfPath = do
   threadDelay 1000000
   bitcoinConf <- loadBitcoinConfig kmdConfPath
   let kmdAddress = deriveKomodoAddress pk
   wif <- runZeno bitcoinConf $ queryBitcoin "dumpprivkey" [kmdAddress]
   sk <- either error pure $ parseWif komodo wif
 
-  withConsensusNode consensusConfig $
+  withConsensusNode networkConfig
     \node -> do
       let notariser = EthNotariser bitcoinConf node gethConfig gateway sk
       runZeno notariser do
@@ -221,6 +221,6 @@ getBackNotarisation NotariserConfig{..} NOE{..} = do
 checkTxProposed :: Ballot Transaction -> Zeno EthNotariser ()
 checkTxProposed (Ballot sender _ tx) = do
   case recoverFrom tx of
-    Nothing -> throw $ ConsensusMischief $ "Can't recover sender from tx"
-    Just s | s /= sender -> throw $ ConsensusMischief $ "Sender wrong"
+    Nothing -> throwIO $ ConsensusMischief $ "Can't recover sender from tx"
+    Just s | s /= sender -> throwIO $ ConsensusMischief $ "Sender wrong"
     _ -> pure ()

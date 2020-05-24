@@ -49,6 +49,7 @@ dependencies:
 - network-transport-tcp
 - optparse-applicative
 - relapse
+- resourcet
 - safe-exceptions
 - secp256k1-haskell
 - stm
@@ -58,7 +59,6 @@ dependencies:
 - time
 - transformers
 - unix
-- unliftio
 - unliftio
 - unordered-containers
 
@@ -78,6 +78,9 @@ library:
                        , TypeSynonymInstances
                        , FlexibleInstances
                        , GeneralizedNewtypeDeriving
+                       , BangPatterns
+                       , ConstraintKinds
+                       , FunctionalDependencies
   c-sources: cbits/blake2_personalized.c
   when:
   - condition: arch(x86_64) || flag(support_sse)

@@ -1,77 +1,78 @@
 {-# LANGUAGE KindSignatures #-}
 
 module Zeno.Consensus.P2P
-  ( HasP2P(..)
-  , ZenoProcess(..)
-  , PeerNotifier
-  , PeerState
-  , startP2P
+  ( startP2P
   , getPeers
   , sendPeers
-  , onNewPeer
+  , registerOnNewPeer
   ) where
 
-import Network.Distributed
 
 import Control.Monad
 import Control.Monad.Reader
 
-import qualified Data.Map as Map
+import qualified Data.IntMap.Strict as IntMap
 import qualified Data.Set as Set
 import Data.Binary
 import Data.Dynamic
 
-import Zeno.Prelude
+import Zeno.Consensus.Types
+import Zeno.Process
+import Zeno.Prelude hiding (finally)
 
 import System.Posix.Signals
 import UnliftIO
 
 import Debug.Trace
 
+
+data P2PNode = P2PNode
+  { p2pNode :: Node
+  , p2pState :: PeerState
+  }
+
 -- * Peer-to-peer API
 
-class (MonadIO p, Monad p, MonadLogger p) => HasP2P p where
-  getPeerState :: p PeerState
-
-getPeers :: HasP2P p => p [NodeId]
+getPeers :: Consensus [NodeId]
 getPeers = do
-  PeerState peers <- getPeerState
-  Set.toList <$> readTVarIO peers
+  PeerState{..} <- asks has
+  Set.toList <$> readTVarIO p2pPeers
 
-sendPeers :: (MonadProcess i m p, HasP2P (p i m), Binary o) => ProcessId -> o -> p i m ()
+sendPeers :: Binary o => ProcessId -> o -> Consensus ()
 sendPeers pid msg = do
   peers <- getPeers
   forM_ peers $ \peer -> sendRemote peer pid msg
 
-onNewPeer :: MonadProcess i m p => (NodeId -> PeerNotifier ()) -> p i m ()
-onNewPeer act = do
-  pid <- getMyPid
-  send peerNotifierPid $ SubscribeNewPeers pid act
+registerOnNewPeer :: (NodeId -> Consensus ()) -> Consensus ()
+registerOnNewPeer cb = do
+  PeerNotifier{..} <- asks $ p2pPeerNotifier . has
+
+  (_, subId) <-
+    allocate (readTVarIO pnCount)
+             (send pnProc . UnsubscribeNewPeers)
+
+  UnliftIO unliftIO <- askUnliftIO
+  atomically do
+    writeTVar pnCount $ subId + 1
+    sendSTM pnProc $ SubscribeNewPeers subId $ unliftIO . cb
+
 
 -- * Types
 
-type Peers = Set.Set NodeId
+-- * Consensus
 
-data PeerState = PeerState { p2pPeers :: TVar Peers }
 
--- * PeerController
-
-type PeerController = ZenoProcess ProcessData RemotePacket IO
-
-startP2P
-  :: Node
-  -> [NodeId]
-  -> IO PeerState
-startP2P node seeds = do
-  ps <- PeerState <$> newTVarIO mempty
-  nodeSpawnNamed node peerControllerPid $
-    runZenoProcess $ peerController ps seeds
-  nodeSpawnNamed node peerNotifierPid $
-    runZenoProcess peerNotifier
-  installHandler sigUSR1 (Catch $ dumpPeers ps) Nothing
-  pure ps
+startP2P :: [NodeId] -> ZenoR Node PeerState
+startP2P seeds = do
+  p2pPeers <- newTVarIO mempty
+  pnCount <- newTVarIO 0
+  pnProc <- spawn peerNotifier
+  let p2pPeerNotifier = PeerNotifier{..}
+  let state = PeerState{..}
+  _ <- spawn $ \_ -> peerController state seeds
+  liftIO $ installHandler sigUSR1 (Catch $ dumpPeers state) Nothing
+  pure state
   where
-
   dumpPeers PeerState{..} = do
     peers <- atomically $ readTVar p2pPeers
     runZeno () $ do
@@ -81,7 +82,7 @@ startP2P node seeds = do
 
 
 peerControllerPid :: ProcessId
-peerControllerPid = serviceId "peerController"
+peerControllerPid = hashServiceId "peerController"
 
 
 data PeerMsg =
@@ -92,66 +93,53 @@ data PeerMsg =
 instance Binary PeerMsg
 
 
-peerController :: PeerState -> [NodeId] -> PeerController ()
+peerController :: PeerState -> [NodeId] -> ZenoR Node ()
 peerController state@PeerState{..} seeds = do
+  recv <- subscribe peerControllerPid
   forever do
     mapM_ doDiscover seeds
-    receiveDuringS 60 $
-      withRemoteMessage $
-        \peer ->
-           \case 
-             GetPeers -> do
-               peers <- readTVarIO p2pPeers
-               sendRemote peer peerControllerPid $ Peers peers
-               newPeer state peer
-
-             (Peers peers) -> do
-               known <- readTVarIO $ p2pPeers
-               mapM_ doDiscover $ Set.toList $ Set.difference peers known
+    receiveDuringS recv 60 $
+      withRemoteMessage handle
 
   where
+  handle peer GetPeers = do
+    peers <- readTVarIO p2pPeers
+    sendRemote peer peerControllerPid $ Peers peers
+    newPeer peer
+
+  handle peer (Peers peers) = do
+    known <- readTVarIO $ p2pPeers
+    mapM_ doDiscover $ Set.toList $ Set.difference peers known
+
   doDiscover nodeId = do
     sendRemote nodeId peerControllerPid GetPeers
 
-  newPeer :: PeerState -> NodeId -> PeerController ()
-  newPeer state@(PeerState{..}) peer = do
+  newPeer :: NodeId -> ZenoR Node ()
+  newPeer nodeId = do
+    let PeerNotifier{..} = p2pPeerNotifier
     peers <- readTVarIO p2pPeers
-    unless (Set.member peer peers) do
-      logDebug $ "New peer: " ++ show peer
-      atomically $ writeTVar p2pPeers $ Set.insert peer peers
-      monitorRemote peer do
-        logDebug $ "Peer disconnect: " ++ show peer
-        atomically $ modifyTVar p2pPeers $ Set.delete peer
-      send peerNotifierPid $ NewPeer peer
-      sendRemote peer peerControllerPid GetPeers
+    unless (Set.member nodeId peers) do
+      logDebug $ "New peer: " ++ show nodeId
+      atomically $ writeTVar p2pPeers $ Set.insert nodeId peers
+      monitorRemote nodeId do
+        logDebug $ "Peer disconnect: " ++ show nodeId
+        atomically $ modifyTVar p2pPeers $ Set.delete nodeId
+      send pnProc $ NewPeer nodeId
+      sendRemote nodeId peerControllerPid GetPeers
 
 
-peerNotifierPid = serviceId "peerNotifier"
-
-type PeerNotifier = ZenoProcess ProcessData PeerNotifierMessage IO
-
-data PeerNotifierMessage =
-    SubscribeNewPeers ProcessId (NodeId -> PeerNotifier ())
-  | Unsubscribe ProcessId
-  | NewPeer NodeId
-
-peerNotifier :: PeerNotifier ()
-peerNotifier = do
-  me <- getMyPid
+peerNotifier :: Process PeerNotifierMessage -> ZenoR Node ()
+peerNotifier proc = do
   fix1 mempty $
-    \go listeners -> do
-      receiveWait >>=
+    \go !listeners -> do
+      receiveWait proc >>=
         \case
-          SubscribeNewPeers pid f -> do
-            monitorLocal pid $ send me $ Unsubscribe pid
-            go $ Map.insert pid f listeners
-          Unsubscribe pid -> do
-            go $ Map.delete pid listeners
+          SubscribeNewPeers subId f -> do
+            go $ IntMap.insert subId f listeners
+          UnsubscribeNewPeers subId -> do
+            go $ IntMap.delete subId listeners
           NewPeer nodeId -> do
-            spawn do
-              forM_ (Map.toList listeners) $ \(pid, act) -> act nodeId
+            liftIO do
+              forM_ (IntMap.elems listeners) ($ nodeId)
             go listeners
 
-
-fix1 :: a -> ((a -> b) -> a -> b) -> b
-fix1 a f = fix f a

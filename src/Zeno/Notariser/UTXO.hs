@@ -1,7 +1,6 @@
 
 module Zeno.Notariser.UTXO where
 
-import Control.Exception.Safe (catchAny)
 import Control.Monad.Reader
 
 import Network.Bitcoin

@@ -3,8 +3,6 @@
 
 module Network.Ethereum.RPC where
 
-import           Control.Exception.Safe
-
 import           Network.Ethereum.Data
 import           Network.Ethereum.Crypto
 import           Network.Ethereum.Transaction as Tx

@@ -27,9 +27,10 @@ import qualified Data.ByteString as BS
 import qualified Data.Binary as Bin
 import           Data.Binary (Binary)
 import qualified Data.Map as Map
+import           Data.Time.Clock
 
 import           Network.Ethereum.Crypto
-import           Network.Distributed
+import           Zeno.Process
 
 import           Zeno.Prelude
 import           Zeno.Consensus.P2P
@@ -41,19 +42,13 @@ import           UnliftIO.STM
 
 -- Run round ------------------------------------------------------------------
 
-runConsensus :: (Sendable a, Has ConsensusNode r) => ConsensusParams
+runConsensus :: (Binary a, Has ConsensusNode r) => ConsensusParams
              -> a -> Consensus b -> Zeno r b
 runConsensus params@ConsensusParams{..} topicData act = do
   atomically $ writeTVar mtopic $ hashMsg $ toStrict $ Bin.encode topicData
-  cn@ConsensusNode{..} <- asks has
-  handoff <- newEmptyTMVarIO
-  nodeSpawn node $
-    \pd -> do
-      let ctx = ConsensusProcess params pd cn
-      liftIO $ runZeno ctx do
-        -- TODO: _ <- spawnLocalLink P2P.peerNotifier
-        act >>= atomically . putTMVar handoff
-  atomically $ takeTMVar handoff
+  cn <- asks has
+  let ctx = ConsensusContext cn params
+  liftIO $ runZenoR ctx act
 
 -- Coordinate Round -----------------------------------------------------------
 
@@ -62,17 +57,17 @@ runConsensus params@ConsensusParams{..} topicData act = do
 --   
 step' :: Sendable a => Collect a -> a -> Consensus (Inventory a)
 step' collect obj = do
-  ConsensusParams{ident' = EthIdent sk myAddr, ..} <- asks cpParams
+  ConsensusParams{ident' = EthIdent sk myAddr, ..} <- asks ccParams
   topic <- readTVarIO mtopic
   let sig = sign sk topic
   let ballot = Ballot myAddr sig obj
 
-  spawnStep topic ballot members'
-  collect timeout' members'
+  proc <- spawnStep topic ballot members'
+  collect timeout' members' proc
 
 stepWithTopic :: Sendable a => Topic -> Collect a -> a -> Consensus (Inventory a)
 stepWithTopic topic collect o = do
-  asks (mtopic . cpParams) >>= atomically . flip writeTVar topic
+  asks (mtopic . ccParams) >>= atomically . flip writeTVar topic
   step' collect o
 
 step :: Sendable a => Collect a -> a -> Consensus (Inventory a)
@@ -86,7 +81,7 @@ propose mObj = do
   determineProposers >>= go
     where
       go :: [(Address, Bool)] -> Consensus (Ballot a)
-      go [] = throw $ ConsensusTimeout "Ran out of proposers"
+      go [] = throwIO $ ConsensusTimeout "Ran out of proposers"
       go ((pAddr, isMe):xs) = do
 
         permuteTopic pAddr
@@ -94,7 +89,7 @@ propose mObj = do
         let nextProposer (ConsensusTimeout _) = do
               logInfo $ "Timeout collecting for proposer: " ++ show pAddr
               go xs
-            nextProposer e = throw e
+            nextProposer e = throwIO e
 
         obj <-
           if isMe
@@ -108,7 +103,7 @@ propose mObj = do
                  Just (s, Just obj2) -> pure $ Ballot pAddr s obj2
                  _                   -> do
                    logWarn $ "Mischief: missing proposal from: " ++ show pAddr
-                   throw (ConsensusMischief $ printf "Missing proposal from %s" $ show pAddr)
+                   throwIO (ConsensusMischief $ printf "Missing proposal from %s" $ show pAddr)
 
 determineProposers :: Consensus [(Address, Bool)]
 determineProposers = do
@@ -121,7 +116,7 @@ determineProposers = do
       dist[d%64] += 1
   print dist
   -}
-  ConsensusParams members (EthIdent _ myAddr)  _ mtopic <- asks cpParams
+  ConsensusParams members (EthIdent _ myAddr)  _ mtopic <- asks ccParams
   let msg2sum = sum . map fromIntegral . BS.unpack . getMsg
   topic <- readTVarIO mtopic
   let i = mod (msg2sum topic) (length members)
@@ -130,7 +125,7 @@ determineProposers = do
 
 permuteTopic :: Sendable a => a -> Consensus Topic
 permuteTopic key = do
-  tv <- asks $ mtopic . cpParams
+  tv <- asks $ mtopic . has
   atomically do
     cur <- readTVar tv <&> getMsg
     let r = hashMsg $ toStrict $ Bin.encode (key, cur)
@@ -154,14 +149,14 @@ collectThreshold :: Sendable a => Int -> Collect a
 collectThreshold t = collectGeneric $ \_ inv -> length inv == t
 
 collectGeneric :: Sendable a => ([Address] -> Inventory a -> Bool) -> Collect a
-collectGeneric test timeout members = do
+collectGeneric test timeout members recv = do
   startTime <- liftIO getCurrentTime
   fix $ \f -> do
     d <- timeDelta startTime
     let us = timeout - min timeout d
-    minv <- receiveTimeout us
+    minv <- receiveTimeout recv us
     case minv of
-      Nothing -> throw errTimeout
+      Nothing -> throwIO errTimeout
       Just inv | test members inv -> pure inv
       _ -> f
   where
@@ -174,4 +169,6 @@ haveMajority members inv =
 majorityThreshold :: Int -> Int
 majorityThreshold m = floor $ (fromIntegral m) / 2 + 1
 
-
+timeDelta :: MonadIO m => UTCTime -> m Int
+timeDelta t = f <$> liftIO getCurrentTime where
+  f now = round . (* 1000000) . realToFrac $ diffUTCTime now t

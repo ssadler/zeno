@@ -2,7 +2,6 @@
 module Zeno.Consensus
   ( module Zeno.Consensus.Types
   , startSeedNode
-  , spawnConsensusNode
   , withConsensusNode
   , runConsensus
   , propose
@@ -19,7 +18,7 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BS8
 import Network.Transport
 import Network.Transport.TCP
-import Network.Distributed
+import Zeno.Process
 
 import Zeno.Consensus.Types
 import Zeno.Consensus.Round
@@ -31,14 +30,15 @@ import Zeno.Prelude
 
 -- Node -----------------------------------------------------------------------
 
-spawnConsensusNode :: ConsensusNetworkConfig -> IO ConsensusNode
-spawnConsensusNode CNC{..} = do
-  t <- getTransport
-  node <- startNode t
-  p2p <- startP2P node seeds'
-  pure $ ConsensusNode node p2p
-
+withConsensusNode :: ConsensusNetworkConfig -> (ConsensusNode -> IO a) -> IO a
+withConsensusNode CNC{..} act = do
+  runZenoR () do
+    (_, node) <- allocate (getTransport >>= startNode) stopNode
+    zenoReader (\_ -> node) do
+      p2p <- startP2P seeds'
+      liftIO $ act $ ConsensusNode node p2p
   where
+
   myNodeId = makeNodeId port host
   seeds' = makeNodeId port <$> seeds
 
@@ -63,14 +63,7 @@ spawnConsensusNode CNC{..} = do
     where addr' = addr ++ maybe (':' : show port) (\_ -> "") (elemIndex ':' addr)
 
 
-withConsensusNode :: ConsensusNetworkConfig -> (ConsensusNode -> IO a) -> IO a
-withConsensusNode conf = do
- bracket (spawnConsensusNode conf)
-         (closeNode . node)
-
-
 startSeedNode :: String -> Word16 -> IO ()
 startSeedNode host port = do
   let cnc = CNC [] host port
-  _ <- spawnConsensusNode cnc
-  threadDelay $ 2^62
+  withConsensusNode cnc \_ -> threadDelay $ 2^62

@@ -2,45 +2,48 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE KindSignatures #-}
-{-# LANGUAGE UndecidableInstances #-}
 
 module Zeno.Monad where
 
-import           Control.Monad.Catch
-import           Control.Monad.Logger
-import           Control.Monad.Reader
-
-import           Network.Distributed.Types
-
-import           UnliftIO
-
 import Control.Exception.Safe (MonadMask)
+import Control.Monad.Catch
+import Control.Monad.Logger
+import Control.Monad.Reader
+import Control.Monad.Trans.Resource
+import System.IO.Unsafe
+import UnliftIO
 
 
-newtype Zeno r a = Zeno { unZeno :: ReaderT r (LoggingT IO) a }
-  deriving (MonadReader r, MonadThrow, MonadCatch, MonadMask, MonadUnliftIO)
+type Zeno r = ZenoT r IO
 
-instance Functor (Zeno r) where
-  fmap f (Zeno a) = Zeno $ fmap f a
+newtype ZenoT r m a = Zeno { unZeno :: ReaderT r m a }
+  deriving ( Functor, Applicative, Monad
+           , MonadIO , MonadReader r , MonadTrans
+           , MonadThrow, MonadCatch, MonadMask)
 
-instance Applicative (Zeno r) where
-  pure a = Zeno $ pure a
-  (Zeno f) <*> (Zeno a) = Zeno $ f <*> a
+instance Semigroup (Zeno r a) where
+  a <> b = a *> b
 
-instance Monad (Zeno r) where
-  (Zeno a) >>= f = Zeno $ a >>= unZeno . f
+instance Monoid a => Monoid (Zeno r a) where
+  mempty = pure mempty
 
-instance MonadIO (Zeno r) where
-  liftIO a = Zeno $ liftIO a
+instance MonadUnliftIO m => MonadUnliftIO (ZenoT r m) where
+  withRunInIO inner =
+    Zeno $ ReaderT $ \r -> withRunInIO $ \rio -> inner (rio . runZeno r)
 
-instance MonadLogger (Zeno r) where
-  monadLoggerLog a b c d = Zeno $ monadLoggerLog a b c d
+instance MonadIO m => MonadLogger (ZenoT r m) where
+  monadLoggerLog a b c d = liftIO $ logStderr a b c (toLogStr d)
 
-runZeno :: r -> Zeno r a -> IO a
-runZeno r (Zeno act) = runStderrLoggingT $ runReaderT act r
+instance MonadIO m => MonadLoggerIO (ZenoT r m) where
+  askLoggerIO = pure logStderr
 
-zenoReader :: (r -> r') -> Zeno r' a -> Zeno r a
+-- A hack gives us the logging function
+logStderr = unsafePerformIO $ runStderrLoggingT $ LoggingT pure
+
+runZeno :: r -> ZenoT r m a -> m a
+runZeno r (Zeno act) = runReaderT act r
+
+zenoReader :: (r -> r') -> ZenoT r' m a -> ZenoT r m a
 zenoReader f = Zeno . withReaderT f . unZeno
 
 -- The Has type
@@ -50,24 +53,18 @@ class Has r a where
 instance Has r r where
   has = id
 
-hasReader :: Has r' r => Zeno r' a -> Zeno r a
+hasReader :: Has r' r => ZenoT r' m a -> ZenoT r m a
 hasReader = zenoReader has
 
--- Process
 
-newtype ZenoProcess r i (m :: * -> *) a = ZenoProcess (Zeno (r i) a)
-  deriving (Functor, Applicative, Monad, MonadIO, MonadReader (r i), MonadLogger)
+--------------------------------------------------------------------------------
+-- | The ResourceT version of Zeno
+--------------------------------------------------------------------------------
 
-instance MonadUnliftIO (ZenoProcess r i m)
+type ZenoR r = ZenoT r (ResourceT IO)
 
-instance Typeable i => MonadProcess i IO (ZenoProcess ProcessData) where
-  procAsk = ask
-  procLift = liftIO
-  procRun = runZenoProcess
+runZenoR :: r -> ZenoR r a -> IO a
+runZenoR r act = runResourceT $ runZeno r act
 
-runZenoProcess (ZenoProcess act) pd = runZeno pd act
-
-instance (MonadProcess i IO (ZenoProcess r), MonadProcess i2 IO (ZenoProcess r))
-         => ForkProcess (ZenoProcess r) i i2 IO where
-
-
+instance MonadResource (ZenoR r) where
+  liftResourceT = lift . liftResourceT
