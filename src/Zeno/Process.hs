@@ -37,34 +37,49 @@ import Zeno.Prelude
 import Zeno.Process.Types
 import Zeno.Process.Remote
 import Zeno.Process.Node
+import Zeno.Data.Misc
 
 
-type MonadBase m = (MonadUnliftIO m, MonadResource m)
+type MonadBase m = (MonadUnliftIO m, MonadResource m, MonadLogger m)
 
 
-spawn :: MonadBase m => String -> (AsyncProcess i b -> m b) -> m (AsyncProcess i b)
+spawn :: forall i m b. MonadBase m => String -> (AsyncProcess i b -> m b) -> m (AsyncProcess i b)
 spawn threadName forked = do
   handoff <- newEmptyMVar
   procMbox <- newEmptyTMVarIO
   UnliftIO unliftIO <- askUnliftIO
 
   let
+    debugThreads = False
+
     runThread = do
-      traceM $ "start: " ++ threadName
-      atomically (modifyTVar globalThreadCount (+1))
+      when debugThreads do
+        traceM $ emot emSnout ++ " : " ++ threadName
+        atomically (modifyTVar globalThreadCount (+1))
       async do
-        unliftIO $ readMVar handoff >>= forked
+        unliftIO do
+          catchAny
+            (readMVar handoff >>= forked)
+            logThreadDied
 
     stopThread asnc = do
       uninterruptibleCancel asnc
-      atomically (modifyTVar globalThreadCount (+(-1)))
-      readTVarIO globalThreadCount >>= print
-      traceM $ "kill: " ++ threadName
+      when debugThreads do
+        traceM $ emot emFrogFace ++ " : " ++ threadName
+        atomically (modifyTVar globalThreadCount (+(-1)))
+        readTVarIO globalThreadCount >>= print
+        traceM $ "kill: " ++ threadName
 
   (_, procAsync) <- allocate runThread stopThread
   let proc = Process{..}
   putMVar handoff proc
   pure proc
+
+  where
+  logThreadDied :: SomeException -> m a
+  logThreadDied e = do
+    logError $ "Thread died with: " ++ show e
+    throwIO e
 
 
 globalThreadCount :: TVar Int
