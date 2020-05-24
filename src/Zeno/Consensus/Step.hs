@@ -128,7 +128,7 @@ inventoryBuilder step@Step{..} mbox = do
 getInventoryQueries :: Sendable i
                     => Step i
                     -> Process (NodeId, Integer)
-                    -> ZenoR r [(NodeId, Integer)]
+                    -> Zeno r [(NodeId, Integer)]
 getInventoryQueries Step{..} mbox = do
   idxs <- recvAll
   inv <- readTVarIO tInv

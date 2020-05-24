@@ -5,6 +5,9 @@ module Zeno.Consensus.P2P
   , getPeers
   , sendPeers
   , registerOnNewPeer
+  -- For testing
+  , PeerMsg(..)
+  , peerControllerPid
   ) where
 
 
@@ -62,7 +65,7 @@ registerOnNewPeer cb = do
 -- * Consensus
 
 
-startP2P :: [NodeId] -> ZenoR Node PeerState
+startP2P :: [NodeId] -> Zeno Node PeerState
 startP2P seeds = do
   p2pPeers <- newTVarIO mempty
   pnCount <- newTVarIO 0
@@ -70,15 +73,15 @@ startP2P seeds = do
   let p2pPeerNotifier = PeerNotifier{..}
   let state = PeerState{..}
   _ <- spawn $ \_ -> peerController state seeds
-  liftIO $ installHandler sigUSR1 (Catch $ dumpPeers state) Nothing
+  withRunInIO \rio ->
+    installHandler sigUSR1 (Catch $ rio $ dumpPeers state) Nothing
   pure state
   where
   dumpPeers PeerState{..} = do
     peers <- atomically $ readTVar p2pPeers
-    runZeno () $ do
-      logInfo "Got signal USR1"
-      forM_ peers $ \p ->
-        logInfo $ show p
+    logInfo "Got signal USR1"
+    forM_ peers $ \p ->
+      logInfo $ show p
 
 
 peerControllerPid :: ProcessId
@@ -88,12 +91,12 @@ peerControllerPid = hashServiceId "peerController"
 data PeerMsg =
     GetPeers
   | Peers Peers
-  deriving (Generic)
+  deriving (Show, Generic)
 
 instance Binary PeerMsg
 
 
-peerController :: PeerState -> [NodeId] -> ZenoR Node ()
+peerController :: PeerState -> [NodeId] -> Zeno Node ()
 peerController state@PeerState{..} seeds = do
   recv <- subscribe peerControllerPid
   forever do
@@ -114,7 +117,7 @@ peerController state@PeerState{..} seeds = do
   doDiscover nodeId = do
     sendRemote nodeId peerControllerPid GetPeers
 
-  newPeer :: NodeId -> ZenoR Node ()
+  newPeer :: NodeId -> Zeno Node ()
   newPeer nodeId = do
     let PeerNotifier{..} = p2pPeerNotifier
     peers <- readTVarIO p2pPeers
@@ -128,7 +131,7 @@ peerController state@PeerState{..} seeds = do
       sendRemote nodeId peerControllerPid GetPeers
 
 
-peerNotifier :: Process PeerNotifierMessage -> ZenoR Node ()
+peerNotifier :: Process PeerNotifierMessage -> Zeno Node ()
 peerNotifier proc = do
   fix1 mempty $
     \go !listeners -> do

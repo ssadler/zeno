@@ -92,7 +92,7 @@ data ConsensusParams = ConsensusParams
 
 type Topic = Msg
 
-type Consensus = ZenoR ConsensusContext
+type Consensus = Zeno ConsensusContext
 
 data ConsensusException = ConsensusTimeout String
                         | ConsensusMischief String
@@ -101,6 +101,6 @@ instance Exception ConsensusException
 
 
 withTimeout :: Int -> Consensus a -> Consensus a
-withTimeout t = undefined
---  zenoReader $
---    \ConsensusProcess{..} -> ConsensusProcess { cpParams = cpParams { timeout' = t }, .. }
+withTimeout t =
+  local $
+    \c -> c { ccParams = (ccParams c) { timeout' = t } }

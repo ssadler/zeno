@@ -25,20 +25,20 @@ import Zeno.Process.Types
 import Zeno.Prelude hiding (finally)
 
 
-sendRemote :: (Binary a, Has Node r) => NodeId -> ProcessId -> a -> ZenoR r ()
+sendRemote :: (Binary a, Has Node r) => NodeId -> ProcessId -> a -> Zeno r ()
 sendRemote nodeId pid msg = do
   chan <- getRemoteForwarder nodeId
   atomically $ writeTQueue chan $ Forward $ encode (pid, msg)
 
 
-monitorRemote :: Has Node r => NodeId -> ZenoR r () -> ZenoR r ()
+monitorRemote :: Has Node r => NodeId -> Zeno r () -> Zeno r ()
 monitorRemote nodeId act = do
   chan <- getRemoteForwarder nodeId
   ioAct <- toIO act
   atomically $ writeTQueue chan $ OnShutdown $ ioAct
 
 
-getRemoteForwarder :: Has Node r => NodeId -> ZenoR r Forwarder
+getRemoteForwarder :: Has Node r => NodeId -> Zeno r Forwarder
 getRemoteForwarder nodeId = do
   node@Node{mforwarders} <- asks has
 
@@ -61,16 +61,15 @@ getRemoteForwarder nodeId = do
 quitRemoteForwader :: Node -> NodeId -> STM ()
 quitRemoteForwader Node{..} nodeId = do
   STM.lookup nodeId mforwarders >>=
-    maybe (pure ())
-      \fwd -> do
-        writeTQueue fwd Quit
-        STM.delete nodeId mforwarders
+    mapM_ \fwd -> do
+      writeTQueue fwd Quit
+      STM.delete nodeId mforwarders
 
-forkForwarder :: Node -> NodeId -> TQueue ForwardMessage -> ZenoR r ThreadId
+forkForwarder :: Node -> NodeId -> TQueue ForwardMessage -> Zeno r ThreadId
 forkForwarder node@Node{..} nodeId chan = do
   forkIO $ finally run cleanup -- TODO: bracket, or forkIOWithUnmask
   where
-  run :: ZenoR r ()
+  run :: Zeno r ()
   run = do
     liftIO mkConn >>=
       either warnDidNotSend
@@ -82,7 +81,7 @@ forkForwarder node@Node{..} nodeId chan = do
   mkConn :: IO (Either (NT.TransportError NT.ConnectErrorCode) NT.Connection)
   mkConn = NT.connect endpoint (endpointAddress nodeId) NT.ReliableOrdered NT.defaultConnectHints
 
-  loopForward :: NT.Connection -> ZenoR r ()
+  loopForward :: NT.Connection -> Zeno r ()
   loopForward conn = do
     fix1 [] $ \f handlers -> do
       atomically (readTQueue chan) >>=
@@ -93,22 +92,22 @@ forkForwarder node@Node{..} nodeId chan = do
           OnShutdown act -> f $ act : handlers
           Quit -> do
             liftIO $
-              mapM_ id handlers
+              sequence_ handlers
 
   cleanup = do
     atomically do
       STM.lookup nodeId mforwarders >>=
-        maybe (pure ()) \chan' -> do
+        mapM_ \chan' -> do
           when (chan' == chan) do
             writeTQueue chan Quit
             STM.delete nodeId mforwarders
 
-  warnDidNotSend :: Show e => e -> ZenoR r ()
+  warnDidNotSend :: Show e => e -> Zeno r ()
   warnDidNotSend err = do
     logWarn $ "Forwarded: Error setting up lightweight connection: " ++ show err
 
 
-subscribe :: (Has Node r, Binary i) => ProcessId -> ZenoR r (RemoteReceiver i)
+subscribe :: (Has Node r, Binary i) => ProcessId -> Zeno r (RemoteReceiver i)
 subscribe procId = do
   node@Node{..} <- asks has
   (_, recv) <- 

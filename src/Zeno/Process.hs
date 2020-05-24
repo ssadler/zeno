@@ -91,7 +91,7 @@ receiveDuring recv timeout act = do
   fix $ \f -> do
     d <- liftIO $ timeDelta startTime
     let us = timeout - d
-    receiveTimeout recv us >>= maybe (pure ()) act
+    receiveTimeout recv us >>= mapM_ act
     when (us > 0) f
 
 receiveDuringS :: (MonadBase m, Typeable i) => Receiver i -> Int -> (i -> m ()) -> m ()

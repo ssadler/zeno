@@ -32,7 +32,7 @@ import Zeno.Prelude
 
 withConsensusNode :: ConsensusNetworkConfig -> (ConsensusNode -> IO a) -> IO a
 withConsensusNode CNC{..} act = do
-  runZenoR () do
+  runZeno () do
     (_, node) <- allocate (getTransport >>= startNode) stopNode
     zenoReader (\_ -> node) do
       p2p <- startP2P seeds'

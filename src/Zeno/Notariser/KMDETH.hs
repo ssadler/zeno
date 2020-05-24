@@ -137,15 +137,15 @@ notariseToETH nc@NotariserConfig{..} height32 = do
 
   -- Ok now we have all the parameters together, we need to collect sigs and get the tx
 
-  runConsensus cparams proxyParams $ do
+  runConsensus cparams proxyParams do
     {- The trick is, that during this whole block inside runConsensus,
        each step will stay open until the end so that lagging nodes can
        join in late. -}
 
-    run $ logDebug "Step 1: Collect sigs"
+    logDebug "Step 1: Collect sigs"
     sigBallots <- stepWithTopic sighash (collectThreshold threshold) ()
 
-    run $ logDebug "Step 2: Get proposed transaction"
+    logDebug "Step 2: Get proposed transaction"
     let proxyCallData = ethMakeProxyCallData proxyParams (bSig <$> unInventory sigBallots)
     ballot@(Ballot proposer _ tx) <- propose $ run $ ethMakeNotarisationTx nc proxyCallData
     run $ checkTxProposed ballot
@@ -158,7 +158,7 @@ notariseToETH nc@NotariserConfig{..} height32 = do
 
     let txid = hashTx tx
 
-    run $ logDebug "Step 3: Confirm proposal"
+    logDebug "Step 3: Confirm proposal"
     _ <- step collectMajority ()
 
     run $
@@ -170,17 +170,16 @@ notariseToETH nc@NotariserConfig{..} height32 = do
         else do
           logDebug $ "Step 4: Proposer will submit: " ++ show txid
 
-    run $ logDebug "Step 5: Confirm that tx was sumbmitted by proposer"
+    logDebug "Step 5: Confirm that tx was sumbmitted by proposer"
     -- This will timeout if proposer had an exception while submitting the transaction
     _ <- step (collectMembers [proposer]) ()
 
-    run $ logDebug "Step 6: Confirm that everyone saw that the tx was submitted by proposer"
+    logDebug "Step 6: Confirm that everyone saw that the tx was submitted by proposer"
     _ <- step collectMajority ()
   
-    run do
-      logDebug $ "Step 7: Wait for transaction confirmation on chain"
-      waitTransactionConfirmed1 (120 * 1000000) txid
-      pure ()
+    logDebug $ "Step 7: Wait for transaction confirmation on chain"
+    run $ waitTransactionConfirmed1 (120 * 1000000) txid
+    pure ()
 
 
 ethMakeNotarisationTx :: NotariserConfig -> ByteString -> Zeno EthNotariser Transaction
