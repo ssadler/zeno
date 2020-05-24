@@ -50,7 +50,7 @@ spawn threadName forked = do
   UnliftIO unliftIO <- askUnliftIO
 
   let
-    debugThreads = False
+    debugThreads = True
 
     runThread = do
       when debugThreads do
@@ -76,6 +76,7 @@ spawn threadName forked = do
   pure proc
 
   where
+
   logThreadDied :: SomeException -> m a
   logThreadDied e = do
     logError $ "Thread died with: " ++ show e

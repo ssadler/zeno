@@ -7,6 +7,7 @@ module Zeno.Logging
   , logError
   , logWarn
   , logTime
+  , logStderr
   , AsString
   , asString
   ) where
@@ -17,6 +18,7 @@ import Data.ByteString.Lazy (toStrict)
 import Data.Time.Clock
 import Control.Monad.IO.Class as ALL (liftIO, MonadIO)
 import Control.Monad.Logger as LOG hiding (logDebug, logInfo, logError, logWarn)
+import System.IO.Unsafe
 
 import Data.String (fromString)
 
@@ -32,7 +34,6 @@ logError = logErrorN . fromString
 logWarn :: MonadLogger m => String -> m ()
 logWarn = logWarnN . fromString
 
-
 class AsString a where
   asString :: a -> String
 
@@ -42,6 +43,8 @@ instance AsString BS8.ByteString where
 instance AsString Value where
   asString = asString . toStrict . encode
 
+-- A hack gives us the logging function
+logStderr = unsafePerformIO $ runStderrLoggingT $ LoggingT pure
 
 logTime :: (MonadIO m, MonadLogger m) => String -> m a -> m a
 logTime s act = do

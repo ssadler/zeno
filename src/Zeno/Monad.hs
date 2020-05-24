@@ -11,8 +11,9 @@ import Control.Monad.Catch (MonadCatch)
 import Control.Monad.Logger
 import Control.Monad.Reader
 import Control.Monad.Trans.Resource as ResourceT
-import System.IO.Unsafe
 import UnliftIO
+
+import Zeno.Logging
 
 
 
@@ -65,9 +66,6 @@ instance MonadLoggerIO (Zeno r) where
 instance MonadUnliftIO (Zeno r) where
   withRunInIO inner =
     Zeno $ \f r rti -> inner (runZeno r) >>= f r rti
-
--- A hack gives us the logging function
-logStderr = unsafePerformIO $ runStderrLoggingT $ LoggingT pure
 
 
 runZeno :: r -> Zeno r a -> IO a

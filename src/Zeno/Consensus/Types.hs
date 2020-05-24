@@ -71,7 +71,7 @@ data StepMessage a =
     InventoryIndex Integer
   | GetInventory Integer
   | InventoryData (Inventory a)
-  deriving (Generic)
+  deriving (Generic, Show)
 
 instance Sendable a => Binary (StepMessage a)
 
