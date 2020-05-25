@@ -13,11 +13,12 @@ module Zeno.Prelude
   , toHex
   , expandPath
   , fix1
+  , timeDelta
   ) where
 
 import Control.Applicative as ALL
 import Control.Monad as ALL (forM, forM_, join, when, replicateM, foldM, forever)
-import Control.Monad.IO.Class as ALL (liftIO)
+import Control.Monad.IO.Class as ALL (MonadIO, liftIO)
 import Control.Monad.Reader as ALL (ask, asks)
 import Control.Monad.Trans.Class as ALL
 import Control.Monad.Trans.Resource as ALL (MonadResource, allocate)
@@ -43,7 +44,7 @@ import Data.String.Conv as ALL
 import Data.String as ALL (IsString, fromString)
 import Data.Text as ALL (Text, unpack)
 import Data.Text.Encoding as ALL (encodeUtf8, decodeUtf8)
-import Data.Time.Clock as ALL (UTCTime, getCurrentTime)
+import Data.Time.Clock as ALL (UTCTime, getCurrentTime, diffUTCTime)
 import Data.Word as ALL (Word8, Word16, Word32, Word64)
 
 import UnliftIO.Concurrent as ALL (threadDelay, forkIO)
@@ -110,3 +111,9 @@ instance (PrintfArg a, PrintfArg b, PrintfArg c) => PercentFormat (a, b, c) wher
 
 fix1 :: a -> ((a -> b) -> a -> b) -> b
 fix1 a f = fix f a
+
+
+
+timeDelta :: MonadIO m => UTCTime -> m Int
+timeDelta t = f <$> liftIO getCurrentTime where
+  f now = round . (* 1000000) . realToFrac $ diffUTCTime now t

@@ -37,8 +37,11 @@ notariseToKMD nc@NotariserConfig{..} ndata = do
     run $ logDebug "Step 2: Get proposed inputs"
     let proposal = proposeInputs kmdNotarySigs $ unInventory utxoBallots
     Ballot _ _ utxosChosen <- propose $ pure proposal
+
+    -- Step 3 - Confirm proposal
+    _ <- step collectMajority ()
   
-    -- Step 3 - Sign tx and collect signed inputs
+    -- Step 4 - Sign tx and collect signed inputs
     run $ logDebug "Step 3: Sign & collect"
     let partlySignedTx = signMyInput nc kmdSecKey utxosChosen $ H.DataCarrier opret
         myInput = getMyInput utxo partlySignedTx
@@ -46,7 +49,6 @@ notariseToKMD nc@NotariserConfig{..} ndata = do
     allSignedInputs <- step waitSigs myInput
     let finalTx = compileFinalTx partlySignedTx $ unInventory allSignedInputs
   
-    -- Step 4 - Confirm step 3 (doesn't overcome two generals problem, we let other chains do that)
     run $ logDebug "Step 4: Confirm"
     _ <- step collectMajority ()
   

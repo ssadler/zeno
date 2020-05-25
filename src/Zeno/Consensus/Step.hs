@@ -74,22 +74,21 @@ spawnStep message myBallot members = do
 
     onInventoryData step $ Map.singleton myAddr (mySig, myData)
 
-    flip withException (\e -> liftIO (print (e :: SomeException))) $
-      forever do
-        receiveWait recv >>=
-          authenticate step
-            \peer ->
-              \case
-                InventoryIndex theirIdx -> do
-                  send builder (peer, theirIdx)
-                
-                GetInventory wanted -> do
-                  inv <- readTVarIO tInv
-                  let subset = getInventorySubset wanted members inv
-                  sendAuthenticated step peer $ InventoryData subset
+    forever do
+      receiveWait recv >>=
+        authenticate step
+          \peer ->
+            \case
+              InventoryIndex theirIdx -> do
+                send builder (peer, theirIdx)
+              
+              GetInventory wanted -> do
+                inv <- readTVarIO tInv
+                let subset = getInventorySubset wanted members inv
+                sendAuthenticated step peer $ InventoryData subset
 
-                InventoryData inv -> do
-                  onInventoryData step inv
+              InventoryData inv -> do
+                onInventoryData step inv
 
 
 onNewPeer :: forall i. Sendable i => Step i -> NodeId -> Consensus ()

@@ -60,7 +60,7 @@ runNotariseKmdToEth pk gateway networkConfig gethConfig kmdConfPath = do
     runForever act = forever $ act `catches` handlers
       where
         handlers =
-          [ Handler $ \e -> recover logInfo 3 (e :: ConsensusException)
+          [ Handler $ \e -> recover logInfo 1 (e :: ConsensusException)
           , Handler $ \e -> recover logWarn 20 (fmtHttpException e)
           , Handler $ \e -> recover logWarn 20 (e :: RPCException)
           , Handler $ \e -> recover logError 60 (e :: ConfigException)

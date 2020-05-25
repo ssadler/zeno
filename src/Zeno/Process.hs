@@ -139,12 +139,3 @@ blake2b_160 b = BS.pack (BA.unpack (hash b :: Digest Blake2b_160))
 
 hashServiceId :: BS.ByteString -> ProcessId
 hashServiceId = ProcessId . toFixed . blake2b_160
-
-timeDelta :: MonadIO m => UTCTime -> m Int
-timeDelta t = f <$> liftIO getCurrentTime where
-  f now = round . (* second) . realToFrac $ diffUTCTime now t
-
-
-(<&>) :: Functor f => f a -> (a -> b) -> f b
-(<&>) = flip fmap
-infixl 1 <&>

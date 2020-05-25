@@ -46,8 +46,16 @@ runConsensus params@ConsensusParams{..} topicData act = do
   atomically $ writeTVar mtopic $ hashMsg $ toStrict $ Bin.encode topicData
   cn <- asks has
   let ctx = ConsensusContext cn params
-  withZeno (\_ -> ctx) do
-    withLocalResources act
+  proc <-
+    spawn "Consensus Round" $ \proc -> do
+      withZeno (\_ -> ctx) act >>= send proc
+      -- Keep child steps alive for a while, give the stragglers a chance to catch up.
+      threadDelay $ 10 * 1000000
+
+  -- TODO: Maybe this should have a timeout?
+  receiveWait proc
+
+
 
 
 -- Coordinate Round -----------------------------------------------------------
@@ -65,6 +73,7 @@ step' collect obj = do
 
   recv <- spawnStep topic ballot members'
 
+  -- TODO: it would be nice if this was merged with receiveDuring
   startTime <- liftIO getCurrentTime
   fix $ \f -> do
     d <- timeDelta startTime
@@ -113,7 +122,8 @@ propose mObj = do
           withTimeout (5 * 1000000) do
             results <- step' (collectMembers [pAddr]) obj
             case Map.lookup pAddr results of
-                 Just (s, Just obj2) -> pure $ Ballot pAddr s obj2
+                 Just (s, Just obj2) -> do
+                   pure $ Ballot pAddr s obj2
                  Just (_, Nothing)   -> do
                    throwIO (ConsensusMischief $ printf "Missing proposal from %s" $ show pAddr)
                  Nothing -> error "Missing proposal; should not happen"
@@ -157,29 +167,27 @@ collectMajority inv = do
       majority = majorityThreshold $ length members'
       pass = have >= majority
   when debugCollect do
-    unless pass do
-      logDebug $ "collect majority: %i >= %i == False" % (have, majority)
+    logDebug $ "collect majority: %i >= %i == %s" % (have, majority, show pass)
   pure pass
 
+-- | collectThreshold collects at least n ballots.
+--   At least, because it collects the greater of the given n and
+--   the majority threshold.
 collectThreshold :: Sendable a => Int -> Collect a
 collectThreshold n inv = do
-  let pass = length inv >= n
+  ConsensusParams{..} <- asks has
+  let t = max n $ majorityThreshold $ length members'
+  let pass = length inv >= t
   when debugCollect do
-    unless pass do
-      logDebug $ "collect threshold: %i >= %i == False" % (length inv, n)
+    logDebug $ "collect threshold: %i >= %i == %s" % (length inv, t, show pass)
   pure pass
 
 collectMembers :: Sendable a => [Address] -> Collect a
 collectMembers addrs inv = do
   let pass = all (flip Map.member inv) addrs
   when debugCollect do
-    unless pass do
-      logDebug $ "collect members: %s ⊆  %s == False" % (show addrs, show $ Map.keys inv)
+    logDebug $ "collect members: %s ⊆  %s == %s" % (show addrs, show $ Map.keys inv, show pass)
   pure pass
 
 majorityThreshold :: Int -> Int
 majorityThreshold m = floor $ (fromIntegral m) / 2 + 1
-
-timeDelta :: MonadIO m => UTCTime -> m Int
-timeDelta t = f <$> liftIO getCurrentTime where
-  f now = round . (* 1000000) . realToFrac $ diffUTCTime now t

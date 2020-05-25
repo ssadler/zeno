@@ -53,7 +53,7 @@ instance MonadIO (Zeno r) where
 instance MonadReader r (Zeno r) where
   ask = Zeno $ \f r rti -> f r rti r
   {-# INLINE ask #-}
-  local f (Zeno p) = Zeno $ \rest -> p (\r rti -> rest (f r) rti)
+  local f (Zeno p) = Zeno $ \rest r -> p (\_ -> rest r) (f r)
 
 instance MonadResource (Zeno r) where
   liftResourceT resT = Zeno $
