@@ -53,7 +53,7 @@ spawn threadName forked = do
   UnliftIO unliftIO <- askUnliftIO
 
   let
-    debugThreads = True
+    debugThreads = False
 
     runThread = do
       when debugThreads do
@@ -67,7 +67,6 @@ spawn threadName forked = do
               logThreadDied
 
     stopThread asnc = do
-      traceM "cancel async"
       cancel asnc
       when debugThreads do
         traceM $ emot emFrogFace ++ " : " ++ threadName
@@ -82,7 +81,6 @@ spawn threadName forked = do
   pure proc
 
   where
-
   logThreadDied :: SomeException -> Zeno r a
   logThreadDied e = do
     logError $ "Thread died with: " ++ show e

@@ -47,7 +47,7 @@ runConsensus params@ConsensusParams{..} topicData act = do
   cn <- asks has
   let ctx = ConsensusContext cn params
   withZeno (\_ -> ctx) do
-    finally (withLocalResources act) (traceM "closing resources")
+    withLocalResources act
 
 
 -- Coordinate Round -----------------------------------------------------------

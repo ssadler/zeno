@@ -2,7 +2,6 @@
 module Zeno.Process.Node where
 
 import Data.Binary
-import qualified Data.IntMap.Strict as IntMap
 import qualified Data.Map as Map
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BSL
@@ -12,6 +11,7 @@ import UnliftIO
 
 import Zeno.Prelude hiding (finally)
 import Zeno.Process.Types
+import Zeno.Process.Node.ReceiveMissCache
 import Zeno.Process.Remote
 
 
@@ -48,28 +48,16 @@ networkEventHandler node@Node{..} = do
           go $ Map.insert connId (NodeId theirEndpoint) conns
 
         -- Ignore test sends
-        NT.Received connId [] -> go conns
-        NT.Received connId [""] -> go conns
+        NT.Received _connId [] -> go conns
+        NT.Received _connId [""] -> go conns
 
         NT.Received connId bss -> do
           case Map.lookup connId conns of
             Nothing -> do
-              logWarn "Got a message from unknown connection" >> go conns
+              logWarn "Got a message from unknown connection"
             Just nodeId -> do
-              let bs = BSL.fromChunks bss
-              case decodeOrFail bs of
-                Left (_, _, errStr) -> do
-                  logDebug $ "Could not decode packet from: %s" % show nodeId
-                  go conns
-                Right (rem, _, to) -> do
-                  atomically do
-                    STM.lookup to topics >>=
-                      \case
-                        Nothing -> do
-                          cacheTopicMiss to nodeId rem
-                        Just (WrappedReceiver write) -> do
-                          write nodeId rem
-                  go conns
+              handleMessage nodeId bss
+          go conns
 
         -- TODO: Maybe we don't need to run killProcess on
         -- ConnectionClosed and EventConnectionLost. One should imply the other, which comes first?
@@ -96,22 +84,19 @@ networkEventHandler node@Node{..} = do
           logInfo "EndpointClosed"
           pure ()
 
-
   where
-  cacheMaxSize = 1000
 
-  cacheTopicMiss :: ProcessId -> NodeId -> BSL.ByteString -> STM ()
-  cacheTopicMiss processId nodeId msg = do
-    let
-      item = (processId, nodeId, msg)
-      next cache
-        | length cache == 0 = IntMap.singleton 0 item
-        | length cache == cacheMaxSize =
-            let ((minId, _), nextCache) = IntMap.deleteFindMin cache
-             in IntMap.insert (minId + length cache) item nextCache
-        | otherwise =
-            let (minId, _) = IntMap.findMin cache
-             in IntMap.insert (minId + length cache) item cache
- 
-    cache <- readTVar recvCache
-    writeTVar recvCache $ next cache
+  handleMessage nodeId bss = do
+    let bs = BSL.fromChunks bss
+    case decodeOrFail bs of
+      Left (_, _, errStr) -> do
+        logDebug $ "Could not decode packet from: %s" % show nodeId
+      Right (rem, _, to) -> do
+        atomically do
+          STM.lookup to topics >>=
+            \case
+              Nothing -> do
+                let miss = (to, nodeId, rem)
+                modifyTVar recvCache $ receiveCachePut miss
+              Just (WrappedReceiver write) -> do
+                write nodeId rem

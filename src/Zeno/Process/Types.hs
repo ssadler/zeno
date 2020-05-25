@@ -32,15 +32,18 @@ data Node = Node
   , endpoint :: NT.EndPoint
   , topics :: STM.Map ProcessId WrappedReceiver
   , mforwarders :: STM.Map NodeId Forwarder
-  -- | The receive cache is wildly inefficient. We want to store 1-10k
-  --   elements that we don't have listeners for, because many nodes will
-  --   send data before others are listening on that key. Appending to this
-  --   map is cheap, but when we get a miss we have to scan it.
-  --   Alternatives would be: eagerly allocating a receiver for a topic we don't
-  --   have a listener for, and some thread to monitor it while there's no consumer,
-  --   or using multiple maps, one for lookup by topic and one for lookup by nonce.
-  , recvCache :: TVar (IntMap (ProcessId, NodeId, BSL.ByteString))
+  , recvCache :: TVar ReceiveMissCache
   }
+
+-- | The receive cache is wildly inefficient. We want to store 1-10k
+--   elements that we don't have listeners for, because many nodes will
+--   send data before others are listening on that key. Appending to this
+--   map is cheap, but when we get a miss we have to scan it.
+--   Alternatives would be: eagerly allocating a receiver for a topic we don't
+--   have a listener for, and some thread to monitor it while there's no consumer,
+--   or using multiple maps, one for lookup by topic and one for lookup by nonce.
+type ReceiveMiss = (ProcessId, NodeId, BSL.ByteString)
+type ReceiveMissCache = IntMap ReceiveMiss
 
 data WrappedReceiver = WrappedReceiver
   { wrappedWrite :: NodeId -> BSL.ByteString -> STM ()

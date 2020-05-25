@@ -31,7 +31,7 @@ notariseToKMD nc@NotariserConfig{..} ndata = do
   
     -- Step 1 - Key on opret, collect UTXOs
     run $ logDebug "Step 1: Collect inputs"
-    utxoBallots <- step collectMajority (kmdPubKeyI, getOutPoint utxo)
+    utxoBallots <- step (collectThreshold kmdNotarySigs) (kmdPubKeyI, getOutPoint utxo)
 
     -- Step 2 - TODO: Key on proposer
     run $ logDebug "Step 2: Get proposed inputs"

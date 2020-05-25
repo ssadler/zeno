@@ -7,7 +7,6 @@ import Control.Monad.Reader
 
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BSL
-import qualified Data.IntMap.Strict as IntMap
 import Data.FixedBytes
 import Data.Hashable
 import Data.Binary
@@ -23,6 +22,7 @@ import UnliftIO.Concurrent
 import Unsafe.Coerce
 
 import Zeno.Process.Types
+import Zeno.Process.Node.ReceiveMissCache
 import Zeno.Prelude hiding (finally)
 
 
@@ -133,14 +133,12 @@ getReceiverSTM Node{..} pid = do
   wrappedReceive chan nodeId bs = do
       case decodeOrFail bs of
         Right ("", _, a) -> writeTQueue chan $ RemoteMessage nodeId a
-        Right (_, _, _) -> pure () -- TODO: log
-        Left _ -> pure () -- TODO: log
+        _ -> pure ()  -- Could have a "bad queue"
 
   populateFromRecvCache recv = do
-    cache <- readTVar recvCache
-    let (matches, nextCache) = IntMap.partition (\(pid', _, _) -> pid == pid') cache
+    (misses, nextCache) <- receiveCacheTake pid <$> readTVar recvCache
     writeTVar recvCache nextCache
-    forM_ (IntMap.elems matches) $
+    forM_ misses
       \(_, nodeId, bs) -> wrappedReceive recv nodeId bs
 
 withRemoteMessage :: (NodeId -> a -> m b) -> RemoteMessage a -> m b

@@ -73,12 +73,9 @@ instance MonadUnliftIO (Zeno r) where
 runZeno :: r -> Zeno r a -> IO a
 runZeno r (Zeno f) = do
   bracket ResourceT.createInternalState
-          close
+          ResourceT.closeInternalState
           (f (\_ _ -> pure) r)
-  where
-  close rti = do
-    traceM "close RTI"
-    ResourceT.closeInternalState rti
+
 
 -- | Cleanup resources on exit
 withLocalResources :: Zeno r a -> Zeno r a
