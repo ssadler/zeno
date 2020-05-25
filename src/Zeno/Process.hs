@@ -43,14 +43,17 @@ import Zeno.Data.Misc
 type MonadBase m = (MonadUnliftIO m, MonadResource m, MonadLogger m)
 
 
-spawn :: forall i m b. MonadBase m => String -> (AsyncProcess i b -> m b) -> m (AsyncProcess i b)
+-- | Unfortunately this function can't run in MonadResource et al because
+--   it relies on checkpointing resource state and MonadResource doesn't have
+--   the equivalent of a `local` function.
+spawn :: forall i r b. String -> (AsyncProcess i b -> Zeno r b) -> Zeno r (AsyncProcess i b)
 spawn threadName forked = do
   handoff <- newEmptyMVar
   procMbox <- newEmptyTMVarIO
   UnliftIO unliftIO <- askUnliftIO
 
   let
-    debugThreads = False
+    debugThreads = True
 
     runThread = do
       when debugThreads do
@@ -58,17 +61,21 @@ spawn threadName forked = do
         atomically (modifyTVar globalThreadCount (+1))
       async do
         unliftIO do
-          catchAny
-            (readMVar handoff >>= forked)
-            logThreadDied
+          withLocalResources do
+            catchAny
+              (readMVar handoff >>= forked)
+              logThreadDied
 
     stopThread asnc = do
+      traceM "cancel async"
       cancel asnc
       when debugThreads do
         traceM $ emot emFrogFace ++ " : " ++ threadName
         atomically (modifyTVar globalThreadCount (+(-1)))
         readTVarIO globalThreadCount >>= print
 
+  -- Using allocate and checkpointing the resourceT state is how heirarchical
+  -- thread lifetimes are achieved
   (_, procAsync) <- allocate runThread stopThread
   let proc = Process{..}
   putMVar handoff proc
@@ -76,7 +83,7 @@ spawn threadName forked = do
 
   where
 
-  logThreadDied :: SomeException -> m a
+  logThreadDied :: SomeException -> Zeno r a
   logThreadDied e = do
     logError $ "Thread died with: " ++ show e
     throwIO e

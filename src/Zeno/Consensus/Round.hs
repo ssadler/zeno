@@ -47,7 +47,7 @@ runConsensus params@ConsensusParams{..} topicData act = do
   cn <- asks has
   let ctx = ConsensusContext cn params
   withZeno (\_ -> ctx) do
-    withCloseResources act
+    finally (withLocalResources act) (traceM "closing resources")
 
 
 -- Coordinate Round -----------------------------------------------------------
@@ -97,7 +97,7 @@ propose mObj = do
       go [] = throwIO $ ConsensusTimeout "Ran out of proposers"
       go ((pAddr, isMe):xs) = do
 
-        permuteTopic pAddr
+        permuteTopic pAddr -- Always permute
 
         let nextProposer (ConsensusTimeout _) = do
               logInfo $ "Timeout collecting for proposer: " ++ show pAddr
@@ -106,17 +106,17 @@ propose mObj = do
 
         obj <-
           if isMe
-             then logInfo "I am the chosen one." >> (Just <$> mObj)
-             else pure Nothing
+             then logInfo ("Propser is: %s (me)" % show pAddr) >> (Just <$> mObj)
+             else logInfo ("Propser is: %s" % show pAddr) >> pure Nothing
 
         handle nextProposer $ do
-          withTimeout (5 * 1000000) $ do
+          withTimeout (5 * 1000000) do
             results <- step' (collectMembers [pAddr]) obj
             case Map.lookup pAddr results of
                  Just (s, Just obj2) -> pure $ Ballot pAddr s obj2
-                 _                   -> do
-                   logWarn $ "Mischief: missing proposal from: " ++ show pAddr
+                 Just (_, Nothing)   -> do
                    throwIO (ConsensusMischief $ printf "Missing proposal from %s" $ show pAddr)
+                 Nothing -> error "Missing proposal; should not happen"
 
 determineProposers :: Consensus [(Address, Bool)]
 determineProposers = do
@@ -147,17 +147,35 @@ permuteTopic key = do
 
 -- Check Majority -------------------------------------------------------------
 
+debugCollect :: Bool
+debugCollect = False
 
 collectMajority :: Sendable a => Collect a
 collectMajority inv = do
   ConsensusParams{..} <- asks has
-  pure $ length inv >= majorityThreshold (length members')
+  let have = length inv
+      majority = majorityThreshold $ length members'
+      pass = have >= majority
+  when debugCollect do
+    unless pass do
+      logDebug $ "collect majority: %i >= %i == False" % (have, majority)
+  pure pass
 
 collectThreshold :: Sendable a => Int -> Collect a
-collectThreshold n inv = pure $ length inv >= n
+collectThreshold n inv = do
+  let pass = length inv >= n
+  when debugCollect do
+    unless pass do
+      logDebug $ "collect threshold: %i >= %i == False" % (length inv, n)
+  pure pass
 
 collectMembers :: Sendable a => [Address] -> Collect a
-collectMembers addrs inv = pure $ all (flip Map.member inv) addrs
+collectMembers addrs inv = do
+  let pass = all (flip Map.member inv) addrs
+  when debugCollect do
+    unless pass do
+      logDebug $ "collect members: %s ⊆  %s == False" % (show addrs, show $ Map.keys inv)
+  pure pass
 
 majorityThreshold :: Int -> Int
 majorityThreshold m = floor $ (fromIntegral m) / 2 + 1

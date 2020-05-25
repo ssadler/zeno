@@ -79,7 +79,8 @@ waitForUtxo = do
           Just u -> pure u
 
 notarisationRecip :: H.ScriptOutput
-notarisationRecip = H.PayPK "020e46e79a2a8d12b9b5d12c7a91adb4e454edfae43c0a0cb805427d2ac7613fd9" -- $ getAddrHash "RXL3YXG2ceaB6C5hfJcN4fvmLH2C34knhA"
+notarisationRecip = H.PayPK "020e46e79a2a8d12b9b5d12c7a91adb4e454edfae43c0a0cb805427d2ac7613fd9"
+                    -- getAddrHash "RXL3YXG2ceaB6C5hfJcN4fvmLH2C34knhA"
 
 -- | Given selected UTXOs, compile a tx and sign own inputs, if any.
 signMyInput :: NotariserConfig -> H.SecKey -> [(H.PubKeyI, H.OutPoint)] -> H.ScriptOutput -> SaplingTx

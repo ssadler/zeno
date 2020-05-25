@@ -61,6 +61,7 @@ spawnStep message myBallot members = do
 
   spawn stepName \process -> do
 
+    recv <- subscribe topic
     logDebug $ "Topic: " ++ show (unProcessId topic)
 
     let step = Step topic tInv members process mySig message
@@ -73,24 +74,22 @@ spawnStep message myBallot members = do
 
     onInventoryData step $ Map.singleton myAddr (mySig, myData)
 
-    recv <- subscribe topic
+    flip withException (\e -> liftIO (print (e :: SomeException))) $
+      forever do
+        receiveWait recv >>=
+          authenticate step
+            \peer ->
+              \case
+                InventoryIndex theirIdx -> do
+                  send builder (peer, theirIdx)
+                
+                GetInventory wanted -> do
+                  inv <- readTVarIO tInv
+                  let subset = getInventorySubset wanted members inv
+                  sendAuthenticated step peer $ InventoryData subset
 
-    forever do
-      receiveWait recv >>=
-        authenticate step
-          \peer ->
-            \case
-              InventoryIndex theirIdx -> do
-                traceM "got inventory index"
-                send builder (peer, theirIdx)
-              
-              GetInventory wanted -> do
-                inv <- readTVarIO tInv
-                let subset = getInventorySubset wanted members inv
-                sendAuthenticated step peer $ InventoryData subset
-
-              InventoryData inv -> do
-                onInventoryData step inv
+                InventoryData inv -> do
+                  onInventoryData step inv
 
 
 onNewPeer :: forall i. Sendable i => Step i -> NodeId -> Consensus ()
@@ -99,7 +98,7 @@ onNewPeer Step{..} peer = do
   let idx = inventoryIndex members inv
   sendAuthenticated Step{..} peer (InventoryIndex idx :: StepMessage i)
 
-onInventoryData :: Sendable i => Step i -> Inventory i -> Consensus ()
+onInventoryData :: forall i. Sendable i => Step i -> Inventory i -> Consensus ()
 onInventoryData Step{..} theirInv = do
 
   -- TODO, very important:
@@ -112,9 +111,8 @@ onInventoryData Step{..} theirInv = do
   inv <- readTVarIO tInv
   let idx = inventoryIndex members inv
   when (0 /= idx .&. complement oldIdx) do
-    traceShowM (oldIdx, idx, "send InventoryIndex")
     send yieldTo inv
-    sendPeers topic (mySig, InventoryIndex idx :: StepMessage ())
+    sendPeers topic (mySig, InventoryIndex idx :: StepMessage i)
 
 
 -- | Inventory builder, continually builds and dispatches queries for remote inventory

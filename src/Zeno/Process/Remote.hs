@@ -78,7 +78,7 @@ quitRemoteForwader Node{..} nodeId = do
 
 runForwarder :: Node -> NodeId -> TQueue ForwardMessage -> Zeno r ()
 runForwarder node@Node{..} nodeId chan = do
-  withCloseResources do
+  withLocalResources do
     (_, eConn) <- allocate (liftIO mkConn) (either (\_ -> pure ()) NT.close)
     case eConn of
       Left e -> warnDidNotSend e

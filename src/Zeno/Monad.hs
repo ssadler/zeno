@@ -15,6 +15,8 @@ import UnliftIO
 
 import Zeno.Logging
 
+import Debug.Trace
+
 
 
 newtype Zeno r a =
@@ -65,18 +67,22 @@ instance MonadLoggerIO (Zeno r) where
 
 instance MonadUnliftIO (Zeno r) where
   withRunInIO inner =
-    Zeno $ \f r rti -> inner (runZeno r) >>= f r rti
+    Zeno $ \f r rti -> inner (\(Zeno z) -> z (\_ _ -> pure) r rti) >>= f r rti
 
 
 runZeno :: r -> Zeno r a -> IO a
 runZeno r (Zeno f) = do
   bracket ResourceT.createInternalState
-          ResourceT.closeInternalState
+          close
           (f (\_ _ -> pure) r)
+  where
+  close rti = do
+    traceM "close RTI"
+    ResourceT.closeInternalState rti
 
 -- | Cleanup resources on exit
-withCloseResources :: Zeno r a -> Zeno r a
-withCloseResources act = do
+withLocalResources :: Zeno r a -> Zeno r a
+withLocalResources act = do
   r <- ask
   liftIO $ runZeno r act
 
