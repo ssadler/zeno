@@ -10,8 +10,6 @@ module Network.Ethereum.Data.ABI
   , JsonInABI(..)
   , PutABI(..)
   , GetABI(..)
-  , Bytes(..)
-  , bytes
   , abi
   , encodeABI
   , decodeABI
@@ -127,11 +125,8 @@ instance PutABI a => PutABI [a] where
     let innerLen = sum $ fixedLen <$> xs
     putDynamic (length xs) innerLen $ mapM_ putABI xs
 
-instance forall n. (KnownNat n, n <= 32) => PutABI (Bytes n) where
-  putABI (Bytes bs) =
-    if BS.length bs > bytesGetN (Proxy :: Proxy n)
-       then error "Bytes: data too long"
-       else putData $ bytesPad bs False
+instance forall n. (KnownNat n, n <= 32) => PutABI (FixedBytes n) where
+  putABI bs = putData $ bytesPad (unFixed bs) False
 
 instance PutABI Bool where
   putABI = putABI . fromEnum
@@ -198,11 +193,11 @@ instance GetABI ByteString where
       let padding = if n == 0 then 0 else padLen n
       BS.take n <$> takeN (padding + n)
 
-instance forall n. (KnownNat n, n <= 32) => GetABI (Bytes n) where
+instance forall n. (KnownNat n, n <= 32) => GetABI (FixedBytes n) where
   getABI = do
     bs <- takeN 32
-    let n = bytesGetN (Proxy :: Proxy n)
-    pure $ bytes $ BS.take n bs
+    let n = fixedGetN (Proxy :: Proxy n)
+    pure $ toFixed $ BS.take n bs
 
 instance GetABI a => GetABI [a] where
   getABI =

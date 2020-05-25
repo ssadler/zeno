@@ -6,7 +6,7 @@ module Main where
 import           Options.Applicative
 
 import           Zeno.Config
-import           Zeno.Consensus.P2P (runSeed)
+import           Zeno.Consensus
 import           Zeno.Notariser.KMDETH
 import           Zeno.Prelude
 import           Zeno.CLI.Utils
@@ -48,5 +48,5 @@ runEthNotariserMethod =
 
 
 runSeedNotariserMethod :: Parser Method
-runSeedNotariserMethod = runSeed <$> optHost <*> optPort
+runSeedNotariserMethod = startSeedNode <$> optHost <*> optPort
 

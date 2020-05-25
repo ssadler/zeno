@@ -15,6 +15,7 @@ import           Crypto.Hash
 import           Data.Aeson
 import qualified Data.ByteArray as BA
 import qualified Data.ByteString as BS
+import           Data.FixedBytes
 import           Data.Serialize
 
 import           Network.Ethereum.Data
@@ -45,19 +46,19 @@ instance ToJSON Sha3 where
   toJSON = toJSON . Hex . unSha3
 
 instance PutABI Sha3 where
-  putABI (Sha3 bs) = putABI (bytes bs :: Bytes 32)
+  putABI (Sha3 bs) = putABI (unsafeToFixed bs :: Bytes32)
 
 instance GetABI Sha3 where
   getABI = do
     b <- getABI
-    pure $ Sha3 $ unBytes (b :: Bytes 32)
+    pure $ Sha3 $ unFixed (b :: Bytes32)
 
 instance Serialize Sha3 where
   put (Sha3 bs) = putByteString bs
   get = Sha3 <$> getByteString 32
 
-sha3AsBytes32 :: Sha3 -> Bytes 32
-sha3AsBytes32 (Sha3 b) = Bytes b
+sha3AsBytes32 :: Sha3 -> Bytes32
+sha3AsBytes32 (Sha3 b) = unsafeToFixed b
 
 failableSha3 :: (Monad m, MonadFail m) => ByteString -> m Sha3
 failableSha3 bs = 

@@ -11,7 +11,6 @@ import           Data.Attoparsec.ByteString.Char8 as A
 
 import           Zeno.Data.Aeson hiding (Parser)
 import           Zeno.Prelude
-import           Zeno.Prelude.Lifted
 
 import qualified Haskoin as H
 import           Network.HTTP.Simple
@@ -19,22 +18,18 @@ import           Network.JsonRpc
 import           Network.ZCash.Sapling
 
 
-data BitcoinConfig =
-  BitcoinConfig
-    { getUser :: ByteString
-    , getPassword :: ByteString
-    , getHost :: ByteString
-    , getPort :: Int
-    } deriving (Show)
+newtype BitcoinConfig = BitcoinConfig { getRequest :: Request }
+  deriving (Show)
 
 
+-- TODO: parsing sucks, make a map
 loadBitcoinConfig :: FilePath -> IO BitcoinConfig
 loadBitcoinConfig path = do
   runZeno () $ logInfo $ "Loading bitcoin config: " ++ path
   configData <- liftIO $ expandPath path >>= BS.readFile
   let p p1 p2 = parseOnly (parseItem p1 p2) configData <|> Left p1
   let econfig =
-        BitcoinConfig <$>
+        mkRequest <$>
           (p "rpcuser"     toEnd   <|> pure "")          <*>
           (p "rpcpassword" toEnd   <|> pure "")          <*>
           (p "rpchost"     toEnd   <|> pure "127.0.0.1") <*>
@@ -42,24 +37,25 @@ loadBitcoinConfig path = do
 
   case econfig of
     Left e -> error $ "Could not parse variable: " ++ e ++ " from config: " ++ path
-    Right c -> pure c
+    Right c -> pure $ BitcoinConfig c
   where
   toEnd = takeTill (inClass " \n")
   parseItem name parseVal = do
+
     let user = matchName >> skipSpace >> "=" >> skipSpace >> parseVal
         skipLine = takeTill (=='\n') >> endOfLine
         matchName = A.string $ fromString name
     user <|> (skipLine >> parseItem name parseVal)
+  mkRequest user pass host port =
+     setRequestBasicAuth user pass $ 
+     setRequestPort port $
+     fromString $ "http://" ++ toS host ++ "/"
+
 
 queryBitcoin :: (Has BitcoinConfig r, FromJSON a, ToJSON b) => Text -> b -> Zeno r a
 queryBitcoin method params = hasReader $ do
-  (BitcoinConfig user pass host port) <- ask
-  let r = fromString $ "http://" ++ BS8.unpack host ++ "/"
-  let endpoint =
-        HttpEndpoint $
-          setRequestBasicAuth user pass $ 
-          setRequestPort port r
-  queryJsonRpc endpoint method params
+  endpoint <- asks getRequest
+  queryJsonRpc (HttpEndpoint endpoint) method params
 
 bitcoinSubmitTxSync :: Has BitcoinConfig r => Int -> SaplingTx -> Zeno r H.TxHash
 bitcoinSubmitTxSync confirmations tx = do
@@ -73,7 +69,6 @@ bitcoinSubmitTxSync confirmations tx = do
 
 bitcoinGetHeight :: Has BitcoinConfig r => Zeno r Word32
 bitcoinGetHeight = queryBitcoin "getinfo" () <&> (.!"{blocks}")
-
 
 parseWif :: H.Network -> Text -> Either String H.SecKey
 parseWif net wif = do

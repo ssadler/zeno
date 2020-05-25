@@ -1,8 +1,6 @@
 
 module Zeno.Notariser.UTXO where
 
-import Control.Concurrent (forkIO)
-import Control.Exception.Safe (catchAny)
 import Control.Monad.Reader
 
 import Network.Bitcoin
@@ -12,7 +10,8 @@ import qualified Haskoin as H
 
 import Zeno.Data.Aeson
 import Zeno.Prelude
-import Zeno.Prelude.Lifted
+import Zeno.Process
+
 
 -- TODO: Should be a single "Has Komodo r"
 forkMonitorUTXOs :: (Has KomodoIdent r, Has BitcoinConfig r)
@@ -22,20 +21,20 @@ forkMonitorUTXOs amount minimum nsplit = do
   run $ do
     available <- isRightAmount <$> komodoUtxos [kmdAddress]
 
-    when (length available < minimum) $ do
-         logInfo $ printf "Creating %i UTXOs of %i" nsplit amount
-         makeSplits amount nsplit
-         threadDelay $ 5 * 60 * 1000000
+    when (length available < minimum) do
+      logInfo $ printf "Creating %i UTXOs of %i" nsplit amount
+      makeSplits amount nsplit
+      threadDelay $ 5 * 60 * 1000000
 
     threadDelay $ 30 * 1000000
   where
     isRightAmount = filter ((==amount) . utxoAmount)
     onError e = do
-      runZeno () $ logError $ show e
+      logError $ show e
       threadDelay $ 30 * 1000000
     run act = do
-      r <- ask
-      _ <- liftIO $ forkIO $ forever $ runZeno r act `catchAny` onError
+      _ <- spawn "monitor UTXOs" $ \_ -> do
+        forever $ act `catchAny` onError
       pure ()
 
 

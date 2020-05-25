@@ -5,20 +5,23 @@
 
 module Zeno.Prelude
   ( module ALL
+  , LazyByteString
   , PercentFormat(..)
   , (<&>)
   , traceE
   , fromHex
   , toHex
   , expandPath
+  , fix1
+  , timeDelta
   ) where
 
 import Control.Applicative as ALL
-import Control.Exception.Safe as ALL
 import Control.Monad as ALL (forM, forM_, join, when, replicateM, foldM, forever)
-import Control.Monad.IO.Class as ALL (liftIO)
+import Control.Monad.IO.Class as ALL (MonadIO, liftIO)
 import Control.Monad.Reader as ALL (ask, asks)
 import Control.Monad.Trans.Class as ALL
+import Control.Monad.Trans.Resource as ALL (MonadResource, allocate)
 import GHC.Generics as ALL (Generic)
 
 import Data.Aeson as ALL (Value)
@@ -27,18 +30,29 @@ import Data.ByteString as ALL (ByteString)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Base16 as B16
 import Data.ByteString.Lazy as ALL (toStrict, fromStrict)
+import qualified Data.ByteString.Lazy as BSL (ByteString)
 import Data.ByteString.Short as ALL (ShortByteString, toShort, fromShort)
+import Data.Either as ALL (fromRight)
 import Data.Function as ALL (fix)
 import Data.List as ALL (elemIndex, find, findIndex, sort, sortOn)
 import Data.Map as ALL (Map)
 import Data.Maybe as ALL (catMaybes, isJust, fromJust, fromMaybe, mapMaybe, listToMaybe)
 import Data.Monoid as ALL
 import Data.Set as ALL (Set)
+import Data.FixedBytes as ALL
 import Data.String.Conv as ALL
 import Data.String as ALL (IsString, fromString)
 import Data.Text as ALL (Text, unpack)
 import Data.Text.Encoding as ALL (encodeUtf8, decodeUtf8)
+import Data.Time.Clock as ALL (UTCTime, getCurrentTime, diffUTCTime)
 import Data.Word as ALL (Word8, Word16, Word32, Word64)
+
+import UnliftIO.Concurrent as ALL (threadDelay, forkIO)
+import UnliftIO.Exception as ALL
+  (Exception, Handler(..), catchAny, finally, throwIO
+  , withException, onException, handle, bracket, impureThrow
+  , catches
+  )
 
 import Network.Ethereum.Errors as ALL
 import Zeno.Monad as ALL
@@ -47,8 +61,11 @@ import Zeno.Logging as ALL
 import Text.Printf as ALL (PrintfArg, printf)
 
 import System.Directory
+import System.IO.Unsafe as ALL (unsafePerformIO)
 
-import Debug.Trace as ALL (traceShowId)
+import Debug.Trace as ALL (traceShowId, traceM, traceShowM)
+
+type LazyByteString = BSL.ByteString
 
 (<&>) :: Functor f => f a -> (a -> b) -> f b
 (<&>) = flip fmap
@@ -56,10 +73,7 @@ infixl 1 <&>
 
 traceE :: String -> Zeno r a -> Zeno r a
 traceE prefix act = do
-  r <- ask
-  let log e = do runZeno () (logError prefix) >> throw e
-  liftIO $ do
-    runZeno r act `catchAny` log
+  onException act $ logError prefix
 
 fromHex :: ByteString -> ByteString
 fromHex bs =
@@ -93,3 +107,13 @@ instance (PrintfArg a, PrintfArg b) => PercentFormat (a, b) where
 
 instance (PrintfArg a, PrintfArg b, PrintfArg c) => PercentFormat (a, b, c) where
   s % (a, b, c) = printf s a b c
+
+
+fix1 :: a -> ((a -> b) -> a -> b) -> b
+fix1 a f = fix f a
+
+
+
+timeDelta :: MonadIO m => UTCTime -> m Int
+timeDelta t = f <$> liftIO getCurrentTime where
+  f now = round . (* 1000000) . realToFrac $ diffUTCTime now t

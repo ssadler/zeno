@@ -1,16 +1,21 @@
 
 module DumpMessages where
 
-import Zeno.Consensus.P2P
-import Control.Distributed.Process.Internal.Types
 import Network.Transport
+import Network.Ethereum.Crypto
 import Data.Binary
 import Data.ByteString.Lazy (toStrict)
 import qualified Data.ByteString.Base16 as B16
 import qualified Data.ByteString.Lazy.Char8 as BS8
 import Data.Char
 import Text.Printf
+import qualified Data.Map as Map
 import qualified Data.Set as Set
+
+import Zeno.Prelude
+import Zeno.Process
+import Zeno.Consensus.P2P
+import Zeno.Consensus.Types
 
 
 dumpBin :: Binary a => a -> String
@@ -26,48 +31,42 @@ dump a = do
   putStrLn $ dumpBin a
   putStrLn ""
 
-main :: IO ()
-main = do
-  
-  -- WhereIsRemote currently missing
+sk :: SecKey
+sk = "12f72e7ca1a25292e913319d9b28e40c931db883b6bb2c29ea4834b991c7053a"
 
+sig =  sign sk "12f72e7ca1a25292e913319d9b28e40c931db883b6bb2c29ea4834b991c7053a"
 
-  let nid = NodeId $ EndPointAddress "167.172.31.156:40441:0:8"
-      pid n = ProcessId nid $ LocalProcessId 255 n
-      wir = WhereIsReply peerControllerService $ Just $ pid 1
-  let hello = (pid 1, Hello)
-  let peers = (pid 1, Set.fromList [pid 2, pid 3, pid 4])
+dumpMessages :: IO ()
+dumpMessages = do
 
+  let pid = peerControllerPid
+  let nid i = NodeId $ EndPointAddress $ toS $ "127.0.0.1:4044" ++ show i ++ ":0:8"
+  let hello = (peerControllerPid, GetPeers)
+  let peers = (peerControllerPid, Set.fromList [nid 2, nid 3, nid 4])
 
-  print "Process ID example"
-  dump $ pid 1
+  print "Process ID of Peer Controller"
+  dump $ peerControllerPid
 
-  print "1: WhereIsReply - node asks where p2p service is on another node"
-  dump wir
-
-  print "2: Hello - node sends message to p2p service on another node"
+  print "1: GetPeers - node sends message to p2p service on another node"
   dump hello
 
-  print "3: node replied with peer list"
+  print "2: node replied with peer list"
   dump peers
 
 
--- Gives:
+  let inventoryIndex = InventoryIndex 5 :: StepMessage Int
+      getInventory = GetInventory 50 :: StepMessage Int
+      inventoryData = InventoryData $ Map.singleton "0x90f8bf6a479f320ead074411a4b0e7944ea8c9c1" (sig, 0xDEADBEEF) :: StepMessage Int
+      someRandomPid = hashServiceId ""
 
--- "Process ID example"
--- pid://167.172.31.156:40441:0:8:1
--- \0\0\0\0\0\0\0\24167.172.31.156:40441:0:8\0\0\0\255\0\0\0\1
--- 
--- "1: WhereIsReply - node asks where p2p service is on another node"
--- WhereIsReply "P2P:Controller" (Just pid://167.172.31.156:40441:0:8:1)
--- \0\0\0\0\0\0\0\14P2P:Controller\1\0\0\0\0\0\0\0\24167.172.31.156:40441:0:8\0\0\0\255\0\0\0\1
--- 
--- "2: Hello - node sends message to p2p service on another node"
--- (pid://167.172.31.156:40441:0:8:1,Hello)
--- \0\0\0\0\0\0\0\24167.172.31.156:40441:0:8\0\0\0\255\0\0\0\1
--- 
--- "3: node replied with peer list"
--- (pid://167.172.31.156:40441:0:8:1,fromList [pid://167.172.31.156:40441:0:8:2,pid://167.172.31.156:40441:0:8:3,pid://167.172.31.156:40441:0:8:4])
--- \0\0\0\0\0\0\0\24167.172.31.156:40441:0:8\0\0\0\255\0\0\0\1\0\0\0\0\0\0\0\3\0\0\0\0\0\0\0\24167.172.31.156:40441:0:8\0\0\0\255\0\0\0\2\0\0\0\0\0\0\0\24167.172.31.156:40441:0:8\0\0\0\255\0\0\0\3\0\0\0\0\0\0\0\24167.172.31.156:40441:0:8\0\0\0\255\0\0\0\4
+  print ""
+  print ""
 
+  print "1: InventoryIndex: node broadcasts what index it has (it's a bitmask of the peer IDs)"
+  dump (someRandomPid, inventoryIndex)
 
+  print "2: GetInventory: node asks for inventory"
+  dump (someRandomPid, getInventory)
+
+  print "3: InventoryData: node responds with inventory"
+  dump (someRandomPid, inventoryData)

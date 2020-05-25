@@ -44,7 +44,7 @@ instance ToJSON Address where
 
 instance PutABI Address where
   putABI (Address bs) =
-    let bn = bytes $ BS.replicate 12 0 <> bs :: Bytes 32
+    let bn = toFixed $ BS.replicate 12 0 <> bs :: Bytes32
      in putABI bn
 
 instance GetABI Address where

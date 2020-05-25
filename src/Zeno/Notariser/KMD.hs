@@ -9,7 +9,6 @@ import qualified Haskoin as H
 
 import Zeno.Notariser.Types
 import Zeno.Prelude
-import Zeno.Prelude.Lifted
 import Zeno.Consensus
 
 
@@ -32,14 +31,17 @@ notariseToKMD nc@NotariserConfig{..} ndata = do
   
     -- Step 1 - Key on opret, collect UTXOs
     run $ logDebug "Step 1: Collect inputs"
-    utxoBallots <- step collectMajority (kmdPubKeyI, getOutPoint utxo)
-  
+    utxoBallots <- step (collectThreshold kmdNotarySigs) (kmdPubKeyI, getOutPoint utxo)
+
     -- Step 2 - TODO: Key on proposer
     run $ logDebug "Step 2: Get proposed inputs"
     let proposal = proposeInputs kmdNotarySigs $ unInventory utxoBallots
     Ballot _ _ utxosChosen <- propose $ pure proposal
+
+    -- Step 3 - Confirm proposal
+    _ <- step collectMajority ()
   
-    -- Step 3 - Sign tx and collect signed inputs
+    -- Step 4 - Sign tx and collect signed inputs
     run $ logDebug "Step 3: Sign & collect"
     let partlySignedTx = signMyInput nc kmdSecKey utxosChosen $ H.DataCarrier opret
         myInput = getMyInput utxo partlySignedTx
@@ -47,7 +49,6 @@ notariseToKMD nc@NotariserConfig{..} ndata = do
     allSignedInputs <- step waitSigs myInput
     let finalTx = compileFinalTx partlySignedTx $ unInventory allSignedInputs
   
-    -- Step 4 - Confirm step 3 (doesn't overcome two generals problem, we let other chains do that)
     run $ logDebug "Step 4: Confirm"
     _ <- step collectMajority ()
   
@@ -80,7 +81,8 @@ waitForUtxo = do
           Just u -> pure u
 
 notarisationRecip :: H.ScriptOutput
-notarisationRecip = H.PayPK "020e46e79a2a8d12b9b5d12c7a91adb4e454edfae43c0a0cb805427d2ac7613fd9" -- $ getAddrHash "RXL3YXG2ceaB6C5hfJcN4fvmLH2C34knhA"
+notarisationRecip = H.PayPK "020e46e79a2a8d12b9b5d12c7a91adb4e454edfae43c0a0cb805427d2ac7613fd9"
+                    -- getAddrHash "RXL3YXG2ceaB6C5hfJcN4fvmLH2C34knhA"
 
 -- | Given selected UTXOs, compile a tx and sign own inputs, if any.
 signMyInput :: NotariserConfig -> H.SecKey -> [(H.PubKeyI, H.OutPoint)] -> H.ScriptOutput -> SaplingTx
@@ -109,11 +111,10 @@ compileFinalTx tx@SaplingTx{..} ballots = tx { txIn = mergedIns }
            Just signed -> unsigned { H.scriptInput = H.scriptInput signed }
 
 collectOutpoints :: [H.OutPoint] -> Collect (Maybe H.TxIn)
-collectOutpoints given = collectGeneric test
-  where test _ inv =
-          let getOPs = map H.prevOutput . catMaybes . map bData
-              vals = getOPs $ unInventory inv
-           in sortOn show vals == sortOn show given
+collectOutpoints given inv = do
+  let getOPs = map H.prevOutput . catMaybes . map bData
+      vals = getOPs $ unInventory inv
+   in pure $ sortOn show vals == sortOn show given
 
 submitNotarisation :: NotariserConfig -> NotarisationData -> SaplingTx -> Zeno EthNotariser ()
 submitNotarisation NotariserConfig{..} ndata tx = do

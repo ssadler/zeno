@@ -33,31 +33,33 @@ dependencies:
 - containers
 - cryptonite
 - directory
-- distributed-process
 - entropy
 - exceptions
+- hashable
 - haskoin-core
 - http-client
 - http-conduit
-- network
-- network-transport
-- network-transport-tcp
 - memory
+- microlens-platform
 - monad-logger
 - mtl
 - ndjson-conduit
+- network
+- network-transport
+- network-transport-tcp
 - optparse-applicative
 - relapse
-- scientific
+- resourcet
 - safe-exceptions
 - secp256k1-haskell
-- string-conv
 - stm
+- stm-containers
+- string-conv
 - text
 - time
+- transformers
 - unix
 - unliftio
-- transformers
 - unordered-containers
 
 library:
@@ -76,6 +78,9 @@ library:
                        , TypeSynonymInstances
                        , FlexibleInstances
                        , GeneralizedNewtypeDeriving
+                       , BangPatterns
+                       , ConstraintKinds
+                       , FunctionalDependencies
   c-sources: cbits/blake2_personalized.c
   when:
   - condition: arch(x86_64) || flag(support_sse)
@@ -94,6 +99,10 @@ executables:
   zeno:
     main:                Main.hs
     source-dirs:         app
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
     dependencies:
     - zeno
 
@@ -107,6 +116,7 @@ tests:
     - -with-rtsopts=-N
     dependencies:
     - zeno
+    - network-transport-inmemory
     - tasty
     - tasty-hunit
     - tasty-hspec

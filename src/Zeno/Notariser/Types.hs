@@ -70,7 +70,7 @@ getConsensusParams NotariserConfig{..} = do
   pure $ ConsensusParams members ident consensusTimeout mt
 
 
-data ConfigException = ConfigException
-  deriving (Show)
 instance Exception ConfigException
+data ConfigException = ConfigException String
+  deriving (Show)
 

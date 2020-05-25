@@ -16,18 +16,17 @@ import Zeno.Notariser.Types
 import Zeno.Consensus
 import Zeno.Config
 import Zeno.Prelude
-import Zeno.Prelude.Lifted
 
 
 runNotariseKmdToEth :: PubKey -> Address -> ConsensusNetworkConfig -> GethConfig -> FilePath -> IO ()
-runNotariseKmdToEth pk gateway consensusConfig gethConfig kmdConfPath = do
+runNotariseKmdToEth pk gateway networkConfig gethConfig kmdConfPath = do
   threadDelay 1000000
   bitcoinConf <- loadBitcoinConfig kmdConfPath
   let kmdAddress = deriveKomodoAddress pk
   wif <- runZeno bitcoinConf $ queryBitcoin "dumpprivkey" [kmdAddress]
   sk <- either error pure $ parseWif komodo wif
 
-  withConsensusNode consensusConfig $
+  withConsensusNode networkConfig
     \node -> do
       let notariser = EthNotariser bitcoinConf node gethConfig gateway sk
       runZeno notariser do
@@ -41,31 +40,30 @@ runNotariseKmdToEth pk gateway consensusConfig gethConfig kmdConfPath = do
         runForever do
           nc@NotariserConfig{..} <- getNotariserConfig "KMDETH"
           asks has >>= checkConfig nc
-          notariserStep nc
+          -- Config will be refeshed if there is an exception
+          forever $ notariserStep nc
 
   where
-
     getNotariserConfig configName = do
       gateway <- asks getEthGateway
       (threshold, members) <- ethCallABI gateway "getMembers()" ()
       JsonInABI nc <- ethCallABI gateway "getConfig(string)" (configName :: Text)
       pure $ nc { members, threshold }
 
-    checkConfig NotariserConfig{..} (EthIdent _ addr) = do
-      when (majorityThreshold (length members) < kmdNotarySigs) $ do
-        logError "Majority threshold is less than required notary sigs"
-        impureThrow ConfigException 
-      when (not $ elem addr members) $ do
-        logError "I am not in the members list"
-        impureThrow ConfigException
+    checkConfig NotariserConfig{..} (EthIdent _ addr)
+      | not (elem addr members)        = ce "I am not in the members list"
+      | length members < kmdNotarySigs = ce "Not enough members to sign tx on KMD"
+      | length members < threshold     = ce "Not enough members to sign tx on ETH"
+      | otherwise = pure ()
+      where ce = throwIO . ConfigException
 
     runForever act = forever $ act `catches` handlers
       where
         handlers =
-          [ Handler $ \e -> recover logInfo 5 (e :: ConsensusException)
-          , Handler $ \e -> recover logWarn 60 (fmtHttpException e)
-          , Handler $ \e -> recover logWarn 60 (e :: RPCException)
-          , Handler $ \e -> recover logError 600 (e :: ConfigException)
+          [ Handler $ \e -> recover logInfo 1 (e :: ConsensusException)
+          , Handler $ \e -> recover logWarn 20 (fmtHttpException e)
+          , Handler $ \e -> recover logWarn 20 (e :: RPCException)
+          , Handler $ \e -> recover logError 60 (e :: ConfigException)
           ]
         recover f d e = do
           f $ show e
@@ -130,23 +128,23 @@ notariseToETH nc@NotariserConfig{..} height32 = do
   -- we already have all the data for the call to set the new block height
   -- in our ethereum contract. so create the call.
 
-  blockHash <- bytes . unHex <$> queryBitcoin "getblockhash" [height]
+  blockHash <- queryBitcoin "getblockhash" [height]
   let notariseCallData = abi "notarise(uint256,bytes32,bytes)"
-                             (height, blockHash :: Bytes 32, "" :: ByteString)
+                             (height, blockHash :: Bytes32, "" :: ByteString)
       proxyParams = (notarisationsContract, height, notariseCallData)
       sighash = ethMakeProxySigMessage proxyParams
 
   -- Ok now we have all the parameters together, we need to collect sigs and get the tx
 
-  runConsensus cparams proxyParams $ do
+  runConsensus cparams proxyParams do
     {- The trick is, that during this whole block inside runConsensus,
        each step will stay open until the end so that lagging nodes can
        join in late. -}
 
-    run $ logDebug "Step 1: Collect sigs"
+    logDebug "Step 1: Collect sigs"
     sigBallots <- stepWithTopic sighash (collectThreshold threshold) ()
 
-    run $ logDebug "Step 2: Get proposed transaction"
+    logDebug "Step 2: Get proposed transaction"
     let proxyCallData = ethMakeProxyCallData proxyParams (bSig <$> unInventory sigBallots)
     ballot@(Ballot proposer _ tx) <- propose $ run $ ethMakeNotarisationTx nc proxyCallData
     run $ checkTxProposed ballot
@@ -159,7 +157,7 @@ notariseToETH nc@NotariserConfig{..} height32 = do
 
     let txid = hashTx tx
 
-    run $ logDebug "Step 3: Confirm proposal"
+    logDebug "Step 3: Confirm proposal"
     _ <- step collectMajority ()
 
     run $
@@ -171,17 +169,16 @@ notariseToETH nc@NotariserConfig{..} height32 = do
         else do
           logDebug $ "Step 4: Proposer will submit: " ++ show txid
 
-    run $ logDebug "Step 5: Confirm that tx was sumbmitted by proposer"
+    logDebug "Step 5: Confirm that tx was sumbmitted by proposer"
     -- This will timeout if proposer had an exception while submitting the transaction
     _ <- step (collectMembers [proposer]) ()
 
-    run $ logDebug "Step 6: Confirm that everyone saw that the tx was submitted by proposer"
+    logDebug "Step 6: Confirm that everyone saw that the tx was submitted by proposer"
     _ <- step collectMajority ()
   
-    run do
-      logDebug $ "Step 7: Wait for transaction confirmation on chain"
-      waitTransactionConfirmed1 (120 * 1000000) txid
-      pure ()
+    logDebug $ "Step 7: Wait for transaction confirmation on chain"
+    run $ waitTransactionConfirmed1 (120 * 1000000) txid
+    pure ()
 
 
 ethMakeNotarisationTx :: NotariserConfig -> ByteString -> Zeno EthNotariser Transaction
@@ -209,7 +206,7 @@ getBackNotarisation NotariserConfig{..} NOE{..} = do
   pure $ NOR
     { blockHash = (sha3AsBytes32 foreignHash)
     , blockNumber = foreignHeight
-    , txHash = maxBytes
+    , txHash = newFixed 0xFF
     , symbol = kmdChainSymbol
     , mom = nullBytes
     , momDepth = 0
@@ -222,6 +219,6 @@ getBackNotarisation NotariserConfig{..} NOE{..} = do
 checkTxProposed :: Ballot Transaction -> Zeno EthNotariser ()
 checkTxProposed (Ballot sender _ tx) = do
   case recoverFrom tx of
-    Nothing -> throw $ ConsensusMischief $ "Can't recover sender from tx"
-    Just s | s /= sender -> throw $ ConsensusMischief $ "Sender wrong"
+    Nothing -> throwIO $ ConsensusMischief $ "Can't recover sender from tx"
+    Just s | s /= sender -> throwIO $ ConsensusMischief $ "Sender wrong"
     _ -> pure ()
