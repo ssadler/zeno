@@ -36,6 +36,8 @@ import           Zeno.Consensus.Step
 import           Zeno.Consensus.Types
 
 import           UnliftIO.STM
+import           Control.Monad.STM (orElse, throwSTM)
+import           UnliftIO.Async (waitCatchSTM)
 
 
 -- Run round ------------------------------------------------------------------
@@ -46,16 +48,23 @@ runConsensus params@ConsensusParams{..} topicData act = do
   atomically $ writeTVar mtopic $ hashMsg $ toStrict $ Bin.encode topicData
   cn <- asks has
   let ctx = ConsensusContext cn params
-  proc <-
+
+  -- TODO: mask here?
+  Process{..} <-
     spawn "Consensus Round" $ \proc -> do
       withZeno (\_ -> ctx) act >>= send proc
       -- Keep child steps alive for a while, give the stragglers a chance to catch up.
       threadDelay $ 10 * 1000000
 
-  -- TODO: Maybe this should have a timeout?
-  receiveWait proc
-
-
+  -- TODO: Something funny (but harmless) could happen here if the parent thread is
+  -- killed, ie, we could re-throw it from here.
+  -- Solution: child thread should post a concensus timeout, not throw it.
+  atomically do
+    orElse
+      (receiveSTM procMbox)
+      (waitCatchSTM procAsync >>=
+        \case Left e -> throwSTM e
+              Right () -> error "Round finished without a result - this should not happen")
 
 
 -- Coordinate Round -----------------------------------------------------------

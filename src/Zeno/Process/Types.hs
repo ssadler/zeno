@@ -85,6 +85,10 @@ instance HasReceive (Receiver i) i where
   receiveSTM = readTQueue
   receiveMaybeSTM = tryReadTQueue
 
+instance HasReceive (TMVar i) i where
+  receiveSTM = takeTMVar
+  receiveMaybeSTM = tryTakeTMVar
+
 getNodeId :: Node -> NodeId
 getNodeId = NodeId . NT.address . endpoint
 

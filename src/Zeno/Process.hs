@@ -1,6 +1,7 @@
 
 module Zeno.Process
   ( AsyncProcess(..)
+  , HasReceive(..)
   , Receiver
   , RemoteReceiver
   , RemoteMessage(..)
