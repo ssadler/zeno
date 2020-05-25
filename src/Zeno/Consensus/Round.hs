@@ -124,8 +124,8 @@ propose mObj = do
 
         obj <-
           if isMe
-             then logInfo ("Propser is: %s (me)" % show pAddr) >> (Just <$> mObj)
-             else logInfo ("Propser is: %s" % show pAddr) >> pure Nothing
+             then logInfo ("Proposer is: %s (me)" % show pAddr) >> (Just <$> mObj)
+             else logInfo ("Proposer is: %s" % show pAddr) >> pure Nothing
 
         handle nextProposer $ do
           withTimeout (5 * 1000000) do
