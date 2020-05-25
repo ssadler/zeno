@@ -106,7 +106,7 @@ runForwarder node@Node{..} nodeId chan = do
 
   warnDidNotSend :: Show e => e -> Zeno r ()
   warnDidNotSend err = do
-    logWarn $ "Forwarded: Error setting up lightweight connection: " ++ show err
+    logWarn $ "Forwarder: Error connecting to %s: %s" % (show nodeId, show err)
 
 
 subscribe :: (Has Node r, Binary i) => ProcessId -> Zeno r (RemoteReceiver i)
