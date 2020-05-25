@@ -2,6 +2,7 @@
 module Zeno.Process.Node where
 
 import Data.Binary
+import qualified Data.IntMap.Strict as IntMap
 import qualified Data.Map as Map
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BSL
@@ -21,8 +22,9 @@ startNode transport = do
       endpoint <- NT.newEndPoint transport <&> either (error . show) id
       mforwarders <- STM.newIO
       topics <- STM.newIO
+      recvCache <- newTVarIO mempty
       pure Node{..}
-  forkIO $ runZeno node networkEventHandler
+  forkIO $ runZeno () $ networkEventHandler node
   pure node
 
 
@@ -34,9 +36,8 @@ stopNode Node{..} = do
 
 -- | Network Event Handler
 
-networkEventHandler :: Zeno Node ()
-networkEventHandler = do
-  node@Node{..} <- ask
+networkEventHandler :: Node -> Zeno () ()
+networkEventHandler node@Node{..} = do
 
   fix1 mempty $
     \go !conns -> do
@@ -61,12 +62,13 @@ networkEventHandler = do
                   logDebug $ "Could not decode packet from: %s" % show nodeId
                   go conns
                 Right (rem, _, to) -> do
-                  atomically (STM.lookup to topics) >>=
-                    \case
-                      Nothing -> do
-                        logDebug $ "Dropped packet to unknown topic: " ++ show to
-                      Just (WrappedReceiver write) -> do
-                        liftIO $ write nodeId rem
+                  atomically do
+                    STM.lookup to topics >>=
+                      \case
+                        Nothing -> do
+                          cacheTopicMiss to nodeId rem
+                        Just (WrappedReceiver write) -> do
+                          write nodeId rem
                   go conns
 
         -- TODO: Maybe we don't need to run killProcess on
@@ -95,3 +97,21 @@ networkEventHandler = do
           pure ()
 
 
+  where
+  cacheMaxSize = 1000
+
+  cacheTopicMiss :: ProcessId -> NodeId -> BSL.ByteString -> STM ()
+  cacheTopicMiss processId nodeId msg = do
+    let
+      item = (processId, nodeId, msg)
+      next cache
+        | length cache == 0 = IntMap.singleton 0 item
+        | length cache == cacheMaxSize =
+            let ((minId, _), nextCache) = IntMap.deleteFindMin cache
+             in IntMap.insert (minId + length cache) item nextCache
+        | otherwise =
+            let (minId, _) = IntMap.findMin cache
+             in IntMap.insert (minId + length cache) item cache
+ 
+    cache <- readTVar recvCache
+    writeTVar recvCache $ next cache

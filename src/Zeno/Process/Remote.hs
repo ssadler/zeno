@@ -7,6 +7,7 @@ import Control.Monad.Reader
 
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BSL
+import qualified Data.IntMap.Strict as IntMap
 import Data.FixedBytes
 import Data.Hashable
 import Data.Binary
@@ -124,15 +125,23 @@ getReceiverSTM Node{..} pid = do
       Just r -> throwSTM TopicIsRegistered
       Nothing -> do
         recv <- newTQueue
-        STM.insert (wrap recv) pid topics
+        populateFromRecvCache recv
+        let wrapped = WrappedReceiver $ wrappedReceive recv
+        STM.insert wrapped pid topics
         pure recv
   where
-  wrap chan = WrappedReceiver $
-    \nodeId bs -> do
+  wrappedReceive chan nodeId bs = do
       case decodeOrFail bs of
-        Right ("", _, a) -> atomically $ writeTQueue chan $ RemoteMessage nodeId a
+        Right ("", _, a) -> writeTQueue chan $ RemoteMessage nodeId a
         Right (_, _, _) -> pure () -- TODO: log
         Left _ -> pure () -- TODO: log
+
+  populateFromRecvCache recv = do
+    cache <- readTVar recvCache
+    let (matches, nextCache) = IntMap.partition (\(pid', _, _) -> pid == pid') cache
+    writeTVar recvCache nextCache
+    forM_ (IntMap.elems matches) $
+      \(_, nodeId, bs) -> wrappedReceive recv nodeId bs
 
 withRemoteMessage :: (NodeId -> a -> m b) -> RemoteMessage a -> m b
 withRemoteMessage act (RemoteMessage nodeId msg) = act nodeId msg
