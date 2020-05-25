@@ -75,7 +75,7 @@ networkEventHandler node@Node{..} = do
             NT.EventConnectionLost addr -> do
               let nodeId = NodeId addr
               atomically $ quitRemoteForwader node nodeId
-              go $ Map.filter (== nodeId) conns
+              go $ Map.filter (/= nodeId) conns
 
         NT.ReceivedMulticast _ _ -> do
           logWarn "Received Multicast?? Should not happen"
