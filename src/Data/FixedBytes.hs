@@ -66,7 +66,7 @@ instance forall n. KnownNat n => Bin.Binary (FixedBytes n) where
     mbs = BS.pack <$> replicateM n Bin.get
 
 instance forall n. KnownNat n => ToJSON (FixedBytes n) where
-  toJSON = toJSON . BS8.unpack . unFixed
+  toJSON = toJSON . BS8.unpack . B16.encode . unFixed
 
 instance forall n. KnownNat n => FromJSON (FixedBytes n) where
   parseJSON val = parseJSON val >>= either fail pure . bytesFromHex . BS8.pack

@@ -74,3 +74,6 @@ instance Exception ConfigException
 data ConfigException = ConfigException String
   deriving (Show)
 
+instance Exception NotariserException
+data NotariserException = Inconsistent String
+  deriving (Show)

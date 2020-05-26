@@ -119,14 +119,17 @@ collectOutpoints given inv = do
 submitNotarisation :: NotariserConfig -> NotarisationData -> SaplingTx -> Zeno EthNotariser ()
 submitNotarisation NotariserConfig{..} ndata tx = do
   logInfo $ "Broadcast transaction: " ++ show (txHashSapling tx)
-  bitcoinSubmitTxSync 1 tx
+  txHash <- bitcoinSubmitTxSync 1 tx
   liftIO $ threadDelay $ 1 * 1000000
 
   -- Consistency check
-  mln <- getLastNotarisation kmdChainSymbol
-  when ((opret <$> mln) /= Just (BND ndata)) $ do
-     logError "Bad error. Notarisation tx confirmed but didn't show up in db."
-     logError $ show (ndata, mln)
-     error "Bailing"
-
-  logInfo "Transaction Confirmed"
+  height <- bitcoinGetTxHeight txHash >>=
+    maybe (throwIO $ Inconsistent "Notarisation tx confirmed but could not get height") pure
+  scanNotarisationsDB height kmdChainSymbol 1 >>=
+    \case
+      Nothing -> throwIO $ Inconsistent "Notarisation tx not in notarisations db"
+      Just n | opret n /= BND ndata -> do
+        logError $ show (opret n, BND ndata)
+        throwIO $ Inconsistent "Notarisation in db has different opret"
+      _ -> do
+        logInfo "Transaction Confirmed"

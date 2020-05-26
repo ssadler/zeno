@@ -67,6 +67,14 @@ bitcoinSubmitTxSync confirmations tx = do
          Nothing -> f
          Just (n::Int) -> if n < confirmations then f else pure txid
 
+bitcoinGetTxHeight :: Has BitcoinConfig r => H.TxHash -> Zeno r (Maybe Word32)
+bitcoinGetTxHeight txHash = do
+  txdata <- queryBitcoin "gettransaction" [txHash]
+  forM (txdata .? "{blockhash}")
+    \blockHash -> do
+      blockdata <- queryBitcoin "getblock" [blockHash :: Bytes32]
+      pure $ blockdata .! "{height}"
+
 bitcoinGetHeight :: Has BitcoinConfig r => Zeno r Word32
 bitcoinGetHeight = queryBitcoin "getinfo" () <&> (.!"{blocks}")
 
