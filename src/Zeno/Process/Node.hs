@@ -24,7 +24,7 @@ startNode transport = do
       topics <- STM.newIO
       recvCache <- newTVarIO mempty
       pure Node{..}
-  forkIO $ runZeno () $ networkEventHandler node
+  forkIO $ runZeno PlainLog () $ networkEventHandler node
   pure node
 
 

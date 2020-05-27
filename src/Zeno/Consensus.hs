@@ -25,6 +25,7 @@ import Zeno.Consensus.P2P
 
 import Zeno.Config
 import Zeno.Prelude
+import Zeno.Console
 
 
 -- Node -----------------------------------------------------------------------
@@ -69,4 +70,5 @@ withConsensusNode CNC{..} act = do
 startSeedNode :: String -> Word16 -> IO ()
 startSeedNode host port = do
   let cnc = CNC [] host port
-  runZeno () $ withConsensusNode cnc \_ -> threadDelay $ 2^62
+  withConsoleUI $ \ui -> do
+    runZeno ui () $ withConsensusNode cnc \_ -> threadDelay $ 2^62

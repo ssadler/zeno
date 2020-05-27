@@ -66,7 +66,7 @@ queryJsonRpc endpoint method params = do
   let transport = case endpoint of HttpEndpoint req -> queryHttp req
                                    IpcEndpoint file -> queryIpc file
       req = createRequest method params
-  traceE ("Json RPC: " ++ show (endpoint, asString req)) $ do
+  traceE ("Json RPC: " ++ show (endpoint, asString req)) do
     res <- transport req
     case res .? "{error}" of
       Just e | e /= Null ->

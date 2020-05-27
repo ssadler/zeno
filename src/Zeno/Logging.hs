@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE UndecidableInstances #-}
 
 module Zeno.Logging 
   ( module LOG
@@ -8,6 +9,7 @@ module Zeno.Logging
   , logWarn
   , logTime
   , logStderr
+  , logMessage
   , AsString
   , asString
   , getLogMessage
@@ -16,15 +18,19 @@ module Zeno.Logging
 import Data.Aeson
 import qualified Data.ByteString.Char8 as BS8
 import Data.ByteString.Lazy (toStrict)
+import Data.String (fromString)
 import Data.Time.Clock
 import Data.Time.Format
 import Data.Time.LocalTime
 import Control.Monad.IO.Class as ALL (liftIO, MonadIO)
 import Control.Monad.Logger as LOG hiding (logDebug, logInfo, logError, logWarn)
+import Control.Monad.Reader
 import System.IO
 import System.IO.Unsafe
+import UnliftIO
 
-import Data.String (fromString)
+import Zeno.Console.Types as LOG
+
 
 logDebug :: MonadLogger m => String -> m ()
 logDebug = logDebugN . fromString
@@ -56,6 +62,14 @@ getLogMessage :: Loc -> LogSource -> LogLevel -> LogStr -> IO BS8.ByteString
 getLogMessage loc source level str = do
   t <- formatTime defaultTimeLocale "[%T]" <$> getZonedTime
   pure $ fromLogStr $ toLogStr t <> defaultLogStr loc source level str
+
+
+logMessage :: ToLogStr msg => Console -> Loc -> LogSource -> LogLevel -> msg -> IO ()
+logMessage console loc source level msg = do
+  line <- getLogMessage loc source level (toLogStr msg)
+  case console of
+    PlainLog -> BS8.hPutStr stderr line
+    Fancy queue -> atomically (writeTQueue queue $ UI_LogLine line)
 
 logTime :: (MonadIO m, MonadLogger m) => String -> m a -> m a
 logTime s act = do

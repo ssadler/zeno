@@ -14,7 +14,7 @@ import Control.Monad.Trans.Resource as ResourceT
 import UnliftIO
 
 import Zeno.Logging
-import Zeno.Console
+import Zeno.Console.Types
 
 --------------------------------------------------------------------------------
 -- | Zeno App context
@@ -22,7 +22,7 @@ import Zeno.Console
 
 data ZenoApp r = App
   { appContext   :: r
-  , appConsole   :: ConsoleInterface
+  , appConsole   :: Console
   , appResources :: ResourceT.InternalState
   }
 
@@ -88,18 +88,13 @@ instance MonadLoggerIO (Zeno r) where
 -- | Zeno runners
 --------------------------------------------------------------------------------
 
-runZeno :: r -> Zeno r a -> IO a
-runZeno r act = unZeno (withLocalResources act) (\_ -> pure) app 
+runZeno :: Console -> r -> Zeno r a -> IO a
+runZeno console r act = unZeno (withLocalResources act) (\_ -> pure) app 
   where app = App r PlainLog undefined
 
 localZeno :: (ZenoApp r -> ZenoApp r') -> Zeno r' a -> Zeno r a
 localZeno f (Zeno z) = Zeno \rest app -> z (\_ -> rest app) (f app)
 {-# INLINE localZeno #-}
-
--- TODO: get rid of this and pass console ui param directly into newZeno
-withZenoConsoleUI :: Zeno r a -> Zeno r a
-withZenoConsoleUI (Zeno z) = Zeno $
-  \rest app -> withConsoleUI $ \ui -> z (\_ -> rest app) (app { appConsole = ui })
 
 withLocalResources :: Zeno r a -> Zeno r a
 withLocalResources z = do
@@ -109,6 +104,9 @@ withLocalResources z = do
 
 withContext :: (r -> r') -> Zeno r' a -> Zeno r a
 withContext = localZeno . fmap
+
+getConsole :: Zeno r Console
+getConsole = Zeno \rest app -> rest app (appConsole app)
 
 --------------------------------------------------------------------------------
 -- | Has typeclass
