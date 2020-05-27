@@ -11,7 +11,7 @@ sudo apt-get install libsecp256k1-dev pkg-config
 curl -sSL https://get.haskellstack.org/ | sh
 git clone https://github.com/ssadler/zeno
 cd zeno
-stack build
+stack install
 ```
 
 ## Notes
