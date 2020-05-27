@@ -23,9 +23,9 @@ newtype BitcoinConfig = BitcoinConfig { getRequest :: Request }
 
 
 -- TODO: parsing sucks, make a map
-loadBitcoinConfig :: FilePath -> IO BitcoinConfig
+loadBitcoinConfig :: FilePath -> Zeno r BitcoinConfig
 loadBitcoinConfig path = do
-  runZeno () $ logInfo $ "Loading bitcoin config: " ++ path
+  logInfo $ "Loading bitcoin config: " ++ path
   configData <- liftIO $ expandPath path >>= BS.readFile
   let p p1 p2 = parseOnly (parseItem p1 p2) configData <|> Left p1
   let econfig =

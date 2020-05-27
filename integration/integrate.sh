@@ -50,18 +50,16 @@ tmux select-pane -t 0
 
 
 
-function exit_all() {
-  for i in $(seq 5 -1 1); do
-    tmux send-keys -t $i C-c Enter "exit" Enter
-  done
-};
+# function exit_all() {
+#   for i in $(seq 5 -1 1); do
+#     tmux send-keys -t $i C-c Enter "exit" Enter
+#   done
+# };
 
 function ctrl_c() {
   for i in $(seq 5 -1 1); do
-    tmux send-keys -t $i C-c C-c
+    tmux send-keys -t $i C-c C-c Enter "exit" Enter
   done
-  trap exit_all INT
-  sleep 100000000
 };
 
 trap ctrl_c INT

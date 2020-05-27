@@ -20,28 +20,30 @@ import Zeno.Prelude
 
 runNotariseKmdToEth :: PubKey -> Address -> ConsensusNetworkConfig -> GethConfig -> FilePath -> IO ()
 runNotariseKmdToEth pk gateway networkConfig gethConfig kmdConfPath = do
-  threadDelay 1000000
-  bitcoinConf <- loadBitcoinConfig kmdConfPath
-  let kmdAddress = deriveKomodoAddress pk
-  wif <- runZeno bitcoinConf $ queryBitcoin "dumpprivkey" [kmdAddress]
-  sk <- either error pure $ parseWif komodo wif
+  runZeno () do
+    threadDelay 1000000
+    bitcoinConf <- loadBitcoinConfig kmdConfPath
+    let kmdAddress = deriveKomodoAddress pk
+    wif <- withContext (const bitcoinConf) $ queryBitcoin "dumpprivkey" [kmdAddress]
+    sk <- either error pure $ parseWif komodo wif
 
-  withConsensusNode networkConfig
-    \node -> do
-      let notariser = EthNotariser bitcoinConf node gethConfig gateway sk
-      runZeno notariser do
-        KomodoIdent{..} <- asks has
-        (EthIdent _ ethAddr) <- asks has
-        logInfo $ "KMD address: " ++ show kmdAddress
-        logInfo $ "ETH address: " ++ show ethAddr
+    withZenoConsoleUI do
+      withConsensusNode networkConfig
+        \node -> do
+          let notariser = EthNotariser bitcoinConf node gethConfig gateway sk
+          withContext (const notariser) do
+            KomodoIdent{..} <- asks has
+            (EthIdent _ ethAddr) <- asks has
+            logInfo $ "KMD address: " ++ show kmdAddress
+            logInfo $ "ETH address: " ++ show ethAddr
 
-        forkMonitorUTXOs kmdInputAmount 5 20
+            forkMonitorUTXOs kmdInputAmount 5 20
 
-        runForever do
-          nc@NotariserConfig{..} <- getNotariserConfig "KMDETH"
-          asks has >>= checkConfig nc
-          -- Config will be refeshed if there is an exception
-          forever $ notariserStep nc
+            runForever do
+              nc@NotariserConfig{..} <- getNotariserConfig "KMDETH"
+              asks has >>= checkConfig nc
+              -- Config will be refeshed if there is an exception
+              forever $ notariserStep nc
 
   where
     getNotariserConfig configName = do
@@ -123,7 +125,7 @@ notariseToETH nc@NotariserConfig{..} height32 = do
   gateway <- asks getEthGateway
   cparams <- getConsensusParams nc
   r <- ask
-  let run = liftIO . runZeno r
+  let run = withContext (const r)
 
   -- we already have all the data for the call to set the new block height
   -- in our ethereum contract. so create the call.

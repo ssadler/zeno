@@ -10,6 +10,7 @@ module Zeno.Logging
   , logStderr
   , AsString
   , asString
+  , getLogMessage
   ) where
 
 import Data.Aeson
@@ -48,10 +49,13 @@ instance AsString Value where
 
 logStderr :: Loc -> LogSource -> LogLevel -> LogStr -> IO ()
 logStderr loc source level str = do
+  line <- getLogMessage loc source level str
+  BS8.hPutStr stderr line
+
+getLogMessage :: Loc -> LogSource -> LogLevel -> LogStr -> IO BS8.ByteString
+getLogMessage loc source level str = do
   t <- formatTime defaultTimeLocale "[%T]" <$> getZonedTime
-  BS8.hPutStr stderr $ fromLogStr $ toLogStr t <> defaultLogStr loc source level str
-  where
-  logStr = defaultLogStr
+  pure $ fromLogStr $ toLogStr t <> defaultLogStr loc source level str
 
 logTime :: (MonadIO m, MonadLogger m) => String -> m a -> m a
 logTime s act = do

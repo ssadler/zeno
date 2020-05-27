@@ -24,7 +24,7 @@ notariseToKMD nc@NotariserConfig{..} ndata = do
 
   cparams <- getConsensusParams nc
   r <- ask :: Zeno EthNotariser EthNotariser
-  let run = liftIO . runZeno r
+  let run = withContext (const r)
   let opret = Ser.encode ndata
 
   runConsensus cparams opret $ do

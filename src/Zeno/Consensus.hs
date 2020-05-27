@@ -29,13 +29,11 @@ import Zeno.Prelude
 
 -- Node -----------------------------------------------------------------------
 
-withConsensusNode :: ConsensusNetworkConfig -> (ConsensusNode -> IO a) -> IO a
+withConsensusNode :: ConsensusNetworkConfig -> (ConsensusNode -> Zeno r a) -> Zeno r a
 withConsensusNode CNC{..} act = do
-  runZeno () do
-    (_, node) <- allocate (getTransport >>= startNode) stopNode
-    withZeno (\_ -> node) do
-      p2p <- startP2P seeds'
-      liftIO $ act $ ConsensusNode node p2p
+  (_, node) <- allocate (getTransport >>= startNode) stopNode
+  p2p <- withContext (\_ -> node) $ startP2P seeds'
+  act $ ConsensusNode node p2p
   where
 
   myNodeId = makeNodeId port host
@@ -71,4 +69,4 @@ withConsensusNode CNC{..} act = do
 startSeedNode :: String -> Word16 -> IO ()
 startSeedNode host port = do
   let cnc = CNC [] host port
-  withConsensusNode cnc \_ -> threadDelay $ 2^62
+  runZeno () $ withConsensusNode cnc \_ -> threadDelay $ 2^62

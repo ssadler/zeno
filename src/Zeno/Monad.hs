@@ -14,19 +14,32 @@ import Control.Monad.Trans.Resource as ResourceT
 import UnliftIO
 
 import Zeno.Logging
+import Zeno.Console
 
-import Debug.Trace
+--------------------------------------------------------------------------------
+-- | Zeno App context
+--------------------------------------------------------------------------------
 
+data ZenoApp r = App
+  { appContext   :: r
+  , appConsole   :: ConsoleInterface
+  , appResources :: ResourceT.InternalState
+  }
 
+instance Functor ZenoApp where
+  fmap f z = z { appContext = f (appContext z) }
+
+--------------------------------------------------------------------------------
+-- | Zeno monad and instances
+--------------------------------------------------------------------------------
 
 newtype Zeno r a =
-  Zeno { unZeno :: forall ret. (r -> RTI -> a -> IO ret) -> r -> RTI -> IO ret }
-
-type RTI = ResourceT.InternalState
+  Zeno { unZeno :: forall ret. (ZenoApp r -> a -> IO ret) -> ZenoApp r -> IO ret }
 
 instance Functor (Zeno r) where
   fmap f (Zeno p) = Zeno $
-    \rest -> p (\r rti -> rest r rti . f)
+    \rest -> p (\app -> rest app . f)
+  {-# INLINE fmap #-}
 
 instance Applicative (Zeno r) where
   pure = return
@@ -35,10 +48,10 @@ instance Applicative (Zeno r) where
   {-# INLINE (<*>) #-}
 
 instance Monad (Zeno r) where
-  return x = Zeno $ \f r rti -> f r rti x
+  return x = Zeno $ \f app -> f app x
   {-# INLINE return #-}
   Zeno f >>= g = Zeno $
-    \rest -> f (\r rti a -> unZeno (g a) rest r rti)
+    \rest -> f (\app a -> unZeno (g a) rest app)
   {-# INLINE (>>=) #-}
 
 instance Semigroup a => Semigroup (Zeno r a) where
@@ -48,47 +61,59 @@ instance Monoid a => Monoid (Zeno r a) where
   mempty = pure mempty
 
 instance MonadIO (Zeno r) where
-  liftIO io = Zeno $ \f r rti -> io >>= f r rti
-
-instance MonadReader r (Zeno r) where
-  ask = Zeno $ \f r rti -> f r rti r
-  {-# INLINE ask #-}
-  local f (Zeno p) = Zeno $ \rest r -> p (\_ -> rest r) (f r)
-
-instance MonadResource (Zeno r) where
-  liftResourceT resT = Zeno $
-    \f r rti -> runInternalState resT rti >>= f r rti
-
-instance MonadLogger (Zeno r) where
-  monadLoggerLog a b c d = liftIO $ logStderr a b c (toLogStr d)
-
-instance MonadLoggerIO (Zeno r) where
-  askLoggerIO = pure logStderr
+  liftIO io = Zeno $ \f app -> io >>= f app
 
 instance MonadUnliftIO (Zeno r) where
-  withRunInIO inner =
-    Zeno $ \f r rti -> inner (\(Zeno z) -> z (\_ _ -> pure) r rti) >>= f r rti
+  withRunInIO inner = Zeno
+    \f app -> inner (\(Zeno z) -> z (\_ -> pure) app) >>= f app
 
+instance MonadReader r (Zeno r) where
+  ask = Zeno $ \f app -> f app $ appContext app
+  {-# INLINE ask #-}
+  local = withContext
+
+instance MonadResource (Zeno r) where
+  liftResourceT resT = Zeno
+    \f app -> runInternalState resT (appResources app) >>= f app
+
+instance MonadLogger (Zeno r) where
+  monadLoggerLog a b c d = Zeno
+    \rest app -> logMessage (appConsole app) a b c d >>= rest app
+
+instance MonadLoggerIO (Zeno r) where
+  askLoggerIO = Zeno
+    \rest app -> rest app (logMessage (appConsole app))
+
+--------------------------------------------------------------------------------
+-- | Zeno runners
+--------------------------------------------------------------------------------
 
 runZeno :: r -> Zeno r a -> IO a
-runZeno r (Zeno f) = do
+runZeno r act = unZeno (withLocalResources act) (\_ -> pure) app 
+  where app = App r PlainLog undefined
+
+localZeno :: (ZenoApp r -> ZenoApp r') -> Zeno r' a -> Zeno r a
+localZeno f (Zeno z) = Zeno \rest app -> z (\_ -> rest app) (f app)
+{-# INLINE localZeno #-}
+
+-- TODO: get rid of this and pass console ui param directly into newZeno
+withZenoConsoleUI :: Zeno r a -> Zeno r a
+withZenoConsoleUI (Zeno z) = Zeno $
+  \rest app -> withConsoleUI $ \ui -> z (\_ -> rest app) (app { appConsole = ui })
+
+withLocalResources :: Zeno r a -> Zeno r a
+withLocalResources z = do
   bracket ResourceT.createInternalState
           ResourceT.closeInternalState
-          (f (\_ _ -> pure) r)
+          (\rti -> localZeno (\app -> app { appResources = rti }) z)
 
+withContext :: (r -> r') -> Zeno r' a -> Zeno r a
+withContext = localZeno . fmap
 
--- | Cleanup resources on exit
-withLocalResources :: Zeno r a -> Zeno r a
-withLocalResources act = do
-  r <- ask
-  liftIO $ runZeno r act
+--------------------------------------------------------------------------------
+-- | Has typeclass
+--------------------------------------------------------------------------------
 
-
-withZeno :: (r -> r') -> Zeno r' a -> Zeno r a
-withZeno f (Zeno ma) = Zeno \rest r rti -> ma (\_ _ -> pure) (f r) rti >>= rest r rti
-
-
--- The Has type
 class Has r a where
   has :: a -> r
 
@@ -96,6 +121,5 @@ instance Has r r where
   has = id
 
 hasReader :: Has r' r => Zeno r' a -> Zeno r a
-hasReader = withZeno has
-
+hasReader = withContext has
 

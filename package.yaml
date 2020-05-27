@@ -33,6 +33,7 @@ dependencies:
 - containers
 - cryptonite
 - directory
+- emojis
 - entropy
 - exceptions
 - hashable
@@ -55,6 +56,7 @@ dependencies:
 - stm
 - stm-containers
 - string-conv
+- terminfo
 - text
 - time
 - transformers

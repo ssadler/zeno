@@ -52,7 +52,7 @@ runConsensus params@ConsensusParams{..} topicData act = do
   -- TODO: mask here?
   Process{..} <-
     spawn "Consensus Round" $ \proc -> do
-      withZeno (\_ -> ctx) act >>= send proc
+      withContext (\_ -> ctx) act >>= send proc
       -- Keep child steps alive for a while, give the stragglers a chance to catch up.
       threadDelay $ 10 * 1000000
 
