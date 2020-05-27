@@ -93,7 +93,7 @@ getNodeId :: Node -> NodeId
 getNodeId = NodeId . NT.address . endpoint
 
 
-data TopicIsRegistered = TopicIsRegistered
+data TopicIsRegistered = TopicIsRegistered ProcessId
   deriving (Show, Eq)
 
 instance Exception TopicIsRegistered

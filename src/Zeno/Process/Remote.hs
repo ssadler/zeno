@@ -122,7 +122,7 @@ getReceiverSTM :: Binary i => Node -> ProcessId -> STM (RemoteReceiver i)
 getReceiverSTM Node{..} pid = do
   STM.lookup pid topics >>=
     \case
-      Just r -> throwSTM TopicIsRegistered
+      Just r -> throwSTM $ TopicIsRegistered pid
       Nothing -> do
         recv <- newTQueue
         populateFromRecvCache recv
@@ -133,7 +133,8 @@ getReceiverSTM Node{..} pid = do
   wrappedReceive chan nodeId bs = do
       case decodeOrFail bs of
         Right ("", _, a) -> writeTQueue chan $ RemoteMessage nodeId a
-        _ -> pure ()  -- Could have a "bad queue"
+        _ -> pure ()  -- Could have a "bad queue", ie redirect all decode failures
+                      -- to a thread which monitors for peer mischief
 
   populateFromRecvCache recv = do
     (misses, nextCache) <- receiveCacheTake pid <$> readTVar recvCache
