@@ -119,6 +119,7 @@ collectOutpoints given inv = do
 submitNotarisation :: NotariserConfig -> NotarisationData -> SaplingTx -> Zeno EthNotariser ()
 submitNotarisation NotariserConfig{..} ndata tx = do
   logInfo $ "Broadcast transaction: " ++ show (txHashSapling tx)
+  -- TODO: Return the whole data structure from getrawtransaction
   txHash <- bitcoinSubmitTxSync 1 tx
   liftIO $ threadDelay $ 1 * 1000000
 
