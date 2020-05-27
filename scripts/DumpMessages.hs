@@ -5,8 +5,9 @@ import Network.Transport
 import Network.Ethereum.Crypto
 import Data.Binary
 import Data.ByteString.Lazy (toStrict)
+import qualified Data.ByteString.Char8 as BS8
 import qualified Data.ByteString.Base16 as B16
-import qualified Data.ByteString.Lazy.Char8 as BS8
+import qualified Data.ByteString.Lazy.Char8 as BS8L
 import Data.Char
 import Text.Printf
 import qualified Data.Map as Map
@@ -19,7 +20,7 @@ import Zeno.Consensus.Types
 
 
 dumpBin :: Binary a => a -> String
-dumpBin = concatMap toPrint . BS8.unpack . encode
+dumpBin = concatMap toPrint . BS8L.unpack . encode
   where
   toPrint c
     | (isNumber c || isPunctuation c || c == ' ' || isAsciiUpper c || isAsciiLower c) = c:[]
@@ -28,7 +29,7 @@ dumpBin = concatMap toPrint . BS8.unpack . encode
 dump :: (Binary a, Show a) => a -> IO ()
 dump a = do
   print a
-  putStrLn $ dumpBin a
+  BS8.putStrLn $ toHex $ BS8L.toStrict $ encode a
   putStrLn ""
 
 sk :: SecKey
@@ -42,7 +43,7 @@ dumpMessages = do
   let pid = peerControllerPid
   let nid i = NodeId $ EndPointAddress $ toS $ "127.0.0.1:4044" ++ show i ++ ":0:8"
   let hello = (peerControllerPid, GetPeers)
-  let peers = (peerControllerPid, Set.fromList [nid 2, nid 3, nid 4])
+  let peers = (peerControllerPid, Peers $ Set.fromList [nid 2, nid 3, nid 4])
 
   print "Process ID of Peer Controller"
   dump $ peerControllerPid
