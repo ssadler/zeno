@@ -70,5 +70,6 @@ withConsensusNode CNC{..} act = do
 startSeedNode :: String -> Word16 -> IO ()
 startSeedNode host port = do
   let cnc = CNC [] host port
-  withConsoleUI $ \ui -> do
-    runZeno ui () $ withConsensusNode cnc \_ -> threadDelay $ 2^62
+  runZeno PlainLog () do
+    withConsoleUI do
+      withConsensusNode cnc \_ -> threadDelay $ 2^62

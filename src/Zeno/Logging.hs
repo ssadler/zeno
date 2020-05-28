@@ -69,7 +69,7 @@ logMessage console loc source level msg = do
   line <- getLogMessage loc source level (toLogStr msg)
   case console of
     PlainLog -> BS8.hPutStr stderr line
-    Fancy queue -> atomically (writeTQueue queue $ UI_LogLine line)
+    Fancy queue -> atomically (putTMVar queue $ UI_Log line)
 
 logTime :: (MonadIO m, MonadLogger m) => String -> m a -> m a
 logTime s act = do

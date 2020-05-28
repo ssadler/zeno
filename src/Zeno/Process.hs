@@ -60,7 +60,7 @@ spawn threadName forked = do
       when debugThreads do
         traceM $ emot emSnout ++ " : " ++ threadName
         atomically (modifyTVar globalThreadCount (+1))
-      async do
+      asyncOn 0 do
         unliftIO do
           withLocalResources do
             catchAny

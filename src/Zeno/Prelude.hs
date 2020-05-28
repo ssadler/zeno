@@ -2,6 +2,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE DefaultSignatures #-}
 
+-- TODO: Remote Ethereum.Errors
 
 module Zeno.Prelude
   ( module ALL

@@ -7,10 +7,12 @@ import UnliftIO
 
 data Console =
     PlainLog
-  | Fancy (TQueue ConsoleEvent)
+  | Fancy (TMVar ConsoleEvent)
 
 data ConsoleEvent =
-    UI_LogLine BS8.ByteString
+    UI_Log BS8.ByteString
   | UI_Quit
+  | UI_Tick
+  | UI_Winch
   | UI_NewPeer Int
   | UI_DropPeer Int

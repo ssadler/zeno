@@ -21,8 +21,8 @@ import Zeno.Prelude
 
 runNotariseKmdToEth :: PubKey -> Address -> ConsensusNetworkConfig -> GethConfig -> FilePath -> IO ()
 runNotariseKmdToEth pk gateway networkConfig gethConfig kmdConfPath = do
-  withConsoleUI \console -> do
-    runZeno console () do
+  runZeno PlainLog () do
+    withConsoleUI do
       threadDelay 1000000
       bitcoinConf <- loadBitcoinConfig kmdConfPath
       let kmdAddress = deriveKomodoAddress pk
