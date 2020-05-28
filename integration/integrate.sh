@@ -49,13 +49,6 @@ tmux send-keys -t 5 "$notarise $ethkmd --pubkey=$pk3 --port=40444" Enter
 tmux select-pane -t 0
 
 
-
-# function exit_all() {
-#   for i in $(seq 5 -1 1); do
-#     tmux send-keys -t $i C-c Enter "exit" Enter
-#   done
-# };
-
 function ctrl_c() {
   for i in $(seq 5 -1 1); do
     tmux send-keys -t $i C-c C-c Enter "exit" Enter
