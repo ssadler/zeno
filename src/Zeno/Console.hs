@@ -15,11 +15,9 @@ import Data.Function (fix)
 
 import Lens.Micro.Platform
 
-import qualified System.Console.Terminal.Size as Term
-import qualified System.Console.Terminfo as Term
-import System.IO
-import System.Posix.Signals
-import System.Posix.Signals.Exts
+import System.Console.Concurrent
+import System.Console.Regions
+--import System.IO
 import UnliftIO
 import UnliftIO.Concurrent
 
@@ -29,8 +27,13 @@ import Zeno.Process
 
 
 
--- TODO: Refactor console so that it gets it's common interface from Logging
--- (make dot | xdot -)
+
+sendUI :: ConsoleEvent -> Zeno r ()
+sendUI evt = do
+  getConsole >>=
+    \case
+      Fancy chan -> atomically (putTMVar chan evt)
+      _ -> mempty
 
 
 data UI = UI
@@ -44,98 +47,49 @@ makeLenses ''UI
 emptyUIState = UI 0 [] ""
 
 
-
-
-
-sendUI :: ConsoleEvent -> Zeno r ()
-sendUI evt = do
-  getConsole >>=
-    \case
-      Fancy chan -> atomically (putTMVar chan evt)
-      _ -> mempty
-
-
-
-
-withConsoleUI :: Zeno r a -> Zeno r a
-withConsoleUI act = do
-  proc <- spawn "UI" runConsoleUI
-  let run = localZeno (\app -> app { appConsole = Fancy (procMbox proc) }) act
-  finally run (send proc UI_Quit)
-
-
-runConsoleUI :: Process ConsoleEvent -> Zeno r ()
-runConsoleUI proc = do
+runConsoleUI :: ConsoleRegion -> Process ConsoleEvent -> Zeno r ()
+runConsoleUI region proc = do
 
   spawn "UI Ticker" \_ -> do
-    forever do send proc UI_Tick >> threadDelay 100000
+    forever $ send proc UI_Tick >> threadDelay 100000
 
-  liftIO do
-    installHandler sigWINCH (Catch $ send proc $ UI_Winch) Nothing
-    finally
-      (putStr "\ESC[?25l" >> evalStateT outer emptyUIState)
-      (putStr "\ESC[?25h")
+  liftIO $ evalStateT go emptyUIState
 
   where
-  
-  outer :: StateT UI IO ()
-  outer = do
-    Just (Term.Window nLines nCols) <- liftIO Term.size
-    term <- liftIO Term.setupTermFromEnv
-    let
-      termFunc = Term.getCapability term
-      Just moveCursor = termFunc Term.cursorAddress
-      Just setRowAddress = termFunc Term.rowAddress :: Maybe (Int -> String)
-      Just setColAddress = termFunc Term.columnAddress :: Maybe (Int -> String)
-      Just clearEOL = termFunc Term.clearEOL :: Maybe String
-      Just clearEOS = termFunc Term.clearEOS
-      Just strWithColor = termFunc Term.withForegroundColor :: Maybe (Term.Color -> String -> String)
-      Just strBackColor = termFunc Term.withBackgroundColor :: Maybe (Term.Color -> String -> String)
+  go :: StateT UI IO ()
+  go = do
 
+    let 
       update = do
         UI{..} <- get
-        let s = take nCols $ " Peers: " ++ show nCols
-        let cmd = (moveCursor $ Term.Point nLines 0) ++
-                  (strWithColor Term.Blue s)
+        let cmd = " Peers: " ++ show _numPeers
         uiCache .= cmd
 
       render = do
-        use uiCache >>= liftIO . putStr
+        use uiCache >>= liftIO . setConsoleRegion region
 
-    liftIO $ print nCols
+    evt <- atomically $ receiveSTM proc
+    case evt of
+      UI_Quit -> pure ()
 
-    fix \go -> do
-      evt <- atomically $ receiveSTM proc
-      case evt of
-        UI_Quit -> pure ()
+      UI_Tick -> do
+        update
+        render
+        go
 
-        UI_Winch -> do
-          send proc $ UI_Log "Winched!\n"
-          outer
+      UI_NewPeer newTot -> do
+        numPeers .= newTot
+        peerEvents %= (++ [True])
+        go
 
-        UI_Log line -> do
-          liftIO do
-            -- putStr $ moveCursor $ Term.Point (nLines-2) 0
-            BS8.putStr line
-            --Term.runTermOutput term $ clearEOS 1000
-          -- render
-          go
+      UI_DropPeer newTot -> do
+        numPeers .= newTot
+        peerEvents %= (++ [False])
+        go
 
-        UI_Tick -> do
-          update
-          render
-          go
 
-        UI_NewPeer newTot -> do
-          numPeers .= newTot
-          peerEvents %= (++ [True])
-          go
-
-        UI_DropPeer newTot -> do
-          numPeers .= newTot
-          peerEvents %= (++ [False])
-          go
-
+-- TODO: Refactor console so that it gets it's common interface from Logging
+-- (make dot | xdot -)
       
 
 
@@ -151,3 +105,15 @@ runTestConsole = do
         threadDelay 1000000
 
 
+
+
+withConsoleUI :: Zeno r a -> Zeno r a
+withConsoleUI act = do
+  withRunInIO \rio -> do
+    withConcurrentOutput do
+      displayConsoleRegions do
+        withConsoleRegion Linear \region -> do
+          rio do
+            proc <- spawn "UI" $ runConsoleUI region
+            let run = localZeno (\app -> app { appConsole = Fancy (procMbox proc) }) act
+            finally run $ send proc UI_Quit

@@ -23,11 +23,13 @@ dependencies:
 - base >= 4.7 && < 5
 - aeson
 - aeson-quick
+- ansi-terminal
 - attoparsec
 - base16-bytestring
 - binary
 - bytestring
 - cereal
+- concurrent-output
 - conduit
 - conduit-extra
 - containers
@@ -56,8 +58,6 @@ dependencies:
 - stm
 - stm-containers
 - string-conv
-- terminal-size
-- terminfo
 - text
 - time
 - transformers
