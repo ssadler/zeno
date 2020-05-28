@@ -15,9 +15,12 @@ import Data.Function (fix)
 
 import Lens.Micro.Platform
 
+import System.Console.ANSI.Codes
 import System.Console.Concurrent
 import System.Console.Regions
---import System.IO
+
+import Text.Printf
+
 import UnliftIO
 import UnliftIO.Concurrent
 
@@ -39,7 +42,7 @@ sendUI evt = do
 data UI = UI
   { _numPeers :: Int
   , _peerEvents :: [Bool]
-  , _uiCache :: String
+  , _cStep :: String
   }
 
 makeLenses ''UI
@@ -51,49 +54,42 @@ runConsoleUI :: ConsoleRegion -> Process ConsoleEvent -> Zeno r ()
 runConsoleUI region proc = do
 
   spawn "UI Ticker" \_ -> do
-    forever $ send proc UI_Tick >> threadDelay 100000
+    forever $ send proc UI_Tick >> threadDelay 200000
 
-  liftIO $ evalStateT go emptyUIState
+  liftIO do
+    flip evalStateT emptyUIState do
+      forever $ atomically (receiveSTM proc) >>= go
 
   where
-  go :: StateT UI IO ()
-  go = do
+  go UI_Tick = do
+    peerEvents %= drop 1
+    UI{..} <- get
+    let
+      peers = styleWith peersStyle $ printf " Peers: %i " _numPeers
+      cstep = 
+        if null _cStep
+           then ""
+           else styleWith [SetSwapForegroundBackground True] $ " " ++ _cStep ++ " "
+    let r = peers ++ cstep :: String
+    liftIO $ setConsoleRegion region r
 
-    let 
-      update = do
-        UI{..} <- get
-        let cmd = " Peers: " ++ show _numPeers
-        uiCache .= cmd
+  go (UI_NewPeer newTot) = do
+    numPeers .= newTot
+    peerEvents %= (++ [True])
 
-      render = do
-        use uiCache >>= liftIO . setConsoleRegion region
+  go (UI_DropPeer newTot) = do
+    numPeers .= newTot
+    peerEvents %= (++ [False])
 
-    evt <- atomically $ receiveSTM proc
-    case evt of
-      UI_Quit -> pure ()
+  go (UI_ConsensusStep s) = do
+    cStep .= s
 
-      UI_Tick -> do
-        update
-        render
-        go
-
-      UI_NewPeer newTot -> do
-        numPeers .= newTot
-        peerEvents %= (++ [True])
-        go
-
-      UI_DropPeer newTot -> do
-        numPeers .= newTot
-        peerEvents %= (++ [False])
-        go
-
-
--- TODO: Refactor console so that it gets it's common interface from Logging
--- (make dot | xdot -)
-      
-
-
-
+  styleWith style s = setSGRCode style ++ s ++ setSGRCode [Reset]
+  peersStyle =
+    [ SetPaletteColor Background 198
+    , SetPaletteColor Foreground 15
+    , SetConsoleIntensity BoldIntensity
+    ]
 
 
 runTestConsole = do
@@ -115,5 +111,4 @@ withConsoleUI act = do
         withConsoleRegion Linear \region -> do
           rio do
             proc <- spawn "UI" $ runConsoleUI region
-            let run = localZeno (\app -> app { appConsole = Fancy (procMbox proc) }) act
-            finally run $ send proc UI_Quit
+            localZeno (\app -> app { appConsole = Fancy (procMbox proc) }) act

@@ -10,7 +10,7 @@ data Console =
   | Fancy (TMVar ConsoleEvent)
 
 data ConsoleEvent =
-    UI_Quit
-  | UI_Tick
-  | UI_NewPeer Int
+    UI_NewPeer Int
   | UI_DropPeer Int
+  | UI_ConsensusStep String
+  | UI_Tick

@@ -27,6 +27,7 @@ import           Network.Ethereum.Crypto
 import           Zeno.Process
 import           Zeno.Consensus.P2P
 import           Zeno.Consensus.Types
+import           Zeno.Console
 import           Zeno.Prelude
 
 import           UnliftIO
@@ -62,7 +63,8 @@ spawnStep message myBallot members = do
   spawn stepName \process -> do
 
     recv <- subscribe topic
-    logDebug $ "Topic: " ++ show (unProcessId topic)
+    
+    sendUI $ UI_ConsensusStep stepName
 
     let step = Step topic tInv members process mySig message
 
