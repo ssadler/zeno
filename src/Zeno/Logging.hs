@@ -14,6 +14,7 @@ module Zeno.Logging
   , getLogMessage
   ) where
 
+import Control.Monad (when)
 import Data.Aeson
 import qualified Data.ByteString.Char8 as BS8
 import Data.ByteString.Lazy (toStrict)
@@ -61,7 +62,9 @@ logMessage console loc source level msg = do
   line <- getLogMessage loc source level (toLogStr msg)
   case console of
     PlainLog -> BS8.hPutStr stderr line
-    Fancy queue -> outputConcurrent (toS line :: Text)
+    Fancy queue -> do
+      when (level >= LevelInfo) do
+         outputConcurrent (toS line :: Text)
 
 logTime :: (MonadIO m, MonadLogger m) => String -> m a -> m a
 logTime s act = do

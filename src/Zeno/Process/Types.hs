@@ -4,7 +4,7 @@ module Zeno.Process.Types where
 
 import UnliftIO hiding (Chan)
 
-import Data.FixedBytes
+import Zeno.Data.FixedBytes
 import qualified Network.Transport as NT
 import Data.Hashable
 import Data.Serialize

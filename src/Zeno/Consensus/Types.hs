@@ -10,30 +10,15 @@ import           Data.Serialize
 import           Control.Exception
 import           Control.Monad.Reader
 import           Control.Monad.State
-import           Zeno.Process
 import           Network.Ethereum.Crypto
 import           GHC.Generics (Generic)
-import           Zeno.Prelude
 import           UnliftIO
 
+import           Zeno.Data.FixedBytes
+import           Zeno.Prelude
 import           Zeno.Process
+import           Zeno.Consensus.P2P
 
-
-type Peers = Set.Set NodeId
-data PeerState = PeerState
-  { p2pPeers :: TVar Peers
-  , p2pPeerNotifier :: PeerNotifier
-  }
-
-data PeerNotifierMessage =
-    SubscribeNewPeers Int (NodeId -> IO ())
-  | UnsubscribeNewPeers Int
-  | NewPeer NodeId
-
-data PeerNotifier = PeerNotifier
-  { pnProc :: Process PeerNotifierMessage
-  , pnCount :: TVar Int
-  }
 
 data ConsensusNode = ConsensusNode
   { cpNode :: Node
@@ -45,30 +30,42 @@ instance Has PeerState ConsensusNode where has = cpPeers
 data ConsensusContext = ConsensusContext
   { ccNode    :: ConsensusNode
   , ccParams  :: ConsensusParams
-  , ccRoundId :: Bytes5
-  , ccStepNum :: TVar Int
+  , ccEntropy :: Bytes32
+  , ccStepNum :: TVar StepNum
   }
 instance Has Node ConsensusContext where has = has . ccNode
 instance Has PeerState ConsensusContext where has = has . ccNode
 instance Has ConsensusParams ConsensusContext where has = ccParams
 instance Has EthIdent ConsensusContext where has = has . ccParams
 
+type StepNum = (Int, (Maybe Int))
 
-getStepNum :: Consensus Int
+getStepNum :: Consensus StepNum
 getStepNum = asks ccStepNum >>= readTVarIO
 
 incStepNum :: Consensus Int
 incStepNum = do
   t <- asks ccStepNum
-  i <- readTVarIO t <&> (+1)
-  atomically $ writeTVar t i
-  pure i
+  (major, _) <- readTVarIO t
+  let next = major + 1
+  atomically $ writeTVar t (next, Nothing)
+  pure next
+
+incMinorStepNum :: Consensus Int
+incMinorStepNum = do
+  t <- asks ccStepNum
+  (major, minor) <- readTVarIO t
+  let next = maybe 1 (+1) minor
+  atomically $ writeTVar t (major, Just next)
+  pure next
 
 
-getTopic :: Consensus Topic
-getTopic = do
-  ConsensusContext{..} <- ask
-  (,) ccRoundId <$> readTVarIO ccStepNum
+type RoundId = Bytes6
+
+getRoundId :: Consensus RoundId
+getRoundId = do
+  entropy <- asks ccEntropy
+  pure $ toFixedR $ unFixed entropy
 
 
 data Ballot a = Ballot
@@ -82,7 +79,6 @@ instance Serialize a => Serialize (Ballot a)
 type Authenticated a = (CompactRecSig, a)
 type Inventory a = Map Address (CompactRecSig, a)
 type Collect a = Inventory a -> Consensus Bool
-type Sendable a = (Serialize a, Typeable a)
 
 unInventory :: Inventory a -> [Ballot a]
 unInventory inv = [Ballot a s o | (a, (s, o)) <- Map.toAscList inv]
@@ -93,9 +89,9 @@ data StepMessage a =
   | InventoryData (Inventory a)
   deriving (Generic, Show)
 
-instance Sendable a => Serialize (StepMessage a)
+instance Serialize a => Serialize (StepMessage a)
 
-
+type AuthenticatedStepMessage i = RemoteMessage (CompactRecSig, StepMessage i)
 
 -- Params ---------------------------------------------------------------------
 
@@ -110,8 +106,6 @@ data ConsensusParams = ConsensusParams
 instance Has EthIdent ConsensusParams where has = ident'
 
 -- Monad ----------------------------------------------------------------------
-
-type Topic = (Bytes5, Int)
 
 type Consensus = Zeno ConsensusContext
 

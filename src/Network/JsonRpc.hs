@@ -6,10 +6,6 @@ module Network.JsonRpc
   , queryJsonRpc
   ) where
 
-import           Data.Conduit hiding (connect)
-import           Data.Conduit.JSON.NewlineDelimited
-import           Data.Conduit.Network
-
 import           Network.HTTP.Client
 import           Network.HTTP.Simple
 import           Network.Socket hiding (send, recv)
@@ -26,10 +22,9 @@ data RPCException =
 
 instance Exception RPCException
 
-data Endpoint = HttpEndpoint Request | IpcEndpoint FilePath
+data Endpoint = HttpEndpoint Request
 
 instance Show Endpoint where
-  show (IpcEndpoint path) = show path
   show (HttpEndpoint req) = show $ getUri req
 
 
@@ -49,22 +44,9 @@ queryHttp req body = do
        Left e -> throwIO $ RPCException (show e)
        Right out -> pure out
 
-queryIpc :: FilePath -> Value -> Zeno r Value
-queryIpc endpoint body = do
-  out <- liftIO $ do
-    sock <- socket AF_UNIX Stream 0
-    connect sock $ SockAddrUnix endpoint
-    let mResponse = maybe (Left "No response") id <$> await
-        conduit = do
-          yield body .| serializer .| sinkSocket sock
-          sourceSocket sock .| eitherParser .| mResponse
-    runConduit conduit <* close sock
-  either error pure out
-
 queryJsonRpc :: (FromJSON a, ToJSON p) => Endpoint -> Text -> p -> Zeno r a
 queryJsonRpc endpoint method params = do
   let transport = case endpoint of HttpEndpoint req -> queryHttp req
-                                   IpcEndpoint file -> queryIpc file
       req = createRequest method params
   traceE ("Json RPC: " ++ show (endpoint, asString req)) do
     res <- transport req

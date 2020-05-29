@@ -1,6 +1,3 @@
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE DataKinds #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
 module Network.Ethereum.Crypto.Address where
 
@@ -10,6 +7,7 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BS8
 import qualified Data.ByteString.Base16 as B16
 import           Data.String
+import qualified Data.Text as T
 
 import           Network.Ethereum.Data.ABI
 import           Network.Ethereum.Data
@@ -17,47 +15,27 @@ import           Network.Ethereum.Data
 import           Zeno.Prelude
 
 
-newtype Address = Address { fromAddress :: Bytes20 }
-  deriving (Eq, Ord, Serialize)
+newtype Address = Address { unAddress :: PrefixedHex 20 }
+  deriving (Eq, Ord, Serialize, ToJSON, FromJSON, IsString, RLPEncodable)
 
 instance Show Address where
-  show (Address bs) = "0x" ++ show bs
+  show = show . unAddress
 
 instance Read Address where
-  readsPrec p s =
-    if length s == 42 && take 2 s == "0x"
-       then let (a, b) = (fromString $ take 20 s, drop 20 s)
-             in [(Address a, b)]
-       else []
-
-instance IsString Address where
-  fromString = read
-
-instance StringConv Address ByteString where
-  strConv _ = unFixed . fromAddress
-
-instance FromJSON Address where
-  parseJSON val = do
-    Hex bs <- parseJSON val
-    if BS.length bs == 20
-       then pure $ Address $ unsafeToFixed bs
-       else fail "Invalid Address"
-
-instance ToJSON Address where
-  toJSON (Address bs) = toJSON $ Hex $ unFixed bs
-
-instance PutABI Address where
-  putABI (Address bs) =
-     putABI bs
+  readsPrec _ s = [(fromString s, "")]
 
 instance GetABI Address where
-  getABI = Address <$> getABI
+  getABI = do
+    fixed <- getABI
+    pure $ Address $ PrefixedHex $ toFixedR (unFixed (fixed :: Bytes32))
 
-instance RLPEncodable Address where
-  rlpEncode = rlpEncode . unFixed . fromAddress
-  rlpDecode r = do
-    s <- rlpDecode r >>= eitherFixed
-    pure $ Address s
+instance PutABI Address where
+  putABI (Address bs) = do
+    let bn = toFixedR $ unFixed $ unPrefixedHex bs
+    putABI (bn :: Bytes32)
+
+instance StringConv Address ByteString where
+  strConv _ = unFixed . unPrefixedHex . unAddress
 
 nullAddress, maxAddress :: Address
 nullAddress = "0x0000000000000000000000000000000000000000"

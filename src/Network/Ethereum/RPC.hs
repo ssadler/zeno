@@ -1,5 +1,3 @@
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE FlexibleContexts #-}
 
 module Network.Ethereum.RPC where
 
@@ -48,15 +46,17 @@ postTransaction tx = do
 -- There's a detail here - we should probably wait for it to be confirmed with one
 -- or two extra blocks, but, testing is being done with ganache which mines blocks on demand.
 -- TODO.
-waitTransactionConfirmed1 :: Has GethConfig r => Int -> Bytes32 -> Zeno r (Maybe Value)
+waitTransactionConfirmed1 :: Has GethConfig r => Int -> EthTxHash -> Zeno r (Maybe Value)
 waitTransactionConfirmed1 timeout txid = do
-  let delay = min timeout 5000000
+  let delay = min timeout 3000000
   r <- queryEthereum "eth_getTransactionReceipt" [txid]
   pure r >>=
     \case
       o | isJust (o .? "{blockNumber}" :: Maybe U256) -> pure $ Just o
       _ | timeout == 0 -> pure Nothing
-      _ -> liftIO (threadDelay delay) >> waitTransactionConfirmed1 (timeout - delay) txid
+      r -> do
+        liftIO (threadDelay delay)
+        waitTransactionConfirmed1 (timeout - delay) txid
 
 
 data RPCMaybe a = RPCMaybe (Maybe a)

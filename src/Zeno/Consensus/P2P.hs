@@ -2,6 +2,7 @@
 
 module Zeno.Consensus.P2P
   ( startP2P
+  , PeerState
   , getPeers
   , sendPeers
   , registerOnNewPeer
@@ -19,7 +20,6 @@ import System.Posix.Signals
 import UnliftIO
 
 import Zeno.Console
-import Zeno.Consensus.Types
 import Zeno.Process
 import Zeno.Prelude hiding (finally)
 
@@ -29,19 +29,37 @@ data P2PNode = P2PNode
   , p2pState :: PeerState
   }
 
+type Peers = Set.Set NodeId
+data PeerState = PeerState
+  { p2pPeers :: TVar Peers
+  , p2pPeerNotifier :: PeerNotifier
+  }
+
+data PeerNotifierMessage =
+    SubscribeNewPeers Int (NodeId -> IO ())
+  | UnsubscribeNewPeers Int
+  | NewPeer NodeId
+
+data PeerNotifier = PeerNotifier
+  { pnProc :: Process PeerNotifierMessage
+  , pnCount :: TVar Int
+  }
+
+
+
 -- * Peer-to-peer API
 
-getPeers :: Consensus [NodeId]
+getPeers :: Has PeerState r => Zeno r [NodeId]
 getPeers = do
   PeerState{..} <- asks has
   Set.toList <$> readTVarIO p2pPeers
 
-sendPeers :: Serialize o => ProcessId -> o -> Consensus ()
+sendPeers :: (Has PeerState r, Has Node r, Serialize o) => ProcessId -> o -> Zeno r ()
 sendPeers pid msg = do
   peers <- getPeers
   forM_ peers $ \peer -> sendRemote peer pid msg
 
-registerOnNewPeer :: (NodeId -> Consensus ()) -> Consensus ()
+registerOnNewPeer :: Has PeerState r => (NodeId -> Zeno r ()) -> Zeno r ()
 registerOnNewPeer cb = do
   PeerNotifier{..} <- asks $ p2pPeerNotifier . has
 
@@ -119,7 +137,7 @@ peerController state@PeerState{..} seeds = do
 
     unless (Set.member nodeId peers) do
       atomically do writeTVar p2pPeers $ Set.insert nodeId peers
-      sendUI $ UI_NewPeer $ length peers + 1
+      sendUI $ UI_Peers $ length peers + 1
       monitorRemote nodeId $ dropPeer nodeId
       send pnProc $ NewPeer nodeId
       sendRemote nodeId peerControllerPid GetPeers
@@ -129,7 +147,7 @@ peerController state@PeerState{..} seeds = do
       atomically do
         ps <- readTVar p2pPeers
         writeTVar p2pPeers $ Set.delete nodeId ps
-        pure $ sendUI $ UI_DropPeer $ length ps
+        pure $ sendUI $ UI_Peers $ length ps
 
 
 

@@ -73,7 +73,8 @@ bitcoinGetTxHeight txHash = do
     (.? "{height}")
 
 bitcoinGetHeight :: Has BitcoinConfig r => Zeno r Word32
-bitcoinGetHeight = queryBitcoin "getinfo" () <&> (.!"{blocks}")
+bitcoinGetHeight = do
+  queryBitcoin "getinfo" () <&> (.!"{blocks}")
 
 parseWif :: H.Network -> Text -> Either String H.SecKey
 parseWif net wif = do

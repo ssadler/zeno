@@ -1,6 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DerivingVia #-}
 
 module Network.Ethereum.Crypto.Hash
   ( Sha3(..)
@@ -16,11 +17,11 @@ import           Crypto.Hash
 import           Data.Aeson
 import qualified Data.ByteArray as BA
 import qualified Data.ByteString as BS
-import           Data.FixedBytes
 import           Data.Serialize
 
 import           Network.Ethereum.Data
 import           Zeno.Prelude
+import           Zeno.Data.FixedBytes
 
 
 newtype Sha3 = Sha3 { unSha3 :: ByteString }

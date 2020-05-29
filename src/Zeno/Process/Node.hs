@@ -88,10 +88,10 @@ networkEventHandler node@Node{..} = do
 
   handleMessage nodeId bss = do
     let bs = toS $ BSL.fromChunks bss
-    if BS.length bs < 16
+        (toB, rem) = BS.splitAt 16 bs
+    if BS.length toB /= 16
        then logDebug $ "Could not decode packet from: %s" % show nodeId
        else do
-         let (toB, rem) = BS.splitAt 16 bs
          let to = ProcessId $ unsafeToFixed toB
          atomically do
            STM.lookup to topics >>=

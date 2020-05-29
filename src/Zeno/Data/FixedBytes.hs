@@ -8,7 +8,7 @@
 -- the size specified in the type, unless the `unsafeBytes` constructor
 -- is used incorrectly. String functions use hexidecimal representation.
 
-module Data.FixedBytes
+module Zeno.Data.FixedBytes
   ( module Out
   , FixedBytes
   , bytesReverse
@@ -26,6 +26,8 @@ module Data.FixedBytes
   , Bytes16 , Bytes17 , Bytes18 , Bytes19 , Bytes20 , Bytes21 , Bytes22 , Bytes23
   , Bytes24 , Bytes25 , Bytes26 , Bytes27 , Bytes28 , Bytes29 , Bytes30 , Bytes31
   , Bytes32 , Bytes33
+  -- Hex Prefixed version
+  , PrefixedHex(..)
   ) where
 
 
@@ -36,11 +38,15 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BS8
 import           Data.ByteString (ByteString)
 import qualified Data.ByteString.Base16 as B16
+import           Data.String.Conv
+import qualified Data.Text as T
 import           Data.Word
 import           Data.Hashable
 import           Data.String
 import           Data.Serialize
+import qualified Data.RLP as RLP
 import           GHC.TypeLits
+import           Text.Printf
 
 import           Unsafe.Coerce
 
@@ -52,6 +58,9 @@ newtype FixedBytes (n :: Nat) = Bytes { unFixed :: ByteString }
 
 instance Show (FixedBytes n) where
   show = BS8.unpack . B16.encode . unFixed
+
+instance forall n. KnownNat n => Read (FixedBytes n) where
+  readsPrec p s = [(fromString s, "")]
 
 instance forall n. KnownNat n => IsString (FixedBytes n) where
   fromString = either error id . bytesFromHex . BS8.pack
@@ -66,6 +75,12 @@ instance forall n. KnownNat n => ToJSON (FixedBytes n) where
 
 instance forall n. KnownNat n => FromJSON (FixedBytes n) where
   parseJSON val = parseJSON val >>= either fail pure . bytesFromHex . BS8.pack
+
+instance forall n. KnownNat n => StringConv (FixedBytes n) (FixedBytes n) where
+  strConv _ = id
+
+instance forall n. KnownNat n => PrintfArg (FixedBytes n) where
+  formatArg = formatArg . BS8.unpack . B16.encode . unFixed
 
 bappend :: forall n m. (KnownNat n, KnownNat m)
         => FixedBytes n -> FixedBytes m -> FixedBytes (n + m)
@@ -87,7 +102,7 @@ toFixedR bs = n `seq` Bytes bs' where
   bs' = case compare l n of
           EQ -> bs
           LT -> BS.replicate (n-l) 0 <> bs
-          GT -> BS.drop (max 0 (n-l)) bs
+          GT -> BS.drop (max 0 (l-n)) bs
 
 unsafeToFixed :: forall n. KnownNat n => ByteString -> FixedBytes n
 unsafeToFixed = Bytes
@@ -158,3 +173,42 @@ type Bytes31 = FixedBytes 31
 type Bytes32 = FixedBytes 32
 type Bytes33 = FixedBytes 33
 
+
+
+
+newtype PrefixedHex n = PrefixedHex { unPrefixedHex :: FixedBytes n }
+  deriving (Eq, Ord, Serialize)
+
+instance Show (PrefixedHex n) where
+  show (PrefixedHex a) = "0x" ++ show a
+
+instance forall n. KnownNat n => Read (PrefixedHex n) where
+  readsPrec _ s = [(fromString s, "")]
+
+instance forall n. KnownNat n => FromJSON (PrefixedHex n) where
+  parseJSON val = do
+    String s <- parseJSON val
+    PrefixedHex <$> 
+      case T.take 2 s of
+        "0x" -> parseJSON (String (T.drop 2 s))
+        _ -> parseJSON val
+
+instance forall n. KnownNat n => ToJSON (PrefixedHex n) where
+  toJSON (PrefixedHex val) =
+    let String s = toJSON val
+     in String $ "0x" <> s
+
+instance forall n. KnownNat n => IsString (PrefixedHex n) where
+  fromString s =
+    let s' = if take 2 s == "0x" then drop 2 s else s
+     in PrefixedHex $ fromString s'
+
+
+instance forall n. KnownNat n => RLP.RLPEncodable (PrefixedHex n) where
+  rlpEncode = RLP.rlpEncode . unFixed . unPrefixedHex
+  rlpDecode r = do
+    s <- RLP.rlpDecode r >>= eitherFixed
+    pure $ PrefixedHex s
+
+instance forall n. KnownNat n => StringConv (PrefixedHex n) (FixedBytes n) where
+  strConv _ = unPrefixedHex

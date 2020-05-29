@@ -128,6 +128,9 @@ instance PutABI a => PutABI [a] where
 instance forall n. (KnownNat n, n <= 32) => PutABI (FixedBytes n) where
   putABI bs = putData $ bytesPad (unFixed bs) False
 
+instance forall n. (KnownNat n, n <= 32) => PutABI (PrefixedHex n) where
+  putABI = putABI . unPrefixedHex
+
 instance PutABI Bool where
   putABI = putABI . fromEnum
 
@@ -196,8 +199,10 @@ instance GetABI ByteString where
 instance forall n. (KnownNat n, n <= 32) => GetABI (FixedBytes n) where
   getABI = do
     bs <- takeN 32
-    let n = fixedGetN (Proxy :: Proxy n)
-    pure $ toFixed $ BS.take n bs
+    pure $ toFixed bs
+
+instance forall n. (KnownNat n, n <= 32) => GetABI (PrefixedHex n) where
+  getABI = PrefixedHex <$> getABI
 
 instance GetABI a => GetABI [a] where
   getABI =

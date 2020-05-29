@@ -14,6 +14,8 @@ import           Zeno.Data.Aeson
 import           Zeno.Prelude
 
 
+type EthTxHash = PrefixedHex 32
+
 data Transaction = Tx
   { _nonce    :: Integer
   , _value    :: Integer
@@ -56,7 +58,7 @@ instance RLPEncodable Transaction where
 
     _to <- case BS8.length to of
              0  -> pure $ Nothing
-             20 -> pure $ Just (Address $ unsafeToFixed to)
+             20 -> pure $ Just (Address $ PrefixedHex $ unsafeToFixed to)
              _  -> Left "Invalid address"
 
     let pad32 "" = ""

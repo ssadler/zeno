@@ -1,10 +1,11 @@
 
 module Zeno.Console
   ( Console(..)
-  , ConsoleEvent(..)
+  , UI(..)
   , withConsoleUI
   , sendUI
-  , runTestConsole
+  , withUIProc
+  , renderStatus
   ) where
 
 import Control.Monad
@@ -28,77 +29,79 @@ import Zeno.Console.Types
 import Zeno.Monad
 import Zeno.Process
 
-
+import Debug.Trace
+import System.Exit
 
 
 sendUI :: ConsoleEvent -> Zeno r ()
 sendUI evt = do
   getConsole >>=
     \case
-      Fancy chan -> atomically (putTMVar chan evt)
+      Fancy chan -> atomically (putTMVar chan $ UIEvent evt)
       _ -> mempty
+
+withUIProc :: UIProcess -> Zeno r a -> Zeno r a
+withUIProc proc act = do
+  sendUI $ UI_Process $ Just proc
+  finally act $ sendUI $ UI_Process Nothing
 
 
 data UI = UI
   { _numPeers :: Int
-  , _peerEvents :: [Bool]
+  , _cProc :: Maybe UIProcess
   , _cStep :: String
   }
 
 makeLenses ''UI
 
-emptyUIState = UI 0 [] ""
+emptyUIState = UI 0 Nothing ""
+
+renderStatus :: UI -> String
+renderStatus UI{..} = sPeers ++ sProc
+  where 
+  sPeers = styleWith peersStyle $ printf " Peers: %i " _numPeers
+
+  sStep =
+    case _cStep of
+      "" -> ""
+      s -> printf " [%s]" s
+
+  sProc =
+    styleWith [SetConsoleIntensity BoldIntensity] $
+      case _cProc of
+        Nothing -> ""
+        Just (UIRound label roundId) -> do
+          (printf " [%s: %s]" (roundId) label) ++ sStep ++ " "
+        Just (UIOther s) -> printf " [%s]" s
+
+  styleWith style s = setSGRCode style ++ s ++ setSGRCode [Reset]
+  peersStyle =
+    [ SetPaletteColor Foreground 198
+    , SetConsoleIntensity BoldIntensity
+    ]
 
 
-runConsoleUI :: ConsoleRegion -> Process ConsoleEvent -> Zeno r ()
+
+runConsoleUI :: ConsoleRegion -> Process ConsoleCtrl -> Zeno r ()
 runConsoleUI region proc = do
 
   spawn "UI Ticker" \_ -> do
-    forever $ send proc UI_Tick >> threadDelay 200000
+    forever $ send proc UITick >> threadDelay 200000
 
   liftIO do
     flip evalStateT emptyUIState do
       forever $ atomically (receiveSTM proc) >>= go
 
   where
-  go UI_Tick = do
-    peerEvents %= drop 1
-    UI{..} <- get
-    let
-      peers = styleWith peersStyle $ printf " Peers: %i " _numPeers
-      cstep = 
-        if null _cStep
-           then ""
-           else styleWith [SetSwapForegroundBackground True] $ " " ++ _cStep ++ " "
-    let r = peers ++ cstep :: String
-    liftIO $ setConsoleRegion region r
+  go UITick = do
+    s <- renderStatus <$> get
+    length s `seq` liftIO (setConsoleRegion region s)
 
-  go (UI_NewPeer newTot) = do
-    numPeers .= newTot
-    peerEvents %= (++ [True])
-
-  go (UI_DropPeer newTot) = do
-    numPeers .= newTot
-    peerEvents %= (++ [False])
-
-  go (UI_ConsensusStep s) = do
-    cStep .= s
-
-  styleWith style s = setSGRCode style ++ s ++ setSGRCode [Reset]
-  peersStyle =
-    [ SetPaletteColor Background 198
-    , SetPaletteColor Foreground 15
-    , SetConsoleIntensity BoldIntensity
-    ]
-
-
-runTestConsole = do
-  runZeno PlainLog () do
-    withConsoleUI do
-      forM_ [0..] \i -> do
-        let s = if mod i 2 == 0 then "Hi " <> (BS8.replicate 200 '0') <> "\n" else "hello world\n"
-        --sendUI $ UI_Log s
-        threadDelay 1000000
+  go (UIEvent evt) =
+    case evt of
+      UI_Peers n -> numPeers .= n
+      UI_Process r -> cProc .= r
+      UI_Step r  -> cStep .= r
 
 
 

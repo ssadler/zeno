@@ -37,37 +37,34 @@ import           UnliftIO.Concurrent
 -- TODO: All messages should be authenticated
 
 data Step i = Step
-  { topic   :: ProcessId
-  , tInv    :: TVar (Inventory i)
-  , members :: [Address]
-  , yieldTo :: Process (Inventory i)
+  { processId :: ProcessId
+  , tInv      :: TVar (Inventory i)
+  , members   :: [Address]
+  , yieldTo   :: Process (Inventory i)
   }
 
 
-spawnStep :: forall a i. Sendable i
-          => String -> Ballot i -> [Address]
-          -> Consensus (Process (Inventory i))
-spawnStep name myBallot members = do
+spawnStep :: forall a i. Serialize i
+          => Ballot i -> Consensus (Process (Inventory i))
+spawnStep myBallot = do
 
   -- Build the step context
   tInv <- newTVarIO Map.empty
 
-  roundId <- asks ccRoundId
-  stepNum <- asks ccStepNum >>= readTVarIO
-  let suffix = toFixed $ blake2b_160 $ encode (stepNum, name)
-  let topic = ProcessId $ roundId `bappend` suffix
+  ConsensusContext{ccParams = ConsensusParams{..},..} <- ask
+  stepNum <- getStepNum
+  roundId <- getRoundId
 
   let (Ballot myAddr mySig myData) = myBallot
-      stepName = "step: " ++ show topic
-      builderName = "inventory builder: " ++ show topic
+      suffix = toFixed $ sha3' $ encode (ccEntropy, stepNum)
+      processId = ProcessId $ roundId `bappend` suffix
+      stepName = "step: " ++ show processId
+      builderName = "inventory builder: " ++ show processId
 
   spawn stepName \process -> do
-
-    recv <- subscribe topic
     
-    sendUI $ UI_ConsensusStep stepName
-
-    let step = Step topic tInv members process
+    let step = Step processId tInv members' process
+    recv <- subscribe processId
 
     -- Spawn inventory builder
     builder <- spawn builderName $ inventoryBuilder step
@@ -87,24 +84,23 @@ spawnStep name myBallot members = do
               
               GetInventory wanted -> do
                 inv <- readTVarIO tInv
-                let subset = getInventorySubset wanted members inv
+                let subset = getInventorySubset wanted members' inv
                 sendAuthenticated step [peer] $ InventoryData subset
 
               InventoryData inv -> do
                 onInventoryData step inv
 
 
-onNewPeer :: forall i. Sendable i => Step i -> NodeId -> Consensus ()
+onNewPeer :: forall i. Serialize i => Step i -> NodeId -> Consensus ()
 onNewPeer Step{..} peer = do
   inv <- readTVarIO tInv
   let idx = inventoryIndex members inv
   sendAuthenticated Step{..} [peer] (InventoryIndex idx :: StepMessage i)
 
-onInventoryData :: forall i. Sendable i => Step i -> Inventory i -> Consensus ()
+onInventoryData :: forall i. Serialize i => Step i -> Inventory i -> Consensus ()
 onInventoryData step@Step{..} theirInv = do
 
-  -- TODO, very important:
-  -- Authenticate all the inventory we don't have.
+  -- TODO: Authenticate all the inventory we don't have.
 
   oldIdx <- inventoryIndex members <$> readTVarIO tInv
   atomically do
@@ -120,7 +116,7 @@ onInventoryData step@Step{..} theirInv = do
 
 -- | Inventory builder, continually builds and dispatches queries for remote inventory
 
-inventoryBuilder :: Sendable i
+inventoryBuilder :: Serialize i
                  => Step i
                  -> Process (NodeId, Integer)
                  -> Consensus ()
@@ -133,7 +129,7 @@ inventoryBuilder step@Step{..} mbox = do
     threadDelay $ 100 * 1000
 
 
-getInventoryQueries :: Sendable i
+getInventoryQueries :: Serialize i
                     => Step i
                     -> Process (NodeId, Integer)
                     -> Zeno r [(NodeId, Integer)]
@@ -149,21 +145,24 @@ getInventoryQueries Step{..} mbox = do
 -- | Message authentication
 --------------------------------------------------------------------------------
 
-sendAuthenticated :: Sendable o
+getMessageToSign :: Serialize o => Step o -> StepMessage o -> Bytes32
+getMessageToSign Step{..} obj = sha3b $ encode (processId, obj)
+
+sendAuthenticated :: Serialize o
                   => Step o -> [NodeId] -> StepMessage o -> Consensus ()
-sendAuthenticated Step{..} peers msg = do
-  EthIdent sk _ <- asks has
-  let sig = sign sk $ sha3b $ encode msg
-  forM_ peers $ \peer -> sendRemote peer topic (sig, msg)
+sendAuthenticated Step{..} peers obj = do
+  EthIdent{..} <- asks has
+  let sig = sign ethSecKey $ getMessageToSign Step{..} obj
+  forM_ peers $ \peer -> sendRemote peer processId (sig, obj)
 
 -- TODO: Track who sends bad data
-authenticate :: Sendable i
+authenticate :: Serialize i
              => Step i
              -> (NodeId -> StepMessage i -> Consensus ())
-             -> RemoteMessage (CompactRecSig, StepMessage i)
+             -> AuthenticatedStepMessage i
              -> Consensus ()
 authenticate step@Step{..} act (RemoteMessage nodeId (theirSig, obj)) = do
-  let message = sha3b $ encode obj
+  let message = getMessageToSign step obj
   case recoverAddr message theirSig of
        Just addr ->
          if elem addr members

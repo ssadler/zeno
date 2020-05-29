@@ -34,14 +34,14 @@ runNotariseKmdToEth pk gateway networkConfig gethConfig kmdConfPath = do
           let notariser = EthNotariser bitcoinConf node gethConfig gateway sk
           withContext (const notariser) do
             KomodoIdent{..} <- asks has
-            (EthIdent _ ethAddr) <- asks has
+            EthIdent{..} <- asks has
             logInfo $ "KMD address: " ++ show kmdAddress
-            logInfo $ "ETH address: " ++ show ethAddr
+            logInfo $ "ETH address: " ++ show ethAddress
 
             forkMonitorUTXOs kmdInputAmount 5 20
 
             runForever do
-              nc@NotariserConfig{..} <- getNotariserConfig "KMDETH"
+              nc <- getNotariserConfig "KMDETH"
               asks has >>= checkConfig nc
               -- Config will be refeshed if there is an exception
               forever $ notariserStep nc
@@ -80,16 +80,15 @@ notariserStep nc@NotariserConfig{..} = do
   getLastNotarisationOnEth nc >>= 
     \case
       Nothing -> do
-        logDebug "No prior notarisations found"
-        height <- getKmdProposeHeight kmdBlockInterval
-        notariseToETH nc height
+        logInfo "No prior notarisations found"
+        forward 0
 
       Just ethnota@NOE{..} -> do
         logDebug $ "Found notarisation on ETH for %s height %i" % (kmdChainSymbol, foreignHeight)
 
         getLastNotarisation kmdChainSymbol >>=
           \case
-            Just (Notarisation _ _ (BND NOR{..})) 
+            Just (Notarisation _ _ (BND NOR{..}))
               | blockNumber == foreignHeight -> do
                 logDebug "Found backnotarisation, proceed with next notarisation"
                 forward foreignHeight
@@ -107,15 +106,10 @@ notariserStep nc@NotariserConfig{..} = do
 
   where
     forward lastNotarisedHeight = do
-      newHeight <- getKmdProposeHeight kmdBlockInterval
-      if newHeight > lastNotarisedHeight
-         then notariseToETH nc newHeight
-         else do
-           logDebug $ "Not enough new blocks, sleeping 30 seconds"
-           threadDelay $ 30 * 1000000
+      newHeight <- waitKmdNotariseHeight kmdBlockInterval lastNotarisedHeight
+      notariseToETH nc newHeight
 
 
--- TODO: need error handling here with strategies for configuration errors, member mischief etc.
 notariseToETH :: NotariserConfig -> Word32 -> Zeno EthNotariser ()
 notariseToETH nc@NotariserConfig{..} height32 = do
 
@@ -127,6 +121,7 @@ notariseToETH nc@NotariserConfig{..} height32 = do
   cparams <- getConsensusParams nc
   r <- ask
   let run = withContext (const r)
+      roundLabel = "kmd@%i ⇒  eth" % height
 
   -- we already have all the data for the call to set the new block height
   -- in our ethereum contract. so create the call.
@@ -135,19 +130,15 @@ notariseToETH nc@NotariserConfig{..} height32 = do
   let notariseCallData = abi "notarise(uint256,bytes32,bytes)"
                              (height, blockHash :: Bytes32, "" :: ByteString)
       proxyParams = (notarisationsContract, height, notariseCallData)
-      sighash = ethMakeProxySigMessage proxyParams
 
   -- Ok now we have all the parameters together, we need to collect sigs and get the tx
 
-  runConsensus cparams proxyParams do
-    {- The trick is, that during this whole block inside runConsensus,
-       each step will stay open until the end so that lagging nodes can
-       join in late. -}
+  runConsensus roundLabel cparams proxyParams do
 
-    sigBallots <- step "tx sigs" (collectThreshold threshold) sighash
+    sigBallots <- step "tx sigs" (collectThreshold threshold)
+                                 (ethMakeProxySigMessage proxyParams)
 
-    logDebug "Step 2: Get proposed transaction"
-    let proxyCallData = ethMakeProxyCallData proxyParams (bSig <$> unInventory sigBallots)
+    let proxyCallData = ethMakeProxyCallData proxyParams (bSig <$> sigBallots)
         buildTx = run $ ethMakeNotarisationTx nc proxyCallData
     ballot@(Ballot proposer _ tx) <- propose "tx sender" buildTx
     run $ checkTxProposed ballot
@@ -163,16 +154,19 @@ notariseToETH nc@NotariserConfig{..} height32 = do
     _ <- step "confirm tx" collectMajority ()
 
     run $
-      when (proposer == myAddress) do
-        postTransaction tx >> pure ()
+      if proposer == myAddress
+         then postTransaction tx >> pure ()
+         else logInfo $ "Proposer will submit: " ++ show txid
 
     -- This will timeout if proposer had an exception while submitting the transaction
     _ <- step "confirm submit" (collectMembers [proposer]) ()
 
+    -- Check that everyone else confirmed the proposer
     _ <- step "confirm submit" collectMajority ()
   
-    -- TODO: withConsoleState ...
+    incStep "wait for tx confirm ..."
     run $ waitTransactionConfirmed1 (120 * 1000000) txid
+    logInfo "Transaction confirmed"
     pure ()
 
 

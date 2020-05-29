@@ -46,9 +46,6 @@ import Zeno.Data.Misc
 type MonadBase m = (MonadUnliftIO m, MonadResource m, MonadLogger m)
 
 
--- | Unfortunately this function can't run in MonadResource et al because
---   it relies on checkpointing resource state and MonadResource doesn't have
---   the equivalent of a `local` function.
 spawn :: forall i r b. String -> (AsyncProcess i b -> Zeno r b) -> Zeno r (AsyncProcess i b)
 spawn threadName forked = do
   handoff <- newEmptyMVar

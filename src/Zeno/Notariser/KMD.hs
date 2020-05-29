@@ -10,6 +10,7 @@ import qualified Haskoin as H
 import Zeno.Notariser.Types
 import Zeno.Prelude
 import Zeno.Consensus
+import Zeno.Console
 
 
 kmdInputAmount :: Word64
@@ -27,13 +28,14 @@ notariseToKMD nc@NotariserConfig{..} ndata = do
   let run = withContext (const r)
   let opret = Ser.encode ndata
 
-  runConsensus cparams opret $ do
+  runConsensus "eth ⇒  kmd" cparams opret $ do
   
     -- Key on opret, collect UTXOs
-    utxoBallots <- step "inputs" (collectThreshold kmdNotarySigs) (kmdPubKeyI, getOutPoint utxo)
+    utxoBallots <- step "inputs" (collectThreshold kmdNotarySigs)
+                                 (kmdPubKeyI, getOutPoint utxo)
 
     -- TODO: Key on proposer
-    let proposal = proposeInputs kmdNotarySigs $ unInventory utxoBallots
+    let proposal = proposeInputs kmdNotarySigs  utxoBallots
     Ballot _ _ utxosChosen <- propose "inputs" $ pure proposal
   
     -- Sign tx and collect signed inputs
@@ -41,10 +43,11 @@ notariseToKMD nc@NotariserConfig{..} ndata = do
         myInput = getMyInput utxo partlySignedTx
         waitSigs = collectOutpoints $ snd <$> utxosChosen
     allSignedInputs <- step "sigs" waitSigs myInput
-    let finalTx = compileFinalTx partlySignedTx $ unInventory allSignedInputs
+    let finalTx = compileFinalTx partlySignedTx allSignedInputs
   
     _ <- step "confirm" collectMajority ()
   
+    incStep "wait for tx confirm ..."
     run $ submitNotarisation nc ndata finalTx
 
 
@@ -53,11 +56,26 @@ proposeInputs kmdNotaryInputs ballots
   | length ballots < kmdNotaryInputs = error "Bad error: not enough ballots"
   | otherwise = take kmdNotaryInputs $ bData <$> sortOn bSig ballots
 
+getNextHeight :: Word32 -> Word32 -> Word32 -> Word32
+getNextHeight interval last current =
+  let next = current - mod current interval
+   in next + if next > last then 0 else interval
 
-getKmdProposeHeight :: Has BitcoinConfig r => Word32 -> Zeno r Word32
-getKmdProposeHeight n = do
+waitKmdNotariseHeight :: Has BitcoinConfig r => Word32 -> Word32 -> Zeno r Word32
+waitKmdNotariseHeight interval lastHeight = do
   height <- bitcoinGetHeight
-  pure $ height - mod height n
+  let nextHeight = getNextHeight interval lastHeight height
+  if nextHeight <= height
+     then pure nextHeight
+     else do
+       withUIProc (UIOther $ "Waiting for KMD block %i" % nextHeight) do
+         fix \f -> do
+           threadDelay $ 5 * 1000000
+           curHeight <- bitcoinGetHeight
+           if curHeight < nextHeight
+              then f
+              else pure nextHeight
+
 
 getKomodoUtxo :: Zeno EthNotariser (Maybe KomodoUtxo)
 getKomodoUtxo = do
@@ -69,9 +87,14 @@ getKomodoUtxo = do
 
 waitForUtxo :: Zeno EthNotariser KomodoUtxo
 waitForUtxo = do
-  getKomodoUtxo >>=
-    \case Nothing -> logWarn "Waiting for UTXOs" >> threadDelay (10 * 1000000) >> waitForUtxo
-          Just u -> pure u
+  getKomodoUtxo >>= \case
+    Just u -> pure u
+    Nothing -> do
+      logWarn "Waiting for UTXOs"
+      withUIProc (UIOther "Waiting for UTXOs") do
+        fix \f -> do
+          threadDelay $ 10 * 1000000
+          getKomodoUtxo >>= maybe f pure
 
 notarisationRecip :: H.ScriptOutput
 notarisationRecip = H.PayPK "020e46e79a2a8d12b9b5d12c7a91adb4e454edfae43c0a0cb805427d2ac7613fd9"

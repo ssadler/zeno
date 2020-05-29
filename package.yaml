@@ -29,8 +29,6 @@ dependencies:
 - bytestring
 - cereal
 - concurrent-output
-- conduit
-- conduit-extra
 - containers
 - cryptonite
 - directory
@@ -45,7 +43,6 @@ dependencies:
 - microlens-platform
 - monad-logger
 - mtl
-- ndjson-conduit
 - network
 - network-transport
 - network-transport-tcp
