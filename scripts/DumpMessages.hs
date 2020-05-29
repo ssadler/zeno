@@ -3,11 +3,9 @@ module DumpMessages where
 
 import Network.Transport
 import Network.Ethereum.Crypto
-import Data.Binary
-import Data.ByteString.Lazy (toStrict)
+import Data.Serialize
 import qualified Data.ByteString.Char8 as BS8
 import qualified Data.ByteString.Base16 as B16
-import qualified Data.ByteString.Lazy.Char8 as BS8L
 import Data.Char
 import Text.Printf
 import qualified Data.Map as Map
@@ -19,17 +17,10 @@ import Zeno.Consensus.P2P
 import Zeno.Consensus.Types
 
 
-dumpBin :: Binary a => a -> String
-dumpBin = concatMap toPrint . BS8L.unpack . encode
-  where
-  toPrint c
-    | (isNumber c || isPunctuation c || c == ' ' || isAsciiUpper c || isAsciiLower c) = c:[]
-    | otherwise = '\\' : show (ord c)
-
-dump :: (Binary a, Show a) => a -> IO ()
+dump :: (Serialize a, Show a) => a -> IO ()
 dump a = do
   print a
-  BS8.putStrLn $ toHex $ BS8L.toStrict $ encode a
+  BS8.putStrLn $ toHex $ encode a
   putStrLn ""
 
 sk :: SecKey

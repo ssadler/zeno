@@ -26,7 +26,6 @@ dependencies:
 - ansi-terminal
 - attoparsec
 - base16-bytestring
-- binary
 - bytestring
 - cereal
 - concurrent-output

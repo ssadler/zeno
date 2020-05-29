@@ -1,7 +1,7 @@
 
 module Zeno.Process.Node where
 
-import Data.Binary
+import Data.Serialize
 import qualified Data.Map as Map
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BSL
@@ -87,16 +87,17 @@ networkEventHandler node@Node{..} = do
   where
 
   handleMessage nodeId bss = do
-    let bs = BSL.fromChunks bss
-    case decodeOrFail bs of
-      Left (_, _, errStr) -> do
-        logDebug $ "Could not decode packet from: %s" % show nodeId
-      Right (rem, _, to) -> do
-        atomically do
-          STM.lookup to topics >>=
-            \case
-              Nothing -> do
-                let miss = (to, nodeId, rem)
-                modifyTVar recvCache $ receiveCachePut miss
-              Just (WrappedReceiver write) -> do
-                write nodeId rem
+    let bs = toS $ BSL.fromChunks bss
+    if BS.length bs < 16
+       then logDebug $ "Could not decode packet from: %s" % show nodeId
+       else do
+         let (toB, rem) = BS.splitAt 16 bs
+         let to = ProcessId $ unsafeToFixed toB
+         atomically do
+           STM.lookup to topics >>=
+             \case
+               Nothing -> do
+                 let miss = (to, nodeId, rem)
+                 modifyTVar recvCache $ receiveCachePut miss
+               Just (WrappedReceiver write) -> do
+                 write nodeId rem

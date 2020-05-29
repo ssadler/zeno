@@ -12,7 +12,7 @@ module Zeno.Consensus.P2P
 
 import qualified Data.IntMap.Strict as IntMap
 import qualified Data.Set as Set
-import Data.Binary
+import Data.Serialize
 import Data.Dynamic
 
 import System.Posix.Signals
@@ -36,7 +36,7 @@ getPeers = do
   PeerState{..} <- asks has
   Set.toList <$> readTVarIO p2pPeers
 
-sendPeers :: Binary o => ProcessId -> o -> Consensus ()
+sendPeers :: Serialize o => ProcessId -> o -> Consensus ()
 sendPeers pid msg = do
   peers <- getPeers
   forM_ peers $ \peer -> sendRemote peer pid msg
@@ -88,7 +88,7 @@ data PeerMsg =
   | Peers Peers
   deriving (Show, Generic)
 
-instance Binary PeerMsg
+instance Serialize PeerMsg
 
 
 peerController :: PeerState -> [NodeId] -> Zeno Node ()

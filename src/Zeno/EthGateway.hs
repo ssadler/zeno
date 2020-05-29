@@ -56,10 +56,9 @@ gatewayGetMembers gateway = do
 
 type ProxyParams = (Address, Integer, ByteString)
 
-ethMakeProxySigMessage :: ProxyParams -> Msg
+ethMakeProxySigMessage :: ProxyParams -> Bytes32
 ethMakeProxySigMessage (dest, nonce, callData) =
-  ethMsg $
-    fromAddress dest <> abi "" nonce <> callData
+  ethMsg $ toS dest <> abi "" nonce <> callData
 
 
 ethMakeProxyCallData :: ProxyParams -> [CompactRecSig] -> ByteString
@@ -73,15 +72,14 @@ ethMakeProxyCallData (dest, proxyNonce, proxyCallData) sigs =
 exportMultisigABI :: [CompactRecSig] -> ([Bytes32], [Bytes32], ByteString)
 exportMultisigABI sigs =
   let f = toFixed . fromShort
-   in ( f . sigR <$> sigs
-      , f . sigS <$> sigs
+   in ( f . getCompactRecSigR <$> sigs
+      , f . getCompactRecSigS <$> sigs
       , BS.pack $ getV <$> sigs
       )
   where
   -- `ecrecover` inside evm expects v to be v+27.
-  getV = (+27) . sigV
+  getV = (+27) . getCompactRecSigV
 
 
-ethMsg :: ByteString -> Msg
-ethMsg a = maybe (error "should never happen") id $
-  msg $ sha3' $ "\x19\&Ethereum Signed Message:\n32" <> sha3' a
+ethMsg :: ByteString -> Bytes32
+ethMsg a = sha3b $ "\x19\&Ethereum Signed Message:\n32" <> sha3' a

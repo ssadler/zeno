@@ -144,12 +144,12 @@ notariseToETH nc@NotariserConfig{..} height32 = do
        each step will stay open until the end so that lagging nodes can
        join in late. -}
 
-    logDebug "Step 1: Collect sigs"
-    sigBallots <- stepWithTopic sighash (collectThreshold threshold) ()
+    sigBallots <- step "tx sigs" (collectThreshold threshold) sighash
 
     logDebug "Step 2: Get proposed transaction"
     let proxyCallData = ethMakeProxyCallData proxyParams (bSig <$> unInventory sigBallots)
-    ballot@(Ballot proposer _ tx) <- propose $ run $ ethMakeNotarisationTx nc proxyCallData
+        buildTx = run $ ethMakeNotarisationTx nc proxyCallData
+    ballot@(Ballot proposer _ tx) <- propose "tx sender" buildTx
     run $ checkTxProposed ballot
 
     -- There's a bit of an open question here: A single node is selected to create the transaction,
@@ -160,26 +160,18 @@ notariseToETH nc@NotariserConfig{..} height32 = do
 
     let txid = hashTx tx
 
-    logDebug "Step 3: Confirm proposal"
-    _ <- step collectMajority ()
+    _ <- step "confirm tx" collectMajority ()
 
     run $
-      if (proposer == myAddress)
-        then do
-          logDebug "Step 4: Submit transaction"
-          _ <- postTransaction tx
-          pure ()
-        else do
-          logDebug $ "Step 4: Proposer will submit: " ++ show txid
+      when (proposer == myAddress) do
+        postTransaction tx >> pure ()
 
-    logDebug "Step 5: Confirm that tx was sumbmitted by proposer"
     -- This will timeout if proposer had an exception while submitting the transaction
-    _ <- step (collectMembers [proposer]) ()
+    _ <- step "confirm submit" (collectMembers [proposer]) ()
 
-    logDebug "Step 6: Confirm that everyone saw that the tx was submitted by proposer"
-    _ <- step collectMajority ()
+    _ <- step "confirm submit" collectMajority ()
   
-    logDebug $ "Step 7: Wait for transaction confirmation on chain"
+    -- TODO: withConsoleState ...
     run $ waitTransactionConfirmed1 (120 * 1000000) txid
     pure ()
 

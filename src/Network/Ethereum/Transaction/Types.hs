@@ -3,10 +3,10 @@
 
 module Network.Ethereum.Transaction.Types where
 
-import qualified Data.Binary as Bin
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BS8
 import           Data.RLP as RLP
+import           Data.Serialize
 
 import           Network.Ethereum.Crypto
 import           Network.Ethereum.Data.Utils
@@ -25,7 +25,7 @@ data Transaction = Tx
   , _chainId  :: ChainId
   } deriving (Eq, Show, Generic)
 
-instance Bin.Binary Transaction
+instance Serialize Transaction
 
 
 instance RLPEncodable Transaction where
@@ -36,7 +36,7 @@ instance RLPEncodable Transaction where
         ( _nonce tx
         , _gasPrice tx
         , _gas tx
-        , maybe "" fromAddress $ _to tx
+        , maybe "" toS $ _to tx :: ByteString
         , _value tx
         , _data tx
         )
@@ -56,14 +56,14 @@ instance RLPEncodable Transaction where
 
     _to <- case BS8.length to of
              0  -> pure $ Nothing
-             20 -> pure $ Just (Address to)
+             20 -> pure $ Just (Address $ unsafeToFixed to)
              _  -> Left "Invalid address"
 
     let pad32 "" = ""
         pad32 bs = BS.replicate (32 - BS.length bs) 0 <> bs
-        sigR = toShort $ pad32 r
-        sigS = toShort $ pad32 s
-        (c, sigV) = decodeSpecialV sv
+        getCompactRecSigR = toShort $ pad32 r
+        getCompactRecSigS = toShort $ pad32 s
+        (c, getCompactRecSigV) = decodeSpecialV sv
         _sig = if r == "" && s == "" then Nothing else Just (CompactRecSig{..})
         _chainId = if isJust _sig then c else ChainId sv
 
@@ -73,13 +73,12 @@ instance RLPEncodable Transaction where
 
 
 newtype ChainId = ChainId Word8
-  deriving (Show, Num, Enum, Eq, Generic, ToJSON, FromJSON, RLPEncodable)
+  deriving (Show, Num, Enum, Eq, Generic, ToJSON, FromJSON, RLPEncodable, Serialize)
 
 unChainId :: ChainId -> Word8
 unChainId (ChainId i) = i
 
 
-instance Bin.Binary ChainId
 
 encodeSpecialV :: ChainId -> Word8 -> Word8
 encodeSpecialV (ChainId c) v = v + c * 2 + 35

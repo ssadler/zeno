@@ -5,6 +5,7 @@ module Zeno.Consensus.Types where
 
 import qualified Data.Map as Map
 import qualified Data.Set as Set
+import           Data.Serialize
 
 import           Control.Exception
 import           Control.Monad.Reader
@@ -13,7 +14,6 @@ import           Zeno.Process
 import           Network.Ethereum.Crypto
 import           GHC.Generics (Generic)
 import           Zeno.Prelude
-import           Data.Binary
 import           UnliftIO
 
 import           Zeno.Process
@@ -43,12 +43,32 @@ instance Has Node ConsensusNode where has = cpNode
 instance Has PeerState ConsensusNode where has = cpPeers
 
 data ConsensusContext = ConsensusContext
-  { ccNode   :: ConsensusNode
-  , ccParams :: ConsensusParams
+  { ccNode    :: ConsensusNode
+  , ccParams  :: ConsensusParams
+  , ccRoundId :: Bytes5
+  , ccStepNum :: TVar Int
   }
 instance Has Node ConsensusContext where has = has . ccNode
 instance Has PeerState ConsensusContext where has = has . ccNode
 instance Has ConsensusParams ConsensusContext where has = ccParams
+instance Has EthIdent ConsensusContext where has = has . ccParams
+
+
+getStepNum :: Consensus Int
+getStepNum = asks ccStepNum >>= readTVarIO
+
+incStepNum :: Consensus Int
+incStepNum = do
+  t <- asks ccStepNum
+  i <- readTVarIO t <&> (+1)
+  atomically $ writeTVar t i
+  pure i
+
+
+getTopic :: Consensus Topic
+getTopic = do
+  ConsensusContext{..} <- ask
+  (,) ccRoundId <$> readTVarIO ccStepNum
 
 
 data Ballot a = Ballot
@@ -57,12 +77,12 @@ data Ballot a = Ballot
   , bData :: a
   } deriving (Show, Generic)
 
-instance Binary a => Binary (Ballot a)
+instance Serialize a => Serialize (Ballot a)
 
 type Authenticated a = (CompactRecSig, a)
 type Inventory a = Map Address (CompactRecSig, a)
 type Collect a = Inventory a -> Consensus Bool
-type Sendable a = (Binary a, Typeable a)
+type Sendable a = (Serialize a, Typeable a)
 
 unInventory :: Inventory a -> [Ballot a]
 unInventory inv = [Ballot a s o | (a, (s, o)) <- Map.toAscList inv]
@@ -73,7 +93,7 @@ data StepMessage a =
   | InventoryData (Inventory a)
   deriving (Generic, Show)
 
-instance Sendable a => Binary (StepMessage a)
+instance Sendable a => Serialize (StepMessage a)
 
 
 
@@ -85,12 +105,13 @@ data ConsensusParams = ConsensusParams
   { members' :: [Address]
   , ident' :: EthIdent
   , timeout' :: Timeout
-  , mtopic :: TVar Msg
   }
+
+instance Has EthIdent ConsensusParams where has = ident'
 
 -- Monad ----------------------------------------------------------------------
 
-type Topic = Msg
+type Topic = (Bytes5, Int)
 
 type Consensus = Zeno ConsensusContext
 

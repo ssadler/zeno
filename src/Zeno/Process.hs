@@ -23,6 +23,8 @@ module Zeno.Process
   , stopNode
   , subscribe
   , withRemoteMessage
+  -- Utility
+  , blake2b_160
   ) where
 
 import Crypto.Hash
@@ -139,4 +141,4 @@ blake2b_160 :: BS.ByteString -> BS.ByteString
 blake2b_160 b = BS.pack (BA.unpack (hash b :: Digest Blake2b_160))
 
 hashServiceId :: BS.ByteString -> ProcessId
-hashServiceId = ProcessId . toFixed . blake2b_160
+hashServiceId = ProcessId . toFixed . blake2b_160 

@@ -9,7 +9,7 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BSL
 import Data.FixedBytes
 import Data.Hashable
-import Data.Binary
+import Data.Serialize
 import Data.Typeable
 import Data.Void
 import GHC.Generics (Generic)
@@ -26,11 +26,11 @@ import Zeno.Process.Node.ReceiveMissCache
 import Zeno.Prelude hiding (finally)
 
 
-sendRemote :: (Binary a, Has Node r) => NodeId -> ProcessId -> a -> Zeno r ()
+sendRemote :: (Serialize a, Has Node r) => NodeId -> ProcessId -> a -> Zeno r ()
 sendRemote nodeId pid msg = do
   node <- asks has
   chan <- getRemoteForwarder node nodeId
-  atomically $ writeTQueue chan $ Forward $ encode (pid, msg)
+  atomically $ writeTQueue chan $ Forward $ encodeLazy (pid, msg)
 
 
 monitorRemote :: Has Node r => NodeId -> Zeno r () -> Zeno r ()
@@ -109,7 +109,7 @@ runForwarder node@Node{..} nodeId chan = do
     logWarn $ "Forwarder: Error connecting to %s: %s" % (show nodeId, show err)
 
 
-subscribe :: (Has Node r, Binary i) => ProcessId -> Zeno r (RemoteReceiver i)
+subscribe :: (Has Node r, Serialize i) => ProcessId -> Zeno r (RemoteReceiver i)
 subscribe procId = do
   node@Node{..} <- asks has
   (_, recv) <- 
@@ -118,7 +118,7 @@ subscribe procId = do
       (\_ -> atomically $ STM.delete procId topics)
   pure recv
 
-getReceiverSTM :: Binary i => Node -> ProcessId -> STM (RemoteReceiver i)
+getReceiverSTM :: Serialize i => Node -> ProcessId -> STM (RemoteReceiver i)
 getReceiverSTM Node{..} pid = do
   STM.lookup pid topics >>=
     \case
@@ -131,8 +131,8 @@ getReceiverSTM Node{..} pid = do
         pure recv
   where
   wrappedReceive chan nodeId bs = do
-      case decodeOrFail bs of
-        Right ("", _, a) -> writeTQueue chan $ RemoteMessage nodeId a
+      case decode bs of
+        Right a -> writeTQueue chan $ RemoteMessage nodeId a
         _ -> pure ()  -- Could have a "bad queue", ie redirect all decode failures
                       -- to a thread which monitors for peer mischief
 

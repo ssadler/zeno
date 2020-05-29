@@ -7,7 +7,7 @@ import UnliftIO hiding (Chan)
 import Data.FixedBytes
 import qualified Network.Transport as NT
 import Data.Hashable
-import Data.Binary
+import Data.Serialize
 import Data.Typeable
 import GHC.Generics (Generic)
 import Data.IntMap (IntMap)
@@ -17,14 +17,18 @@ import qualified Data.ByteString.Lazy as BSL
 import UnliftIO
 
 newtype ProcessId = ProcessId { unProcessId :: Bytes16 }
-  deriving (Eq, Ord, Generic, Hashable, Binary)
+  deriving (Eq, Ord, Generic, Hashable, Serialize)
 
 instance Show ProcessId where
   show pid = "ProcessId " ++ show (unProcessId pid)
 
 
 newtype NodeId = NodeId { endpointAddress :: NT.EndPointAddress }
-  deriving (Show, Eq, Ord, Binary, Hashable)
+  deriving (Show, Eq, Ord, Hashable, Generic, Serialize)
+
+instance Serialize NT.EndPointAddress where
+  get = NT.EndPointAddress <$> get
+  put (NT.EndPointAddress a) = put a
 
 
 data Node = Node
@@ -42,11 +46,11 @@ data Node = Node
 --   Alternatives would be: eagerly allocating a receiver for a topic we don't
 --   have a listener for, and some thread to monitor it while there's no consumer,
 --   or using multiple maps, one for lookup by topic and one for lookup by nonce.
-type ReceiveMiss = (ProcessId, NodeId, BSL.ByteString)
+type ReceiveMiss = (ProcessId, NodeId, BS.ByteString)
 type ReceiveMissCache = IntMap ReceiveMiss
 
 data WrappedReceiver = WrappedReceiver
-  { wrappedWrite :: NodeId -> BSL.ByteString -> STM ()
+  { wrappedWrite :: NodeId -> BS.ByteString -> STM ()
   }
 
 type Forwarder = TQueue ForwardMessage

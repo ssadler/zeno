@@ -48,7 +48,7 @@ postTransaction tx = do
 -- There's a detail here - we should probably wait for it to be confirmed with one
 -- or two extra blocks, but, testing is being done with ganache which mines blocks on demand.
 -- TODO.
-waitTransactionConfirmed1 :: Has GethConfig r => Int -> Sha3 -> Zeno r (Maybe Value)
+waitTransactionConfirmed1 :: Has GethConfig r => Int -> Bytes32 -> Zeno r (Maybe Value)
 waitTransactionConfirmed1 timeout txid = do
   let delay = min timeout 5000000
   r <- queryEthereum "eth_getTransactionReceipt" [txid]

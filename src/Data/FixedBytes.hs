@@ -12,12 +12,15 @@ module Data.FixedBytes
   ( module Out
   , FixedBytes
   , bytesReverse
+  , eitherFixed
   , newFixed
   , nullBytes
   , fixedGetN
   , toFixed
+  , toFixedR
   , unsafeToFixed
   , unFixed
+  , bappend
   , Bytes0 , Bytes1 , Bytes2 , Bytes3 , Bytes4 , Bytes5 , Bytes6 , Bytes7
   , Bytes8 , Bytes9 , Bytes10 , Bytes11 , Bytes12 , Bytes13 , Bytes14 , Bytes15
   , Bytes16 , Bytes17 , Bytes18 , Bytes19 , Bytes20 , Bytes21 , Bytes22 , Bytes23
@@ -29,16 +32,15 @@ module Data.FixedBytes
 import           Control.Monad (replicateM)
 import           Data.Aeson
 import           Data.Proxy as Out (Proxy(..))
-import qualified Data.Binary as Bin
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BS8
 import           Data.ByteString (ByteString)
 import qualified Data.ByteString.Base16 as B16
 import           Data.Word
 import           Data.Hashable
-import           GHC.TypeLits
 import           Data.String
 import           Data.Serialize
+import           GHC.TypeLits
 
 import           Unsafe.Coerce
 
@@ -59,17 +61,15 @@ instance forall n. KnownNat n => Serialize (FixedBytes n) where
   get = Bytes <$> getByteString n where
     n = fixedGetN (Proxy :: Proxy n)
 
-instance forall n. KnownNat n => Bin.Binary (FixedBytes n) where
-  put = mapM_ Bin.put . BS.unpack . unFixed
-  get = Bytes <$> mbs where
-    n = fixedGetN (Proxy :: Proxy n)
-    mbs = BS.pack <$> replicateM n Bin.get
-
 instance forall n. KnownNat n => ToJSON (FixedBytes n) where
   toJSON = toJSON . BS8.unpack . B16.encode . unFixed
 
 instance forall n. KnownNat n => FromJSON (FixedBytes n) where
   parseJSON val = parseJSON val >>= either fail pure . bytesFromHex . BS8.pack
+
+bappend :: forall n m. (KnownNat n, KnownNat m)
+        => FixedBytes n -> FixedBytes m -> FixedBytes (n + m)
+bappend (Bytes b) (Bytes b') = Bytes (b <> b')
 
 toFixed :: forall n. KnownNat n => ByteString -> FixedBytes n
 toFixed bs = n `seq` Bytes bs' where
@@ -80,8 +80,18 @@ toFixed bs = n `seq` Bytes bs' where
           LT -> bs <> BS.replicate (n-l) 0
           GT -> BS.take n bs
 
+toFixedR :: forall n. KnownNat n => ByteString -> FixedBytes n
+toFixedR bs = n `seq` Bytes bs' where
+  n = fixedGetN (Proxy :: Proxy n)
+  l = BS.length bs
+  bs' = case compare l n of
+          EQ -> bs
+          LT -> BS.replicate (n-l) 0 <> bs
+          GT -> BS.drop (max 0 (n-l)) bs
+
 unsafeToFixed :: forall n. KnownNat n => ByteString -> FixedBytes n
 unsafeToFixed = Bytes
+{-# INLINE unsafeToFixed #-}
 
 fixedGetN :: forall n. KnownNat n => Proxy n -> Int
 fixedGetN = fromIntegral . natVal
@@ -103,6 +113,14 @@ nullBytes = newFixed 0x00
 
 newFixed :: forall n. KnownNat n => Word8 -> FixedBytes n
 newFixed = Bytes . BS.replicate (fixedGetN (Proxy :: Proxy n))
+
+eitherFixed :: forall n. KnownNat n => ByteString -> Either String (FixedBytes n)
+eitherFixed bs
+  | n == l = Right $ Bytes bs
+  | otherwise = Left $ "Incorrect length: " ++ show l
+  where
+  n = fixedGetN (Proxy :: Proxy n)
+  l = BS.length bs
 
 
 type Bytes0  = FixedBytes 0

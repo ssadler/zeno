@@ -16,8 +16,8 @@ module Zeno.Consensus.Step
 
 import           Control.Monad
 
-import           Data.Binary
 import           Data.Bits
+import           Data.Serialize
 import qualified Data.Map as Map
 
 import           GHC.Generics (Generic)
@@ -41,22 +41,23 @@ data Step i = Step
   , tInv    :: TVar (Inventory i)
   , members :: [Address]
   , yieldTo :: Process (Inventory i)
-  , mySig   :: CompactRecSig
-  , message :: Msg
   }
 
 
-spawnStep :: forall a i. (Sendable i)
-         => Msg -> Ballot i -> [Address]
-         -> Consensus (Process (Inventory i))
-spawnStep message myBallot members = do
+spawnStep :: forall a i. Sendable i
+          => String -> Ballot i -> [Address]
+          -> Consensus (Process (Inventory i))
+spawnStep name myBallot members = do
 
   -- Build the step context
   tInv <- newTVarIO Map.empty
 
-  -- Hash the message as the topic so it's obfuscated
-  let topic = hashServiceId $ getMsg message
-      (Ballot myAddr mySig myData) = myBallot
+  roundId <- asks ccRoundId
+  stepNum <- asks ccStepNum >>= readTVarIO
+  let suffix = toFixed $ blake2b_160 $ encode (stepNum, name)
+  let topic = ProcessId $ roundId `bappend` suffix
+
+  let (Ballot myAddr mySig myData) = myBallot
       stepName = "step: " ++ show topic
       builderName = "inventory builder: " ++ show topic
 
@@ -66,7 +67,7 @@ spawnStep message myBallot members = do
     
     sendUI $ UI_ConsensusStep stepName
 
-    let step = Step topic tInv members process mySig message
+    let step = Step topic tInv members process
 
     -- Spawn inventory builder
     builder <- spawn builderName $ inventoryBuilder step
@@ -87,7 +88,7 @@ spawnStep message myBallot members = do
               GetInventory wanted -> do
                 inv <- readTVarIO tInv
                 let subset = getInventorySubset wanted members inv
-                sendAuthenticated step peer $ InventoryData subset
+                sendAuthenticated step [peer] $ InventoryData subset
 
               InventoryData inv -> do
                 onInventoryData step inv
@@ -97,10 +98,10 @@ onNewPeer :: forall i. Sendable i => Step i -> NodeId -> Consensus ()
 onNewPeer Step{..} peer = do
   inv <- readTVarIO tInv
   let idx = inventoryIndex members inv
-  sendAuthenticated Step{..} peer (InventoryIndex idx :: StepMessage i)
+  sendAuthenticated Step{..} [peer] (InventoryIndex idx :: StepMessage i)
 
 onInventoryData :: forall i. Sendable i => Step i -> Inventory i -> Consensus ()
-onInventoryData Step{..} theirInv = do
+onInventoryData step@Step{..} theirInv = do
 
   -- TODO, very important:
   -- Authenticate all the inventory we don't have.
@@ -113,7 +114,8 @@ onInventoryData Step{..} theirInv = do
   let idx = inventoryIndex members inv
   when (0 /= idx .&. complement oldIdx) do
     send yieldTo inv
-    sendPeers topic (mySig, InventoryIndex idx :: StepMessage i)
+    peers <- getPeers
+    sendAuthenticated step peers (InventoryIndex idx :: StepMessage i)
 
 
 -- | Inventory builder, continually builds and dispatches queries for remote inventory
@@ -126,7 +128,7 @@ inventoryBuilder step@Step{..} mbox = do
   forever do
     getInventoryQueries step mbox >>=
       mapM_ \(peer, wanted) ->
-        sendAuthenticated step peer $ GetInventory wanted
+        sendAuthenticated step [peer] $ GetInventory wanted
 
     threadDelay $ 100 * 1000
 
@@ -148,16 +150,20 @@ getInventoryQueries Step{..} mbox = do
 --------------------------------------------------------------------------------
 
 sendAuthenticated :: Sendable o
-                  => Step o -> NodeId -> StepMessage o -> Consensus ()
-sendAuthenticated Step{..} peer msg = do
-  sendRemote peer topic (mySig, msg)
+                  => Step o -> [NodeId] -> StepMessage o -> Consensus ()
+sendAuthenticated Step{..} peers msg = do
+  EthIdent sk _ <- asks has
+  let sig = sign sk $ sha3b $ encode msg
+  forM_ peers $ \peer -> sendRemote peer topic (sig, msg)
 
 -- TODO: Track who sends bad data
-authenticate :: Step i
+authenticate :: Sendable i
+             => Step i
              -> (NodeId -> StepMessage i -> Consensus ())
              -> RemoteMessage (CompactRecSig, StepMessage i)
              -> Consensus ()
-authenticate step@Step{..} act (RemoteMessage nodeId (theirSig, obj)) =
+authenticate step@Step{..} act (RemoteMessage nodeId (theirSig, obj)) = do
+  let message = sha3b $ encode obj
   case recoverAddr message theirSig of
        Just addr ->
          if elem addr members

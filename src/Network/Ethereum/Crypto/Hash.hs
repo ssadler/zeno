@@ -6,6 +6,7 @@ module Network.Ethereum.Crypto.Hash
   ( Sha3(..)
   , sha3
   , sha3'
+  , sha3b
   , nullSha3
   , sha3AsBytes32
   ) where
@@ -71,6 +72,10 @@ sha3' bs = BS.pack (BA.unpack (hash bs :: Digest Keccak_256))
 
 sha3 :: ByteString -> Sha3
 sha3 = Sha3 . sha3'
+
+sha3b :: ByteString -> Bytes32
+sha3b = unsafeToFixed . sha3'
+
 
   
 nullSha3 :: Sha3

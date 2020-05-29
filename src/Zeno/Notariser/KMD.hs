@@ -29,28 +29,21 @@ notariseToKMD nc@NotariserConfig{..} ndata = do
 
   runConsensus cparams opret $ do
   
-    -- Step 1 - Key on opret, collect UTXOs
-    run $ logDebug "Step 1: Collect inputs"
-    utxoBallots <- step (collectThreshold kmdNotarySigs) (kmdPubKeyI, getOutPoint utxo)
+    -- Key on opret, collect UTXOs
+    utxoBallots <- step "inputs" (collectThreshold kmdNotarySigs) (kmdPubKeyI, getOutPoint utxo)
 
-    -- Step 2 - TODO: Key on proposer
-    run $ logDebug "Step 2: Get proposed inputs"
+    -- TODO: Key on proposer
     let proposal = proposeInputs kmdNotarySigs $ unInventory utxoBallots
-    Ballot _ _ utxosChosen <- propose $ pure proposal
-
-    -- Step 3 - Confirm proposal
-    _ <- step collectMajority ()
+    Ballot _ _ utxosChosen <- propose "inputs" $ pure proposal
   
-    -- Step 4 - Sign tx and collect signed inputs
-    run $ logDebug "Step 3: Sign & collect"
+    -- Sign tx and collect signed inputs
     let partlySignedTx = signMyInput nc kmdSecKey utxosChosen $ H.DataCarrier opret
         myInput = getMyInput utxo partlySignedTx
         waitSigs = collectOutpoints $ snd <$> utxosChosen
-    allSignedInputs <- step waitSigs myInput
+    allSignedInputs <- step "sigs" waitSigs myInput
     let finalTx = compileFinalTx partlySignedTx $ unInventory allSignedInputs
   
-    run $ logDebug "Step 4: Confirm"
-    _ <- step collectMajority ()
+    _ <- step "confirm" collectMajority ()
   
     run $ submitNotarisation nc ndata finalTx
 
