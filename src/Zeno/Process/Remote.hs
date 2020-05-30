@@ -14,7 +14,8 @@ import Data.Typeable
 import Data.Void
 import GHC.Generics (Generic)
 
-import qualified Network.Transport as NT
+import Network.Simple.TCP
+
 import qualified StmContainers.Map as STM
 import UnliftIO hiding (Chan)
 
@@ -28,85 +29,65 @@ import Zeno.Prelude hiding (finally)
 
 sendRemote :: (Serialize a, Has Node r) => NodeId -> ProcessId -> a -> Zeno r ()
 sendRemote nodeId pid msg = do
-  node <- asks has
-  chan <- getRemoteForwarder node nodeId
-  atomically $ writeTQueue chan $ Forward $ encodeLazy (pid, msg)
+  withRemoteForwarder nodeId \(chan, _) -> do
+    writeTQueue chan $ encodeLazy (pid, msg)
 
 
 monitorRemote :: Has Node r => NodeId -> Zeno r () -> Zeno r ()
 monitorRemote nodeId act = do
-  node <- asks has
-  chan <- getRemoteForwarder node nodeId
   ioAct <- toIO act
-  atomically $ writeTQueue chan $ OnShutdown $ ioAct
+  withRemoteForwarder nodeId $ \(_, onQuit) -> do
+    modifyTVar onQuit (>> ioAct)
 
 
-getRemoteForwarder :: Node -> NodeId -> Zeno r Forwarder
-getRemoteForwarder node@Node{mforwarders} nodeId = do
-  mask \restore -> do
-    (chan, created) <- getChan
+withRemoteForwarder :: Has Node r => NodeId -> (Forwarder -> STM a) -> Zeno r a
+withRemoteForwarder nodeId act = do
+  node <- asks has
+  mask_ do
+    ((chan, onQuit), created, r) <- atomically $ getCreateChan node
     when created do
-      let run = runForwarder node nodeId chan
-      forkIO (restore run `finally` cleanup chan)
-      pure ()
-    pure chan
-
+      void $ forkIOWithUnmask \unmask -> do
+        -- TODO: logDebug with exceptions
+        unmask (runForwarder nodeId chan) `finally` cleanup node chan onQuit
+    pure r
   where
-  getChan =
-    atomically do
+  getCreateChan Node{..} = do
+    (fwd, created) <- do
       STM.lookup nodeId mforwarders >>=
         \case
-          Just chan -> pure (chan, False)
+          Just fwd -> pure (fwd, False)
           Nothing -> do
-            chan <- newTQueue
-            STM.insert chan nodeId mforwarders
-            pure (chan, True)
+            fwd <- (,) <$> newTQueue <*> newTVar mempty
+            STM.insert fwd nodeId mforwarders
+            pure (fwd, True)
 
-  cleanup chan = do
-    atomically do
-      STM.lookup nodeId mforwarders >>=
-        mapM_ \chan' -> do
-          when (chan' == chan) do
-            writeTQueue chan Quit
-            STM.delete nodeId mforwarders
+    (fwd, created,) <$> act fwd
 
-quitRemoteForwader :: Node -> NodeId -> STM ()
-quitRemoteForwader Node{..} nodeId = do
-  STM.lookup nodeId mforwarders >>=
-    mapM_ \fwd -> do
-      writeTQueue fwd Quit
-      STM.delete nodeId mforwarders
+  cleanup Node{..} chan onQuit = do
+    join $
+      atomically do
+        STM.lookup nodeId mforwarders >>=
+          mapM_ \(chan', onQuit) -> do
+            when (chan' == chan) do
+              STM.delete nodeId mforwarders
 
-runForwarder :: Node -> NodeId -> TQueue ForwardMessage -> Zeno r ()
-runForwarder node@Node{..} nodeId chan = do
+        liftIO <$> readTVar onQuit
+
+
+runForwarder :: NodeId -> TQueue ForwardMessage -> Zeno r ()
+runForwarder nodeId chan = do
   withLocalResources do
-    (_, eConn) <- allocate (liftIO mkConn) (either (\_ -> pure ()) NT.close)
-    case eConn of
-      Left e -> warnDidNotSend e
-      Right conn -> do
-        liftIO (NT.send conn [""]) >>=
-          either warnDidNotSend (\() -> loopForward conn)
-  
+    withRunInIO \rio -> do
+      connect hostName serviceName \(conn, _) -> do
+        send conn "0"
+        rio $ loopForward conn
   where
-  mkConn :: IO (Either (NT.TransportError NT.ConnectErrorCode) NT.Connection)
-  mkConn = NT.connect endpoint (endpointAddress nodeId) NT.ReliableOrdered NT.defaultConnectHints
+  NodeId (hostName, serviceName) = nodeId
 
-  loopForward :: NT.Connection -> Zeno r ()
+  loopForward :: Socket -> Zeno r ()
   loopForward conn = do
-    fix1 [] $ \f handlers -> do
-      atomically (readTQueue chan) >>=
-        \case
-          Forward msg -> do
-            liftIO $ NT.send conn $ BSL.toChunks msg
-            f handlers
-          OnShutdown act -> f $ act : handlers
-          Quit -> do
-            liftIO $
-              sequence_ handlers
-
-  warnDidNotSend :: Show e => e -> Zeno r ()
-  warnDidNotSend err = do
-    logWarn $ "Forwarder: Error connecting to %s: %s" % (show nodeId, show err)
+    forever do
+      atomically (readTQueue chan) >>= sendLazy conn
 
 
 subscribe :: (Has Node r, Serialize i) => ProcessId -> Zeno r (RemoteReceiver i)

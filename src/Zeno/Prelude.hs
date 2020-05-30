@@ -14,11 +14,12 @@ module Zeno.Prelude
   , toHex
   , expandPath
   , fix1
+  , fix2
   , timeDelta
   ) where
 
 import Control.Applicative as ALL
-import Control.Monad as ALL (forM, forM_, join, when, replicateM, foldM, forever, unless)
+import Control.Monad as ALL (forM, forM_, join, when, replicateM, foldM, forever, unless, void)
 import Control.Monad.IO.Class as ALL (MonadIO, liftIO)
 import Control.Monad.Reader as ALL (ask, asks)
 import Control.Monad.Trans.Class as ALL
@@ -110,9 +111,13 @@ instance (PrintfArg a, PrintfArg b, PrintfArg c) => PercentFormat (a, b, c) wher
   s % (a, b, c) = printf s a b c
 
 
+-- `fix` providing a value.
 fix1 :: a -> ((a -> b) -> a -> b) -> b
 fix1 a f = fix f a
 
+-- `fix` providing two values.
+fix2 :: a -> b -> ((a -> b -> c) -> a -> b -> c) -> c
+fix2 a b f = fix f a b
 
 
 timeDelta :: MonadIO m => UTCTime -> m Int

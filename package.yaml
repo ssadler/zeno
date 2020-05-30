@@ -79,6 +79,8 @@ library:
                        , BangPatterns
                        , ConstraintKinds
                        , FunctionalDependencies
+                       , TupleSections
+
   c-sources: cbits/blake2_personalized.c
   when:
   - condition: arch(x86_64) || flag(support_sse)

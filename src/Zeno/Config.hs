@@ -9,9 +9,11 @@ import qualified Data.ByteString.Char8 as BS8
 
 import           Network.Ethereum.Crypto
 import           Network.Ethereum.Types
+import           Network.Simple.TCP
 
 import           Zeno.Data.Aeson hiding (Parser)
 import           Zeno.Prelude
+import           Zeno.Process.Types
 
 import           Options.Applicative
 
@@ -40,19 +42,25 @@ optGateway =
     <> metavar "ADDRESS"
     <> help "Gateway contract address 0x..." )
 
-data ConsensusNetworkConfig = CNC
-  { seeds :: [String]
-  , host :: String
+data NetworkConfig = NC
+  { hostPref :: HostPreference
   , port :: Word16
+  } deriving (Show)
+
+
+data ConsensusNetworkConfig = CNC
+  { seeds :: [NodeId]
+  , netConf :: NetworkConfig
   } deriving (Show)
 
 consensusDefaultPort :: Word16
 consensusDefaultPort = 40440
 
-optHost = strOption
+optBind = option auto
    ( long "bind"
-  <> metavar "IP[/EXT]"
-  <> help "IP to bind to, and external IP if different" )
+  <> metavar "IP"
+  <> value HostIPv4
+  <> help "IP to bind to (default: listen on all IPv4 addresses)" )
 
 optPort = option auto
    ( long "port"
@@ -64,9 +72,10 @@ optPort = option auto
 optSeeds = strOption
    ( long "seed"
   <> metavar "HOST"
-  <> help "ip[:port]" )
+  <> help "ip:port" )
 
-optConsensusConfig = CNC <$> some optSeeds <*> optHost <*> optPort
+optConsensusConfig = CNC <$> some optSeeds <*> optNetworkConfig
+optNetworkConfig = NC <$> optBind <*> optPort
 
 -- Helpers --------------------------------------------------------------------
 

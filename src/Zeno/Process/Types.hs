@@ -2,19 +2,18 @@
 
 module Zeno.Process.Types where
 
-import UnliftIO hiding (Chan)
-
-import Zeno.Data.FixedBytes
-import qualified Network.Transport as NT
+import qualified Data.ByteString as BS
+import qualified Data.ByteString.Lazy as BSL
 import Data.Hashable
+import Data.IntMap (IntMap)
 import Data.Serialize
+import Data.String
 import Data.Typeable
 import GHC.Generics (Generic)
-import Data.IntMap (IntMap)
-import qualified Data.ByteString as BS
 import qualified StmContainers.Map as STM
-import qualified Data.ByteString.Lazy as BSL
+import Network.Simple.TCP
 import UnliftIO
+import Zeno.Data.FixedBytes
 
 newtype ProcessId = ProcessId { unProcessId :: Bytes16 }
   deriving (Eq, Ord, Generic, Hashable, Serialize)
@@ -22,19 +21,18 @@ newtype ProcessId = ProcessId { unProcessId :: Bytes16 }
 instance Show ProcessId where
   show pid = "ProcessId " ++ show (unProcessId pid)
 
-
-newtype NodeId = NodeId { endpointAddress :: NT.EndPointAddress }
+newtype NodeId = NodeId (HostName, ServiceName)
   deriving (Show, Eq, Ord, Hashable, Generic, Serialize)
 
-instance Serialize NT.EndPointAddress where
-  get = NT.EndPointAddress <$> get
-  put (NT.EndPointAddress a) = put a
+instance IsString NodeId where
+  fromString s =
+    let ip = takeWhile (/=':') s
+        port = read $ drop (length ip + 1) s
+     in NodeId (ip, port)
 
 
 data Node = Node
-  { transport :: NT.Transport
-  , endpoint :: NT.EndPoint
-  , topics :: STM.Map ProcessId WrappedReceiver
+  { topics :: STM.Map ProcessId WrappedReceiver
   , mforwarders :: STM.Map NodeId Forwarder
   , recvCache :: TVar ReceiveMissCache
   }
@@ -53,12 +51,9 @@ data WrappedReceiver = WrappedReceiver
   { wrappedWrite :: NodeId -> BS.ByteString -> STM ()
   }
 
-type Forwarder = TQueue ForwardMessage
+type Forwarder = (TQueue ForwardMessage, TVar (IO ()))
 
-data ForwardMessage =
-    Forward BSL.ByteString
-  | OnShutdown (IO ())
-  | Quit
+type ForwardMessage = BSL.ByteString
 
 type Receiver i = TQueue i
 
@@ -92,10 +87,6 @@ instance HasReceive (Receiver i) i where
 instance HasReceive (TMVar i) i where
   receiveSTM = takeTMVar
   receiveMaybeSTM = tryTakeTMVar
-
-getNodeId :: Node -> NodeId
-getNodeId = NodeId . NT.address . endpoint
-
 
 data TopicIsRegistered = TopicIsRegistered ProcessId
   deriving (Show, Eq)
