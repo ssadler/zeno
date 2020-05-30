@@ -44,8 +44,7 @@ dependencies:
 - monad-logger
 - mtl
 - network
-- network-transport
-- network-transport-tcp
+- network-simple
 - optparse-applicative
 - relapse
 - resourcet
@@ -115,7 +114,6 @@ tests:
     - -with-rtsopts=-N
     dependencies:
     - zeno
-    - network-transport-inmemory
     - tasty
     - tasty-hunit
     - tasty-hspec
