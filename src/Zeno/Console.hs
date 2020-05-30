@@ -6,6 +6,7 @@ module Zeno.Console
   , sendUI
   , withUIProc
   , renderStatus
+  , testConsoleConcurrent
   ) where
 
 import Control.Monad
@@ -104,14 +105,40 @@ runConsoleUI region proc = do
       UI_Step r  -> cStep .= r
 
 
-
-
 withConsoleUI :: Zeno r a -> Zeno r a
 withConsoleUI act = do
   withRunInIO \rio -> do
-    withConcurrentOutput do
-      displayConsoleRegions do
-        withConsoleRegion Linear \region -> do
-          rio do
-            proc <- spawn "UI" $ runConsoleUI region
-            localZeno (\app -> app { appConsole = Fancy (procMbox proc) }) act
+    displayConsoleRegions do
+      withConsoleRegion Linear \region -> do
+        rio do
+          proc <- spawn "UI" $ runConsoleUI region
+          localZeno (\app -> app { appConsole = Fancy (procMbox proc) }) act
+
+
+testConsoleConcurrent :: IO ()
+testConsoleConcurrent = do
+  displayConsoleRegions do
+    withConsoleRegion Linear \region -> do
+
+      mbox <- newEmptyTMVarIO
+      let
+        run s = do
+          o <- atomically (takeTMVar mbox)
+          case o of
+            Just s' -> run s'
+            Nothing -> setConsoleRegion region s >> run s
+      
+      forkIO $ run ""
+      forkIO $ forever $ atomically (putTMVar mbox Nothing) >> threadDelay 100000
+
+      forever $ do
+        withConcurrentOutput do
+          outputConcurrent ("SomeLongWord\n" :: String)
+        atomically $ do
+          putTMVar mbox $ Just pinkWord
+        withConcurrentOutput do
+          outputConcurrent ("Hello2\n" :: String)
+        threadDelay $ 50000
+  where
+  pinkWord = setSGRCode [SetConsoleIntensity BoldIntensity, SetPaletteColor Foreground 198]
+               ++ "I'm pink" ++ setSGRCode [Reset]

@@ -64,7 +64,7 @@ logMessage console loc source level msg = do
     PlainLog -> BS8.hPutStr stderr line
     Fancy queue -> do
       when (level >= LevelInfo) do
-         outputConcurrent (toS line :: Text)
+        outputConcurrent (toS line :: Text)
 
 logTime :: (MonadIO m, MonadLogger m) => String -> m a -> m a
 logTime s act = do
