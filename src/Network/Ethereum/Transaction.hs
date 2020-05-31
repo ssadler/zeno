@@ -24,14 +24,14 @@ encodeTx = rlpSerialize
 decodeTx :: ByteString -> Either String Transaction
 decodeTx = rlpDeserialize
 
-hashTx :: Transaction -> Sha3
-hashTx = sha3 . encodeTx
+hashTx :: Transaction -> EthTxHash
+hashTx = PrefixedHex . sha3b . encodeTx
 
 signTx :: SecKey -> Transaction -> Transaction
-signTx sk tx = tx { _sig = Just (sign sk $ sighashTx tx) }
+signTx sk tx = tx { _sig = Just (sign sk $ unPrefixedHex $ sighashTx tx) }
 
 recoverFrom :: Transaction -> Maybe Address
-recoverFrom tx = _sig tx >>= recoverAddr (sighashTx tx)
+recoverFrom tx = _sig tx >>= recoverAddr (unPrefixedHex $ sighashTx tx)
 
-sighashTx :: Transaction -> Msg
-sighashTx tx = fromJust $ msg $ unSha3 $ hashTx $ tx { _sig = Nothing }
+sighashTx :: Transaction -> EthTxHash
+sighashTx tx = hashTx $ tx { _sig = Nothing }

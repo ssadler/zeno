@@ -10,6 +10,7 @@ import qualified Haskoin as H
 import Zeno.Notariser.Types
 import Zeno.Prelude
 import Zeno.Consensus
+import Zeno.Console
 
 
 kmdInputAmount :: Word64
@@ -24,34 +25,29 @@ notariseToKMD nc@NotariserConfig{..} ndata = do
 
   cparams <- getConsensusParams nc
   r <- ask :: Zeno EthNotariser EthNotariser
-  let run = liftIO . runZeno r
+  let run = withContext (const r)
   let opret = Ser.encode ndata
 
-  runConsensus cparams opret $ do
+  runConsensus "eth ⇒  kmd" cparams opret $ do
   
-    -- Step 1 - Key on opret, collect UTXOs
-    run $ logDebug "Step 1: Collect inputs"
-    utxoBallots <- step (collectThreshold kmdNotarySigs) (kmdPubKeyI, getOutPoint utxo)
+    -- Key on opret, collect UTXOs
+    utxoBallots <- step "inputs" (collectThreshold kmdNotarySigs)
+                                 (kmdPubKeyI, getOutPoint utxo)
 
-    -- Step 2 - TODO: Key on proposer
-    run $ logDebug "Step 2: Get proposed inputs"
-    let proposal = proposeInputs kmdNotarySigs $ unInventory utxoBallots
-    Ballot _ _ utxosChosen <- propose $ pure proposal
-
-    -- Step 3 - Confirm proposal
-    _ <- step collectMajority ()
+    -- TODO: Key on proposer
+    let proposal = proposeInputs kmdNotarySigs  utxoBallots
+    Ballot _ _ utxosChosen <- propose "inputs" $ pure proposal
   
-    -- Step 4 - Sign tx and collect signed inputs
-    run $ logDebug "Step 3: Sign & collect"
+    -- Sign tx and collect signed inputs
     let partlySignedTx = signMyInput nc kmdSecKey utxosChosen $ H.DataCarrier opret
         myInput = getMyInput utxo partlySignedTx
         waitSigs = collectOutpoints $ snd <$> utxosChosen
-    allSignedInputs <- step waitSigs myInput
-    let finalTx = compileFinalTx partlySignedTx $ unInventory allSignedInputs
+    allSignedInputs <- step "sigs" waitSigs myInput
+    let finalTx = compileFinalTx partlySignedTx allSignedInputs
   
-    run $ logDebug "Step 4: Confirm"
-    _ <- step collectMajority ()
+    _ <- step "confirm" collectMajority ()
   
+    incStep "wait for tx confirm ..."
     run $ submitNotarisation nc ndata finalTx
 
 
@@ -60,11 +56,26 @@ proposeInputs kmdNotaryInputs ballots
   | length ballots < kmdNotaryInputs = error "Bad error: not enough ballots"
   | otherwise = take kmdNotaryInputs $ bData <$> sortOn bSig ballots
 
+getNextHeight :: Word32 -> Word32 -> Word32 -> Word32
+getNextHeight interval last current =
+  let next = current - mod current interval
+   in next + if next > last then 0 else interval
 
-getKmdProposeHeight :: Has BitcoinConfig r => Word32 -> Zeno r Word32
-getKmdProposeHeight n = do
+waitKmdNotariseHeight :: Has BitcoinConfig r => Word32 -> Word32 -> Zeno r Word32
+waitKmdNotariseHeight interval lastHeight = do
   height <- bitcoinGetHeight
-  pure $ height - mod height n
+  let nextHeight = getNextHeight interval lastHeight height
+  if nextHeight <= height
+     then pure nextHeight
+     else do
+       withUIProc (UIOther $ "Waiting for KMD block %i" % nextHeight) do
+         fix \f -> do
+           threadDelay $ 5 * 1000000
+           curHeight <- bitcoinGetHeight
+           if curHeight < nextHeight
+              then f
+              else pure nextHeight
+
 
 getKomodoUtxo :: Zeno EthNotariser (Maybe KomodoUtxo)
 getKomodoUtxo = do
@@ -76,9 +87,14 @@ getKomodoUtxo = do
 
 waitForUtxo :: Zeno EthNotariser KomodoUtxo
 waitForUtxo = do
-  getKomodoUtxo >>=
-    \case Nothing -> logWarn "Waiting for UTXOs" >> threadDelay (10 * 1000000) >> waitForUtxo
-          Just u -> pure u
+  getKomodoUtxo >>= \case
+    Just u -> pure u
+    Nothing -> do
+      logWarn "Waiting for UTXOs"
+      withUIProc (UIOther "Waiting for UTXOs") do
+        fix \f -> do
+          threadDelay $ 10 * 1000000
+          getKomodoUtxo >>= maybe f pure
 
 notarisationRecip :: H.ScriptOutput
 notarisationRecip = H.PayPK "020e46e79a2a8d12b9b5d12c7a91adb4e454edfae43c0a0cb805427d2ac7613fd9"

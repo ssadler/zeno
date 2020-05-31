@@ -23,16 +23,16 @@ dependencies:
 - base >= 4.7 && < 5
 - aeson
 - aeson-quick
+- ansi-terminal
 - attoparsec
 - base16-bytestring
-- binary
 - bytestring
 - cereal
-- conduit
-- conduit-extra
+- concurrent-output
 - containers
 - cryptonite
 - directory
+- emojis
 - entropy
 - exceptions
 - hashable
@@ -43,10 +43,8 @@ dependencies:
 - microlens-platform
 - monad-logger
 - mtl
-- ndjson-conduit
 - network
-- network-transport
-- network-transport-tcp
+- network-simple
 - optparse-applicative
 - relapse
 - resourcet
@@ -57,6 +55,8 @@ dependencies:
 - string-conv
 - text
 - time
+- template-haskell
+- th-printf
 - transformers
 - unix
 - unliftio
@@ -81,6 +81,8 @@ library:
                        , BangPatterns
                        , ConstraintKinds
                        , FunctionalDependencies
+                       , TupleSections
+
   c-sources: cbits/blake2_personalized.c
   when:
   - condition: arch(x86_64) || flag(support_sse)
@@ -116,7 +118,6 @@ tests:
     - -with-rtsopts=-N
     dependencies:
     - zeno
-    - network-transport-inmemory
     - tasty
     - tasty-hunit
     - tasty-hspec

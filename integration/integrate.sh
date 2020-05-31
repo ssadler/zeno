@@ -38,7 +38,7 @@ tmux split-window -v -t 4
 CHAIN=TXSCLZDEV
 
 notarise="stack exec zeno -- notarise"
-ethkmd="kmdeth --gateway=$1 --seed=127.0.0.1:40440 --bind=127.0.0.1/127.0.0.1 --kmd=~/.komodo/$CHAIN/$CHAIN.conf --geth=http://127.0.0.1:9545/"
+ethkmd="kmdeth --gateway=$1 --seed=127.0.0.1:40440 --kmd=~/.komodo/$CHAIN/$CHAIN.conf --geth=http://127.0.0.1:9545/"
 
 tmux send-keys -t 1 "$notarise seed --bind=127.0.0.1 --port=40440" Enter
 tmux send-keys -t 2 "$notarise $ethkmd --pubkey=$pk0 --port=40441" Enter
@@ -49,19 +49,10 @@ tmux send-keys -t 5 "$notarise $ethkmd --pubkey=$pk3 --port=40444" Enter
 tmux select-pane -t 0
 
 
-
-function exit_all() {
-  for i in $(seq 5 -1 1); do
-    tmux send-keys -t $i C-c Enter "exit" Enter
-  done
-};
-
 function ctrl_c() {
   for i in $(seq 5 -1 1); do
-    tmux send-keys -t $i C-c C-c
+    tmux send-keys -t $i C-c C-c Enter "exit" Enter
   done
-  trap exit_all INT
-  sleep 100000000
 };
 
 trap ctrl_c INT

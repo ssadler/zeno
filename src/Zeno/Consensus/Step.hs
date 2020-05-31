@@ -16,8 +16,8 @@ module Zeno.Consensus.Step
 
 import           Control.Monad
 
-import           Data.Binary
 import           Data.Bits
+import           Data.Serialize
 import qualified Data.Map as Map
 
 import           GHC.Generics (Generic)
@@ -27,6 +27,7 @@ import           Network.Ethereum.Crypto
 import           Zeno.Process
 import           Zeno.Consensus.P2P
 import           Zeno.Consensus.Types
+import           Zeno.Console
 import           Zeno.Prelude
 
 import           UnliftIO
@@ -36,35 +37,34 @@ import           UnliftIO.Concurrent
 -- TODO: All messages should be authenticated
 
 data Step i = Step
-  { topic   :: ProcessId
-  , tInv    :: TVar (Inventory i)
-  , members :: [Address]
-  , yieldTo :: Process (Inventory i)
-  , mySig   :: CompactRecSig
-  , message :: Msg
+  { processId :: ProcessId
+  , tInv      :: TVar (Inventory i)
+  , members   :: [Address]
+  , yieldTo   :: Process (Inventory i)
   }
 
 
-spawnStep :: forall a i. (Sendable i)
-         => Msg -> Ballot i -> [Address]
-         -> Consensus (Process (Inventory i))
-spawnStep message myBallot members = do
+spawnStep :: forall a i. Serialize i
+          => Ballot i -> Consensus (Process (Inventory i))
+spawnStep myBallot = do
 
   -- Build the step context
   tInv <- newTVarIO Map.empty
 
-  -- Hash the message as the topic so it's obfuscated
-  let topic = hashServiceId $ getMsg message
-      (Ballot myAddr mySig myData) = myBallot
-      stepName = "step: " ++ show topic
-      builderName = "inventory builder: " ++ show topic
+  ConsensusContext{ccParams = ConsensusParams{..},..} <- ask
+  stepNum <- getStepNum
+  roundId <- getRoundId
+
+  let (Ballot myAddr mySig myData) = myBallot
+      suffix = toFixed $ sha3' $ encode (ccEntropy, stepNum)
+      processId = ProcessId $ roundId `bappend` suffix
+      stepName = "step: " ++ show processId
+      builderName = "inventory builder: " ++ show processId
 
   spawn stepName \process -> do
-
-    recv <- subscribe topic
-    logDebug $ "Topic: " ++ show (unProcessId topic)
-
-    let step = Step topic tInv members process mySig message
+    
+    let step = Step processId tInv members' process
+    recv <- subscribe processId
 
     -- Spawn inventory builder
     builder <- spawn builderName $ inventoryBuilder step
@@ -84,24 +84,23 @@ spawnStep message myBallot members = do
               
               GetInventory wanted -> do
                 inv <- readTVarIO tInv
-                let subset = getInventorySubset wanted members inv
-                sendAuthenticated step peer $ InventoryData subset
+                let subset = getInventorySubset wanted members' inv
+                sendAuthenticated step [peer] $ InventoryData subset
 
               InventoryData inv -> do
                 onInventoryData step inv
 
 
-onNewPeer :: forall i. Sendable i => Step i -> NodeId -> Consensus ()
+onNewPeer :: forall i. Serialize i => Step i -> NodeId -> Consensus ()
 onNewPeer Step{..} peer = do
   inv <- readTVarIO tInv
   let idx = inventoryIndex members inv
-  sendAuthenticated Step{..} peer (InventoryIndex idx :: StepMessage i)
+  sendAuthenticated Step{..} [peer] (InventoryIndex idx :: StepMessage i)
 
-onInventoryData :: forall i. Sendable i => Step i -> Inventory i -> Consensus ()
-onInventoryData Step{..} theirInv = do
+onInventoryData :: forall i. Serialize i => Step i -> Inventory i -> Consensus ()
+onInventoryData step@Step{..} theirInv = do
 
-  -- TODO, very important:
-  -- Authenticate all the inventory we don't have.
+  -- TODO: Authenticate all the inventory we don't have.
 
   oldIdx <- inventoryIndex members <$> readTVarIO tInv
   atomically do
@@ -111,12 +110,13 @@ onInventoryData Step{..} theirInv = do
   let idx = inventoryIndex members inv
   when (0 /= idx .&. complement oldIdx) do
     send yieldTo inv
-    sendPeers topic (mySig, InventoryIndex idx :: StepMessage i)
+    peers <- getPeers
+    sendAuthenticated step peers (InventoryIndex idx :: StepMessage i)
 
 
 -- | Inventory builder, continually builds and dispatches queries for remote inventory
 
-inventoryBuilder :: Sendable i
+inventoryBuilder :: Serialize i
                  => Step i
                  -> Process (NodeId, Integer)
                  -> Consensus ()
@@ -124,12 +124,12 @@ inventoryBuilder step@Step{..} mbox = do
   forever do
     getInventoryQueries step mbox >>=
       mapM_ \(peer, wanted) ->
-        sendAuthenticated step peer $ GetInventory wanted
+        sendAuthenticated step [peer] $ GetInventory wanted
 
     threadDelay $ 100 * 1000
 
 
-getInventoryQueries :: Sendable i
+getInventoryQueries :: Serialize i
                     => Step i
                     -> Process (NodeId, Integer)
                     -> Zeno r [(NodeId, Integer)]
@@ -145,17 +145,24 @@ getInventoryQueries Step{..} mbox = do
 -- | Message authentication
 --------------------------------------------------------------------------------
 
-sendAuthenticated :: Sendable o
-                  => Step o -> NodeId -> StepMessage o -> Consensus ()
-sendAuthenticated Step{..} peer msg = do
-  sendRemote peer topic (mySig, msg)
+getMessageToSign :: Serialize o => Step o -> StepMessage o -> Bytes32
+getMessageToSign Step{..} obj = sha3b $ encode (processId, obj)
+
+sendAuthenticated :: Serialize o
+                  => Step o -> [NodeId] -> StepMessage o -> Consensus ()
+sendAuthenticated Step{..} peers obj = do
+  EthIdent{..} <- asks has
+  let sig = sign ethSecKey $ getMessageToSign Step{..} obj
+  forM_ peers $ \peer -> sendRemote peer processId (sig, obj)
 
 -- TODO: Track who sends bad data
-authenticate :: Step i
+authenticate :: Serialize i
+             => Step i
              -> (NodeId -> StepMessage i -> Consensus ())
-             -> RemoteMessage (CompactRecSig, StepMessage i)
+             -> AuthenticatedStepMessage i
              -> Consensus ()
-authenticate step@Step{..} act (RemoteMessage nodeId (theirSig, obj)) =
+authenticate step@Step{..} act (RemoteMessage nodeId (theirSig, obj)) = do
+  let message = getMessageToSign step obj
   case recoverAddr message theirSig of
        Just addr ->
          if elem addr members

@@ -14,7 +14,6 @@ import           Haskoin.Constants
 import           Zeno.Prelude
 import           Zeno.Data.Aeson
 import           Zeno.Data.Hex
-import qualified Zeno.Data.Binary as Bin
 
 
 -- Komodo network constants --------------------------------------------------
@@ -49,10 +48,6 @@ instance ToJSON RAddress where
 
 instance Show RAddress where
   show = toS . maybe (error "Shouldn't happen: couldn't encode RAddress") id . H.addrToString komodo . H.PubKeyAddress . getAddrHash
-
-instance Bin.Binary RAddress where
-  put = Bin.put . Bin.Ser2Bin . getAddrHash
-  get = RAddress . Bin.unSer2Bin <$> Bin.get
 
 instance IsString RAddress where
   fromString s = maybe (error e) id $ stringToRAddress s
@@ -169,10 +164,6 @@ parseNotarisation isBack = do
   momom <- if isBack then getRev else pure nullBytes
   momomDepth <- if isBack then getWord32le else pure 0
   pure NOR{..}
-
-instance Bin.Binary NotarisationData where
-  put = Bin.put . Bin.Ser2Bin
-  get = Bin.unSer2Bin <$> Bin.get
 
 instance FromJSON NotarisationData where
   parseJSON = parseJsonHexSerialized

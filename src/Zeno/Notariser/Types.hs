@@ -66,8 +66,7 @@ instance FromJSON NotariserConfig where
 getConsensusParams :: NotariserConfig -> Zeno EthNotariser ConsensusParams
 getConsensusParams NotariserConfig{..} = do
   ident <- asks has
-  mt <- newTVarIO ""
-  pure $ ConsensusParams members ident consensusTimeout mt
+  pure $ ConsensusParams members ident consensusTimeout
 
 
 instance Exception ConfigException

@@ -2,7 +2,6 @@
 
 module Network.Bitcoin where
 
-import qualified Data.Binary as Bin
 import qualified Data.Serialize as Ser
 
 import qualified Data.ByteString as BS
@@ -23,9 +22,9 @@ newtype BitcoinConfig = BitcoinConfig { getRequest :: Request }
 
 
 -- TODO: parsing sucks, make a map
-loadBitcoinConfig :: FilePath -> IO BitcoinConfig
+loadBitcoinConfig :: FilePath -> Zeno r BitcoinConfig
 loadBitcoinConfig path = do
-  runZeno () $ logInfo $ "Loading bitcoin config: " ++ path
+  logInfo $ "Loading bitcoin config: " ++ path
   configData <- liftIO $ expandPath path >>= BS.readFile
   let p p1 p2 = parseOnly (parseItem p1 p2) configData <|> Left p1
   let econfig =
@@ -74,26 +73,11 @@ bitcoinGetTxHeight txHash = do
     (.? "{height}")
 
 bitcoinGetHeight :: Has BitcoinConfig r => Zeno r Word32
-bitcoinGetHeight = queryBitcoin "getinfo" () <&> (.!"{blocks}")
+bitcoinGetHeight = do
+  queryBitcoin "getinfo" () <&> (.!"{blocks}")
 
 parseWif :: H.Network -> Text -> Either String H.SecKey
 parseWif net wif = do
   case H.fromWif net wif of
     Just (H.SecKeyI seckey True) -> pure seckey
     _ -> Left $ "Couldn't parse WIF from daemon using network " ++ H.getNetworkName net
-
-
--- Instances ------------------------------------------------------------------
-
-instance Bin.Binary H.TxIn where
-  put = Bin.put . Ser.encode
-  get = Bin.get >>= either fail pure . Ser.decode
-
-instance Bin.Binary H.OutPoint where
-  put = Bin.put . Ser.encode
-  get = Bin.get >>= either fail pure . Ser.decode
-
-instance Bin.Binary H.PubKeyI where
-  put = Bin.put . Ser.encode
-  get = Bin.get >>= either fail pure . Ser.decode
-

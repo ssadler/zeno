@@ -1,11 +1,13 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DerivingVia #-}
 
 module Network.Ethereum.Crypto.Hash
   ( Sha3(..)
   , sha3
   , sha3'
+  , sha3b
   , nullSha3
   , sha3AsBytes32
   ) where
@@ -15,11 +17,11 @@ import           Crypto.Hash
 import           Data.Aeson
 import qualified Data.ByteArray as BA
 import qualified Data.ByteString as BS
-import           Data.FixedBytes
 import           Data.Serialize
 
 import           Network.Ethereum.Data
 import           Zeno.Prelude
+import           Zeno.Data.FixedBytes
 
 
 newtype Sha3 = Sha3 { unSha3 :: ByteString }
@@ -71,6 +73,10 @@ sha3' bs = BS.pack (BA.unpack (hash bs :: Digest Keccak_256))
 
 sha3 :: ByteString -> Sha3
 sha3 = Sha3 . sha3'
+
+sha3b :: ByteString -> Bytes32
+sha3b = unsafeToFixed . sha3'
+
 
   
 nullSha3 :: Sha3

@@ -48,5 +48,5 @@ runEthNotariserMethod =
 
 
 runSeedNotariserMethod :: Parser Method
-runSeedNotariserMethod = startSeedNode <$> optHost <*> optPort
+runSeedNotariserMethod = startSeedNode <$> optNetworkConfig
 

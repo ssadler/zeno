@@ -7,118 +7,116 @@ import Control.Monad.Reader
 
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BSL
-import Data.FixedBytes
+import Zeno.Data.FixedBytes
 import Data.Hashable
-import Data.Binary
+import Data.Serialize
 import Data.Typeable
 import Data.Void
 import GHC.Generics (Generic)
 
-import qualified Network.Transport as NT
+import Network.Simple.TCP
+
 import qualified StmContainers.Map as STM
 import UnliftIO hiding (Chan)
 
 import UnliftIO.Concurrent
 import Unsafe.Coerce
 
+import Zeno.Process.Spawn hiding (send)
 import Zeno.Process.Types
 import Zeno.Process.Node.ReceiveMissCache
 import Zeno.Prelude hiding (finally)
 
 
-sendRemote :: (Binary a, Has Node r) => NodeId -> ProcessId -> a -> Zeno r ()
+sendRemote :: (Serialize a, Has Node r) => NodeId -> ProcessId -> a -> Zeno r ()
 sendRemote nodeId pid msg = do
-  node <- asks has
-  chan <- getRemoteForwarder node nodeId
-  atomically $ writeTQueue chan $ Forward $ encode (pid, msg)
+  withRemoteForwarder nodeId \(chan, _) -> do
+    writeTQueue chan $ encodeLazy (pid, msg)
 
 
 monitorRemote :: Has Node r => NodeId -> Zeno r () -> Zeno r ()
 monitorRemote nodeId act = do
-  node <- asks has
-  chan <- getRemoteForwarder node nodeId
   ioAct <- toIO act
-  atomically $ writeTQueue chan $ OnShutdown $ ioAct
+  withRemoteForwarder nodeId $ \(_, onQuit) -> do
+    modifyTVar onQuit (>> ioAct)
 
 
-getRemoteForwarder :: Node -> NodeId -> Zeno r Forwarder
-getRemoteForwarder node@Node{mforwarders} nodeId = do
-  mask \restore -> do
-    (chan, created) <- getChan
+withRemoteForwarder :: Has Node r => NodeId -> (Forwarder -> STM a) -> Zeno r a
+withRemoteForwarder nodeId act = do
+  node <- asks has
+  mask_ do
+    ((chan, onQuit), created, r) <- atomically $ getCreateChan node
     when created do
-      let run = runForwarder node nodeId chan
-      forkIO (restore run `finally` cleanup chan)
-      pure ()
-    pure chan
-
+      void $ forkIOWithUnmask \unmask -> do
+        unmask (runForwarder nodeId chan) `finally` cleanup node chan onQuit
+    pure r
   where
-  getChan =
-    atomically do
+  getCreateChan Node{..} = do
+    (fwd, created) <- do
       STM.lookup nodeId mforwarders >>=
         \case
-          Just chan -> pure (chan, False)
+          Just fwd -> pure (fwd, False)
           Nothing -> do
-            chan <- newTQueue
-            STM.insert chan nodeId mforwarders
-            pure (chan, True)
+            fwd <- (,) <$> newTQueue <*> newTVar mempty
+            STM.insert fwd nodeId mforwarders
+            pure (fwd, True)
 
-  cleanup chan = do
-    atomically do
-      STM.lookup nodeId mforwarders >>=
-        mapM_ \chan' -> do
-          when (chan' == chan) do
-            writeTQueue chan Quit
-            STM.delete nodeId mforwarders
+    (fwd, created,) <$> act fwd
 
-quitRemoteForwader :: Node -> NodeId -> STM ()
-quitRemoteForwader Node{..} nodeId = do
-  STM.lookup nodeId mforwarders >>=
-    mapM_ \fwd -> do
-      writeTQueue fwd Quit
-      STM.delete nodeId mforwarders
+  cleanup :: Node -> TQueue ForwardMessage -> TVar (IO ()) -> Zeno r ()
+  cleanup Node{..} chan onQuit = do
+    join $
+      atomically do
+        STM.lookup nodeId mforwarders >>= \case
+          Nothing -> pure mempty
+          Just (chan', _) -> do
+            if chan' == chan
+               then do
+                 STM.delete nodeId mforwarders
+                 pure mempty
+               else do
+                 -- Given that this is the only location that deletes a forwarder...
+                 pure $ logMurphy "How is there another chan with the same key?"
 
-runForwarder :: Node -> NodeId -> TQueue ForwardMessage -> Zeno r ()
-runForwarder node@Node{..} nodeId chan = do
-  withLocalResources do
-    (_, eConn) <- allocate (liftIO mkConn) (either (\_ -> pure ()) NT.close)
-    case eConn of
-      Left e -> warnDidNotSend e
-      Right conn -> do
-        liftIO (NT.send conn [""]) >>=
-          either warnDidNotSend (\() -> loopForward conn)
-  
+    join $ liftIO <$> readTVarIO onQuit
+
+
+runForwarder :: Has Node r => NodeId -> TQueue ForwardMessage -> Zeno r ()
+runForwarder nodeId@NodeId{..} chan = do
+  logDiedSync ("outbound(%s)" % show nodeId) do
+    handleIO mempty run
   where
-  mkConn :: IO (Either (NT.TransportError NT.ConnectErrorCode) NT.Connection)
-  mkConn = NT.connect endpoint (endpointAddress nodeId) NT.ReliableOrdered NT.defaultConnectHints
+  run = do
+    withLocalResources do
+      withRunInIO \rio -> do
+        connect hostName (show hostPort) \(conn, _) -> do
+          rio do
+            NodeId _ myPort <- asks $ myNodeId . has
+            let header = encode (0 :: Word8, myPort)
+            send conn header
+            forever do
+              timeoutSTM 500000 (readTQueue chan) >>=
+                sendSizePrefixed conn . maybe "" id
 
-  loopForward :: NT.Connection -> Zeno r ()
-  loopForward conn = do
-    fix1 [] $ \f handlers -> do
-      atomically (readTQueue chan) >>=
-        \case
-          Forward msg -> do
-            liftIO $ NT.send conn $ BSL.toChunks msg
-            f handlers
-          OnShutdown act -> f $ act : handlers
-          Quit -> do
-            liftIO $
-              sequence_ handlers
+  sendSizePrefixed conn bs = do
+    let prefix = encodeLazy (fromIntegral (BSL.length bs) :: Word32)
+    sendLazy conn $ prefix <> bs
 
-  warnDidNotSend :: Show e => e -> Zeno r ()
-  warnDidNotSend err = do
-    logWarn $ "Forwarder: Error connecting to %s: %s" % (show nodeId, show err)
+  logTerminated :: SomeException -> Zeno r ()
+  logTerminated e = do
+    logInfo $ "Forwarder thread died with: %s" % show e
 
 
-subscribe :: (Has Node r, Binary i) => ProcessId -> Zeno r (RemoteReceiver i)
+subscribe :: (Has Node r, Serialize i) => ProcessId -> Zeno r (RemoteReceiver i)
 subscribe procId = do
   node@Node{..} <- asks has
-  (_, recv) <- 
+  (_, recv) <-
     allocate
       (atomically $ getReceiverSTM node procId)
       (\_ -> atomically $ STM.delete procId topics)
   pure recv
 
-getReceiverSTM :: Binary i => Node -> ProcessId -> STM (RemoteReceiver i)
+getReceiverSTM :: Serialize i => Node -> ProcessId -> STM (RemoteReceiver i)
 getReceiverSTM Node{..} pid = do
   STM.lookup pid topics >>=
     \case
@@ -131,14 +129,14 @@ getReceiverSTM Node{..} pid = do
         pure recv
   where
   wrappedReceive chan nodeId bs = do
-      case decodeOrFail bs of
-        Right ("", _, a) -> writeTQueue chan $ RemoteMessage nodeId a
+      case decode bs of
+        Right a -> writeTQueue chan $ RemoteMessage nodeId a
         _ -> pure ()  -- Could have a "bad queue", ie redirect all decode failures
                       -- to a thread which monitors for peer mischief
 
   populateFromRecvCache recv = do
-    (misses, nextCache) <- receiveCacheTake pid <$> readTVar recvCache
-    writeTVar recvCache nextCache
+    (misses, nextCache) <- receiveCacheTake pid <$> readTVar missCache
+    writeTVar missCache nextCache
     forM_ misses
       \(_, nodeId, bs) -> wrappedReceive recv nodeId bs
 

@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE UndecidableInstances #-}
 
 module Zeno.Logging 
   ( module LOG
@@ -6,24 +7,33 @@ module Zeno.Logging
   , logInfo
   , logError
   , logWarn
+  , logMurphy
   , logTime
-  , logStderr
+  , logMessage
   , AsString
   , asString
+  , getLogMessage
+  , pf
   ) where
 
+import Control.Monad (when)
 import Data.Aeson
 import qualified Data.ByteString.Char8 as BS8
 import Data.ByteString.Lazy (toStrict)
+import Data.String (fromString)
+import Data.String.Conv
+import Data.Text (Text)
 import Data.Time.Clock
 import Data.Time.Format
 import Data.Time.LocalTime
-import Control.Monad.IO.Class as ALL (liftIO, MonadIO)
 import Control.Monad.Logger as LOG hiding (logDebug, logInfo, logError, logWarn)
-import System.IO
-import System.IO.Unsafe
+import System.Console.Concurrent
+import UnliftIO
+import qualified Language.Haskell.Printf as Printf
+import Language.Haskell.TH.Quote
 
-import Data.String (fromString)
+import Zeno.Console.Types as LOG
+
 
 logDebug :: MonadLogger m => String -> m ()
 logDebug = logDebugN . fromString
@@ -37,6 +47,9 @@ logError = logErrorN . fromString
 logWarn :: MonadLogger m => String -> m ()
 logWarn = logWarnN . fromString
 
+logMurphy :: MonadLogger m => String -> m ()
+logMurphy s = logErrorN $ "Invariant violated: " <> fromString s
+
 class AsString a where
   asString :: a -> String
 
@@ -46,12 +59,20 @@ instance AsString BS8.ByteString where
 instance AsString Value where
   asString = asString . toStrict . encode
 
-logStderr :: Loc -> LogSource -> LogLevel -> LogStr -> IO ()
-logStderr loc source level str = do
+getLogMessage :: Loc -> LogSource -> LogLevel -> LogStr -> IO BS8.ByteString
+getLogMessage loc source level str = do
   t <- formatTime defaultTimeLocale "[%T]" <$> getZonedTime
-  BS8.hPutStr stderr $ fromLogStr $ toLogStr t <> defaultLogStr loc source level str
+  pure $ fromLogStr $ toLogStr t <> defaultLogStr loc source level str
+
+logMessage :: ToLogStr msg => Console -> Loc -> LogSource -> LogLevel -> msg -> IO ()
+logMessage console loc source level msg = do
+  line <- getLogMessage loc source level (toLogStr msg)
+  runLog console line
   where
-  logStr = defaultLogStr
+  runLog (Fancy queue) line = errorConcurrent (toS line :: Text)
+  runLog (FilteredLog minLevel console) line = do
+    when (level >= minLevel) (runLog console line)
+  runLog PlainLog line = outputConcurrent (toS line :: Text)
 
 logTime :: (MonadIO m, MonadLogger m) => String -> m a -> m a
 logTime s act = do
@@ -62,3 +83,6 @@ logTime s act = do
   logDebug $ s ++ " took: " ++ (show $ round $ (realToFrac t) * 1000) ++ "ms"
   pure r
 
+
+pf :: QuasiQuoter
+pf = Printf.s

@@ -2,6 +2,7 @@
 
 module Zeno.Consensus.P2P
   ( startP2P
+  , PeerState
   , getPeers
   , sendPeers
   , registerOnNewPeer
@@ -10,23 +11,18 @@ module Zeno.Consensus.P2P
   , peerControllerPid
   ) where
 
-
-import Control.Monad
-import Control.Monad.Reader
-
+import Control.Concurrent.STM.TVar (stateTVar)
 import qualified Data.IntMap.Strict as IntMap
 import qualified Data.Set as Set
-import Data.Binary
+import Data.Serialize
 import Data.Dynamic
-
-import Zeno.Consensus.Types
-import Zeno.Process
-import Zeno.Prelude hiding (finally)
 
 import System.Posix.Signals
 import UnliftIO
 
-import Debug.Trace
+import Zeno.Console
+import Zeno.Process
+import Zeno.Prelude hiding (finally)
 
 
 data P2PNode = P2PNode
@@ -34,19 +30,37 @@ data P2PNode = P2PNode
   , p2pState :: PeerState
   }
 
+type Peers = Set.Set NodeId
+data PeerState = PeerState
+  { p2pPeers :: TVar Peers
+  , p2pPeerNotifier :: PeerNotifier
+  }
+
+data PeerNotifierMessage =
+    SubscribeNewPeers Int (NodeId -> IO ())
+  | UnsubscribeNewPeers Int
+  | NewPeer NodeId
+
+data PeerNotifier = PeerNotifier
+  { pnProc :: Process PeerNotifierMessage
+  , pnCount :: TVar Int
+  }
+
+
+
 -- * Peer-to-peer API
 
-getPeers :: Consensus [NodeId]
+getPeers :: Has PeerState r => Zeno r [NodeId]
 getPeers = do
   PeerState{..} <- asks has
   Set.toList <$> readTVarIO p2pPeers
 
-sendPeers :: Binary o => ProcessId -> o -> Consensus ()
+sendPeers :: (Has PeerState r, Has Node r, Serialize o) => ProcessId -> o -> Zeno r ()
 sendPeers pid msg = do
   peers <- getPeers
   forM_ peers $ \peer -> sendRemote peer pid msg
 
-registerOnNewPeer :: (NodeId -> Consensus ()) -> Consensus ()
+registerOnNewPeer :: Has PeerState r => (NodeId -> Zeno r ()) -> Zeno r ()
 registerOnNewPeer cb = do
   PeerNotifier{..} <- asks $ p2pPeerNotifier . has
 
@@ -93,7 +107,7 @@ data PeerMsg =
   | Peers Peers
   deriving (Show, Generic)
 
-instance Binary PeerMsg
+instance Serialize PeerMsg
 
 
 peerController :: PeerState -> [NodeId] -> Zeno Node ()
@@ -121,14 +135,20 @@ peerController state@PeerState{..} seeds = do
   newPeer nodeId = do
     let PeerNotifier{..} = p2pPeerNotifier
     peers <- readTVarIO p2pPeers
+
     unless (Set.member nodeId peers) do
-      -- logDebug $ "New peer: " ++ show nodeId
-      atomically $ writeTVar p2pPeers $ Set.insert nodeId peers
-      monitorRemote nodeId do
-        -- logDebug $ "Peer disconnect: " ++ show nodeId
-        atomically $ modifyTVar p2pPeers $ Set.delete nodeId
+      let f ps = let s' = Set.insert nodeId peers in (length s', s')
+      nPeers <- atomically $ stateTVar p2pPeers f
+      sendUI $ UI_Peers nPeers
+      monitorRemote nodeId $ dropPeer nodeId
       send pnProc $ NewPeer nodeId
       sendRemote nodeId peerControllerPid GetPeers
+
+  dropPeer nodeId = do
+    atomically do
+      modifyTVar p2pPeers $ Set.delete nodeId
+    readTVarIO p2pPeers >>= sendUI . UI_Peers . length
+
 
 
 peerNotifier :: Process PeerNotifierMessage -> Zeno Node ()

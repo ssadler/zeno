@@ -18,7 +18,7 @@ test_recSigTests = testGroup "RecSig tests"
 
   [ 
     testCase "CompactRecSig" $ do
-      let CompactRecSig r s v = sign sk $ fromJust $ msg (unSha3 txid_a)
+      let CompactRecSig r s v = sign sk txid_a
           d = B16.encode . fromShort
       (d r, d s, v) @?= txsig_a
 
@@ -31,14 +31,13 @@ test_recSigTests = testGroup "RecSig tests"
   , testCase "RecoverFrom" $ do
       let signed = signTx sk tx_a
       let Just sig = _sig signed
-      let m = fromJust $ msg $ unSha3 $ hashTx $ signed { _sig = Nothing }
+      let m = hashTx $ signed { _sig = Nothing }
       recoverAddr m sig @?= Just address
 
   , testCase "Recover" $ do
       let txid = hashTx tx_a
-      let Just m = msg $ unSha3 txid
-      let sig = sign sk m
-      let Just a = recoverAddr m sig
+      let sig = sign sk txid
+      let Just a = recoverAddr txid sig
       a @?= address
 
   , testCase "encodeSpecialV" $ do
@@ -57,7 +56,7 @@ sk :: SecKey
 address :: Address
 EthIdent _ address = deriveEthIdent sk
 
-txid_a :: Sha3
+txid_a :: PrefixedHex 32
 txid_a = "d018f1502a71f61a00b77546b99f2a647dda07ecb4cf94bd14cd4dbf4337be3d"
 
 txbin_a :: ByteString

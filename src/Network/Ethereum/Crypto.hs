@@ -5,25 +5,23 @@ module Network.Ethereum.Crypto
   ( module ALL
   , EthIdent(..)
   , Address(..)
-  , CompactRecSig(..)
   , Key(..)
   , deriveEthIdent
   , deriveEthAddress
   , genSecKey
   , sign
   , recoverAddr
-  , hashMsg
   ) where
 
 
 import           Crypto.Secp256k1 as ALL
-                 (Msg, PubKey, SecKey, msg, secKey, getMsg, derivePubKey)
+                 (CompactRecSig(..), Msg, PubKey, SecKey, secKey, derivePubKey)
 import qualified Crypto.Secp256k1 as Secp256k1
 
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BS8
-import           Data.Binary
 import           Data.Monoid
+import           Zeno.Data.FixedBytes
 
 import           Network.Ethereum.Crypto.Address as ALL
 import           Network.Ethereum.Crypto.Hash as ALL
@@ -35,16 +33,25 @@ import           Zeno.Data.Hex
 import           System.Entropy
 
 
-data EthIdent = EthIdent SecKey Address
+data EthIdent = EthIdent 
+  { ethSecKey :: SecKey
+  , ethAddress :: Address
+  }
+  deriving (Show)
 
 deriveEthIdent :: SecKey -> EthIdent
 deriveEthIdent sk = EthIdent sk $ deriveEthAddress $ derivePubKey sk
 
 deriveEthAddress :: PubKey -> Address
-deriveEthAddress = Address . BS.drop 12 . sha3' . BS.drop 1 . Secp256k1.exportPubKey False
+deriveEthAddress = Address . PrefixedHex . toFixedR . sha3' . BS.drop 1 . Secp256k1.exportPubKey False
 
-recoverAddr :: Msg -> CompactRecSig -> Maybe Address
-recoverAddr msg crs = deriveEthAddress <$> recover crs msg
+type ToBytes32 s = StringConv s Bytes32
+toBytes32 :: ToBytes32 s => s -> Bytes32
+toBytes32 = toS
+
+recoverAddr :: ToBytes32 s => s -> CompactRecSig -> Maybe Address
+recoverAddr bs crs = deriveEthAddress <$> recover crs m
+  where m = fromJust $ Secp256k1.msg $ unFixed $ toBytes32 bs
 
 genSecKey :: IO SecKey
 genSecKey = do
@@ -57,31 +64,16 @@ genSecKey = do
 -- TODO: Return Either here
 recover :: CompactRecSig -> Msg -> Maybe PubKey
 recover crs message = do
-  rs <- Secp256k1.importCompactRecSig $ toLegacyCRS crs
+  rs <- Secp256k1.importCompactRecSig crs
   let s = Secp256k1.convertRecSig rs
       (_, bad) = Secp256k1.normalizeSig s
    in if bad then Nothing
              else Secp256k1.recover rs message
 
 
-hashMsg :: ByteString -> Msg
-hashMsg = fromJust . msg . sha3'
-
-
-data CompactRecSig = CompactRecSig
-  { sigR :: ShortByteString
-  , sigS :: ShortByteString
-  , sigV :: Word8
-  } deriving (Eq, Ord, Show)
-
-toLegacyCRS :: CompactRecSig -> Secp256k1.CompactRecSig
-toLegacyCRS (CompactRecSig r s v) = Secp256k1.CompactRecSig r s v
-
-fromLegacyCRS :: Secp256k1.CompactRecSig -> CompactRecSig
-fromLegacyCRS (Secp256k1.CompactRecSig r s v) = CompactRecSig r s v
-
-sign :: SecKey -> Msg -> CompactRecSig
-sign sk msg = fromLegacyCRS $ Secp256k1.exportCompactRecSig $ Secp256k1.signRecMsg sk msg
+sign :: ToBytes32 s => SecKey -> s -> CompactRecSig
+sign sk b = Secp256k1.exportCompactRecSig $ Secp256k1.signRecMsg sk m
+  where m = fromJust $ Secp256k1.msg $ unFixed $ toBytes32 b
 
 
 instance ToJSON CompactRecSig where
@@ -97,12 +89,6 @@ instance FromJSON CompactRecSig where
     case v of "\0" -> f 0
               "\1" -> f 1
               _      -> fail "Sig invalid"
-
-instance Binary CompactRecSig where
-  put (CompactRecSig r s v) = put r >> put s >> put v
-  get = CompactRecSig <$> get <*> get <*> get
-
-
 
 newtype Key a = Key a
 

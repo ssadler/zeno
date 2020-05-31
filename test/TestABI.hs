@@ -91,12 +91,12 @@ test_misc = testGroup "misc"
   ]
 
 
-iso :: (PutABI a, GetABI a, Eq a, Show a) => a -> ByteString -> IO ()
+iso :: (HasCallStack, PutABI a, GetABI a, Eq a, Show a) => a -> ByteString -> IO ()
 iso from to = do
   bsWords (toHex $ encodeABI from) @?= bsWords to
   decodeABI (fromHex to) @?= Right from
 
-abiPass :: (PutABI a, GetABI a, Eq a, Show a) => a -> IO ()
+abiPass :: (HasCallStack, PutABI a, GetABI a, Eq a, Show a) => a -> IO ()
 abiPass a = decodeABI (encodeABI a) @?= Right a
 
 abiFail :: (PutABI a, GetABI t) => a -> t -> IO ()
