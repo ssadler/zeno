@@ -2,9 +2,11 @@
 
 module Zeno.Process.Types where
 
+import Crypto.Hash
+import qualified Data.ByteArray as BA
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BSL
-import Data.Hashable
+import Data.Hashable (Hashable)
 import Data.IntMap (IntMap)
 import Data.Serialize
 import Data.String
@@ -13,6 +15,7 @@ import Data.Word
 import GHC.Generics (Generic)
 import qualified StmContainers.Map as STM
 import Network.Simple.TCP
+import Network.Socket (HostAddress)
 import UnliftIO
 import Zeno.Data.FixedBytes
 
@@ -21,6 +24,9 @@ newtype ProcessId = ProcessId { unProcessId :: Bytes16 }
 
 instance Show ProcessId where
   show pid = "ProcessId " ++ show (unProcessId pid)
+
+instance IsString ProcessId where
+  fromString = hashServiceId . fromString
 
 data NodeId = NodeId
   { hostName :: !HostName
@@ -41,10 +47,17 @@ instance IsString NodeId where
 
 
 data Node = Node
-  { ourPort :: Word16
+  { myNodeId :: NodeId
   , topics :: STM.Map ProcessId WrappedReceiver
   , mforwarders :: STM.Map NodeId Forwarder
-  , recvCache :: TVar ReceiveMissCache
+  -- The receivers map is so that we can limit the number of incoming connections for
+  -- a host. The thread reference is a mutex so that it can be synchronously killed.
+  -- The reason that we kill the old connection is in case a legitimate node is
+  -- reconnecting and there's a dangling TCP connection of some kind. The reason that
+  -- it's killed synchronously is because doing it asynchronosly (and safely) is a
+  -- massive ballache of complexity and STM contention.
+  , mreceivers :: STM.Map HostAddress (Async ())
+  , missCache :: TVar ReceiveMissCache
   }
 
 -- | The receive cache is wildly inefficient. We want to store 1-10k
@@ -104,8 +117,14 @@ data TopicIsRegistered = TopicIsRegistered ProcessId
 instance Exception TopicIsRegistered
 
 
-data NetworkConfig = NC
+data NetworkConfig = NetworkConfig
   { hostPref :: HostPreference
   , port :: Word16
   } deriving (Show)
 
+
+blake2b_160 :: BS.ByteString -> BS.ByteString
+blake2b_160 b = BS.pack (BA.unpack (hash b :: Digest Blake2b_160))
+
+hashServiceId :: BS.ByteString -> ProcessId
+hashServiceId = ProcessId . toFixed . blake2b_160 

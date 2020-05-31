@@ -26,6 +26,7 @@ import Control.Monad.Reader as ALL (ask, asks)
 import Control.Monad.Trans.Class as ALL
 import Control.Monad.Trans.Resource as ALL (MonadResource, allocate)
 import GHC.Generics as ALL (Generic)
+import GHC.Stack (HasCallStack)
 
 import Data.Aeson as ALL (Value)
 import Data.Aeson.Quick as ALL ((.?))
@@ -39,7 +40,7 @@ import Data.Either as ALL (fromRight)
 import Data.Function as ALL (fix)
 import Data.List as ALL (elemIndex, find, findIndex, sort, sortOn)
 import Data.Map as ALL (Map)
-import Data.Maybe as ALL (catMaybes, isJust, fromJust, fromMaybe, mapMaybe, listToMaybe)
+import Data.Maybe as ALL
 import Data.Monoid as ALL
 import Data.Set as ALL (Set)
 import Data.String.Conv as ALL
@@ -111,6 +112,9 @@ instance (PrintfArg a, PrintfArg b) => PercentFormat (a, b) where
 instance (PrintfArg a, PrintfArg b, PrintfArg c) => PercentFormat (a, b, c) where
   s % (a, b, c) = printf s a b c
 
+instance (PrintfArg a, PrintfArg b, PrintfArg c, PrintfArg d) => PercentFormat (a, b, c, d) where
+  s % (a, b, c, d) = printf s a b c d
+
 
 -- `fix` providing a value.
 fix1 :: a -> ((a -> b) -> a -> b) -> b
@@ -126,12 +130,9 @@ timeDelta t = f <$> liftIO getCurrentTime where
   f now = round . (* 1000000) . realToFrac $ diffUTCTime now t
 
 
-timeoutSTM :: MonadIO m => Int -> STM (Maybe a) -> m (Maybe a)
+timeoutSTM :: MonadIO m => Int -> STM a -> m (Maybe a)
 timeoutSTM us act = do
   delay <- registerDelay us
   atomically do
-    act >>= \case
-      Just r -> pure $ Just r
-      Nothing -> do
-        readTVar delay >>= checkSTM
-        pure Nothing
+    (Just <$> act) <|>
+      (readTVar delay >>= checkSTM >> pure Nothing)

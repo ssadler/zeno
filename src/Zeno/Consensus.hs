@@ -27,16 +27,16 @@ import Zeno.Console
 
 -- Node -----------------------------------------------------------------------
 
-withConsensusNode :: ConsensusNetworkConfig -> (ConsensusNode -> Zeno () a) -> Zeno () a
+withConsensusNode :: ConsensusNetworkConfig -> (Zeno ConsensusNode a) -> Zeno () a
 withConsensusNode CNC{..} act = do
-  withNode netConf \node -> do
-    p2p <- withContext (\_ -> node) $ startP2P seeds
-    act $ ConsensusNode node p2p
+  withNode netConf do
+    p2p <- startP2P seeds
+    withContext (`ConsensusNode` p2p) act
 
 
 startSeedNode :: NetworkConfig -> IO ()
 startSeedNode nc = do
   let cnc = CNC [] nc
   runZeno PlainLog () do
-    withConsoleUI do
-      withConsensusNode cnc \_ -> threadDelay $ 2^62
+    withConsoleUI LevelDebug do
+      withConsensusNode cnc $ threadDelay $ 2^62

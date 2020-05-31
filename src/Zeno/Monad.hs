@@ -84,13 +84,16 @@ instance MonadLoggerIO (Zeno r) where
   askLoggerIO = Zeno
     \rest app -> rest app (logMessage (appConsole app))
 
+instance MonadFail (Zeno r) where
+  fail = error
+
 --------------------------------------------------------------------------------
 -- | Zeno runners
 --------------------------------------------------------------------------------
 
 runZeno :: Console -> r -> Zeno r a -> IO a
 runZeno console r act = unZeno (withLocalResources act) (\_ -> pure) app 
-  where app = App r PlainLog undefined
+  where app = App r console undefined
 
 localZeno :: (ZenoApp r -> ZenoApp r') -> Zeno r' a -> Zeno r a
 localZeno f (Zeno z) = Zeno \rest app -> z (\_ -> rest app) (f app)

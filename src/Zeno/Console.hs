@@ -11,6 +11,7 @@ module Zeno.Console
 
 import Control.Monad
 import Control.Monad.State
+import Control.Monad.Logger
 
 import qualified Data.ByteString.Char8 as BS8
 import Data.Function (fix)
@@ -29,6 +30,7 @@ import UnliftIO.Concurrent
 import Zeno.Console.Types
 import Zeno.Monad
 import Zeno.Process
+import Zeno.Prelude
 
 import Debug.Trace
 import System.Exit
@@ -37,9 +39,12 @@ import System.Exit
 sendUI :: ConsoleEvent -> Zeno r ()
 sendUI evt = do
   getConsole >>=
-    \case
-      Fancy chan -> atomically (putTMVar chan $ UIEvent evt)
-      _ -> mempty
+    \c' ->
+      fix1 c' \f ->
+        \case
+          FilteredLog _ console -> f console
+          Fancy chan -> atomically (putTMVar chan $ UIEvent evt)
+          _ -> mempty
 
 withUIProc :: UIProcess -> Zeno r a -> Zeno r a
 withUIProc proc act = do
@@ -105,16 +110,19 @@ runConsoleUI region proc = do
       UI_Step r  -> cStep .= r
 
 
-withConsoleUI :: Zeno r a -> Zeno r a
-withConsoleUI act = do
+withConsoleUI :: LogLevel -> Zeno r a -> Zeno r a
+withConsoleUI level act = do
   withRunInIO \rio -> do
     displayConsoleRegions do
       withConsoleRegion Linear \region -> do
         rio do
           proc <- spawn "UI" $ runConsoleUI region
-          localZeno (\app -> app { appConsole = Fancy (procMbox proc) }) act
+          let wrap = if level == LevelDebug then id else FilteredLog level
+          let console = wrap $ Fancy (procMbox proc)
+          localZeno (\app -> app { appConsole = console }) act
 
 
+-- A random function for trying to debug the fancy console
 testConsoleConcurrent :: IO ()
 testConsoleConcurrent = do
   displayConsoleRegions do

@@ -11,6 +11,7 @@ module Zeno.Consensus.P2P
   , peerControllerPid
   ) where
 
+import Control.Concurrent.STM.TVar (stateTVar)
 import qualified Data.IntMap.Strict as IntMap
 import qualified Data.Set as Set
 import Data.Serialize
@@ -136,8 +137,9 @@ peerController state@PeerState{..} seeds = do
     peers <- readTVarIO p2pPeers
 
     unless (Set.member nodeId peers) do
-      atomically do writeTVar p2pPeers $ Set.insert nodeId peers
-      sendUI $ UI_Peers $ length peers + 1
+      let f ps = let s' = Set.insert nodeId peers in (length s', s')
+      nPeers <- atomically $ stateTVar p2pPeers f
+      sendUI $ UI_Peers nPeers
       monitorRemote nodeId $ dropPeer nodeId
       send pnProc $ NewPeer nodeId
       sendRemote nodeId peerControllerPid GetPeers

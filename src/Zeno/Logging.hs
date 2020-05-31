@@ -67,11 +67,12 @@ getLogMessage loc source level str = do
 logMessage :: ToLogStr msg => Console -> Loc -> LogSource -> LogLevel -> msg -> IO ()
 logMessage console loc source level msg = do
   line <- getLogMessage loc source level (toLogStr msg)
-  case console of
-    PlainLog -> BS8.hPutStr stderr line
-    Fancy queue -> do
-      when (level >= LevelInfo) do
-        errorConcurrent (toS line :: Text)
+  runLog console line
+  where
+  runLog (Fancy queue) line = errorConcurrent (toS line :: Text)
+  runLog (FilteredLog minLevel console) line = do
+    when (level >= minLevel) (runLog console line)
+  runLog PlainLog line = outputConcurrent (toS line :: Text)
 
 logTime :: (MonadIO m, MonadLogger m) => String -> m a -> m a
 logTime s act = do

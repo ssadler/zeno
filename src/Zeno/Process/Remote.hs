@@ -87,18 +87,16 @@ runForwarder nodeId@NodeId{..} chan = do
     handleIO mempty run
   where
   run = do
-    Node {..} <- asks has
     withLocalResources do
       withRunInIO \rio -> do
         connect hostName (show hostPort) \(conn, _) -> do
           rio do
-            let header = encode (0 :: Word8, ourPort)
+            NodeId _ myPort <- asks $ myNodeId . has
+            let header = encode (0 :: Word8, myPort)
             send conn header
             forever do
-              timeoutSTM 500000 (tryReadTQueue chan) >>=
-                \case
-                  Just bs -> sendSizePrefixed conn bs
-                  Nothing -> sendSizePrefixed conn ""
+              timeoutSTM 500000 (readTQueue chan) >>=
+                sendSizePrefixed conn . maybe "" id
 
   sendSizePrefixed conn bs = do
     let prefix = encodeLazy (fromIntegral (BSL.length bs) :: Word32)
@@ -112,7 +110,7 @@ runForwarder nodeId@NodeId{..} chan = do
 subscribe :: (Has Node r, Serialize i) => ProcessId -> Zeno r (RemoteReceiver i)
 subscribe procId = do
   node@Node{..} <- asks has
-  (_, recv) <- 
+  (_, recv) <-
     allocate
       (atomically $ getReceiverSTM node procId)
       (\_ -> atomically $ STM.delete procId topics)
@@ -137,8 +135,8 @@ getReceiverSTM Node{..} pid = do
                       -- to a thread which monitors for peer mischief
 
   populateFromRecvCache recv = do
-    (misses, nextCache) <- receiveCacheTake pid <$> readTVar recvCache
-    writeTVar recvCache nextCache
+    (misses, nextCache) <- receiveCacheTake pid <$> readTVar missCache
+    writeTVar missCache nextCache
     forM_ misses
       \(_, nodeId, bs) -> wrappedReceive recv nodeId bs
 

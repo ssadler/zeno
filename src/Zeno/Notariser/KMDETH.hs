@@ -21,29 +21,28 @@ import Zeno.Prelude
 runNotariseKmdToEth :: PubKey -> Address -> ConsensusNetworkConfig -> GethConfig -> FilePath -> IO ()
 runNotariseKmdToEth pk gateway networkConfig gethConfig kmdConfPath = do
   runZeno PlainLog () do
-    withConsoleUI do
+    withConsoleUI LevelInfo do
       threadDelay 1000000
       bitcoinConf <- loadBitcoinConfig kmdConfPath
       let kmdAddress = deriveKomodoAddress pk
       wif <- withContext (const bitcoinConf) $ queryBitcoin "dumpprivkey" [kmdAddress]
       sk <- either error pure $ parseWif komodo wif
 
-      withConsensusNode networkConfig
-        \node -> do
-          let notariser = EthNotariser bitcoinConf node gethConfig gateway sk
-          withContext (const notariser) do
-            KomodoIdent{..} <- asks has
-            EthIdent{..} <- asks has
-            logInfo $ "KMD address: " ++ show kmdAddress
-            logInfo $ "ETH address: " ++ show ethAddress
+      withConsensusNode networkConfig do
+        let toNotariser node = EthNotariser bitcoinConf node gethConfig gateway sk
+        withContext toNotariser do
+          KomodoIdent{..} <- asks has
+          EthIdent{..} <- asks has
+          logInfo $ "KMD address: " ++ show kmdAddress
+          logInfo $ "ETH address: " ++ show ethAddress
 
-            forkMonitorUTXOs kmdInputAmount 5 20
+          forkMonitorUTXOs kmdInputAmount 5 20
 
-            runForever do
-              nc <- getNotariserConfig "KMDETH"
-              asks has >>= checkConfig nc
-              -- Config will be refeshed if there is an exception
-              forever $ notariserStep nc
+          runForever do
+            nc <- getNotariserConfig "KMDETH"
+            asks has >>= checkConfig nc
+            -- Config will be refeshed if there is an exception
+            forever $ notariserStep nc
 
   where
     getNotariserConfig configName = do

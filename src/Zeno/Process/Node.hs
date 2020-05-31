@@ -9,45 +9,87 @@ import qualified Data.ByteString.Lazy as BSL
 import qualified StmContainers.Map as STM
 
 import Network.Simple.TCP
-import Network.Socket (SockAddr(..))
+import Network.Socket (SockAddr(..), HostAddress, hostAddressToTuple, getSocketName)
 
 import UnliftIO
+import UnliftIO.Concurrent
 
-import Zeno.Prelude hiding ((%), finally)
+import Zeno.Prelude hiding (finally)
 import Zeno.Process.Types
 import Zeno.Process.Node.ReceiveMissCache
 import Zeno.Process.Remote
 import Zeno.Process.Spawn
 
 
-withNode :: NetworkConfig -> (Node -> Zeno () a) -> Zeno () a
-withNode (NC host ourPort) act = do
-  node <-
-    liftIO do
-      mforwarders <- STM.newIO
-      topics <- STM.newIO
-      recvCache <- newTVarIO mempty
-      pure Node{..}
-
-  let
-    -- TODO: if using rio instead of runZeno here, we don't see the message from logDiedSync?
-    -- Is it a logging thing?
-    acceptConn rio s = runZeno PlainLog () $ logDiedSync (show s) (runConnection node s)
-
+withNode :: NetworkConfig -> Zeno Node a -> Zeno () a
+withNode (NetworkConfig host port) act = do
   withRunInIO \rio -> do
-    listen host (show ourPort) $
-      \(server, serverAddr) -> do
-        rio do
+    listen host (show port) $ \(server, serverAddr) -> do
+      node <- mkNode server
+      rio do
+        withLocalResources do -- This is neccesary so that the server thread gets killed
+                              -- before the socket file descriptor is cleaned up. We also
+                              -- want to bind the socket in the calling thread in case of any
+                              -- error and this is the simplest way to do it.
           spawn "socket server" \_ -> do
             forever do
-              void $ acceptFork server $ acceptConn rio
+              acceptForkAsync server $ wrapRunConn node
           logInfo $ [pf|Listening on %?|] serverAddr
-          act node
-
-
+          withContext (const node) act
   where
-    x :: String
-    x = "Synchronous exception accepting connection: "
+  mkNode serverSock = do
+    myNodeId <- fromString . show <$> getSocketName serverSock -- flimsy?
+    mforwarders <- STM.newIO
+    mreceivers <- STM.newIO
+    topics <- STM.newIO
+    missCache <- newTVarIO mempty
+    pure Node{..}
+
+  acceptForkAsync :: MonadUnliftIO m => Socket -> ((Socket, SockAddr) -> Async () -> m ()) -> m ()
+  acceptForkAsync server act = do
+    withRunInIO \rio -> do
+      accept server \client -> do
+        handoff <- newEmptyTMVarIO
+        atomically . putTMVar handoff =<<
+          async do
+            atomically (takeTMVar handoff) >>= rio . act client
+
+  wrapRunConn node s@(sock, sockAddr) asnc = do
+    -- TODO: logDebug new connections
+    -- Is it logging connection errors here?
+    logDiedSync (show sockAddr) do
+      limitInboundConnections node sockAddr asnc $
+        runConnection node sock
+
+limitInboundConnections :: Node -> SockAddr -> Async () -> (HostAddress -> Zeno () a) -> Zeno () a
+limitInboundConnections Node{..} sockAddr asnc act = do
+  case sockAddr of
+    SockAddrInet _ ip@16777343 -> do
+      -- 127.0.0.1 is special. TODO: Nice way not have to do this, and also be able
+      -- to test locally?
+      act ip
+
+    SockAddrInet _ ip -> do
+
+      let
+        run = do
+          mapM_ cancel =<< atomically do
+            STM.lookup ip mreceivers
+              <* STM.insert asnc ip mreceivers
+          act ip
+
+        cleanup = do
+          join do
+            atomically do
+              STM.lookup ip mreceivers >>= \case
+                Nothing -> pure $ logMurphy "no value in mreceivers for ip"
+                Just oasnc -> do
+                  when (asnc == oasnc) (STM.delete ip mreceivers)
+                  pure mempty
+
+      finally run cleanup
+
+    other -> throwIO $ UnsupportedForeignHost other
 
 
 data NetworkError
@@ -63,44 +105,22 @@ data ConnectionClosed = ConnectionClosed deriving (Show)
 instance Exception ConnectionClosed
 
 
-
-runConnection :: Node -> (Socket, SockAddr) -> Zeno () ()
-runConnection node (conn, sockAddr) = do
-  -- TODO: A check that this node isn't spamming us with connections
-  -- TODO: logDebug new connections
-  handle (\ConnectionClosed -> mempty) do
-
-    nodeId <-
-      case sockAddr of
-        SockAddrInet _ _ -> do
-          let theirHost = takeWhile (/=':') (show sockAddr)
-          header <- receiveLen 3
-          case runGet ((,) <$> getWord8 <*> get) header of
-            Right (0, port) -> do
-              pure $ NodeId theirHost port
-            Right (p, _) -> do
-              throwIO $ NetworkUnsupported $ [pf|Unsupported protocol (%i) from %?|] p sockAddr
-            Left s -> do
-              murphy s
-        other -> throwIO $ UnsupportedForeignHost other
-
+runConnection :: Node -> Socket -> HostAddress -> Zeno () ()
+runConnection node@Node{..} conn ip = do
+  handle (\ConnectionClosed -> mempty) do -- Don't spam up the log
+    nodeId <- readHeader
     forever do
-      recvWord32 >>= receiveMessage . fromIntegral >>= handleMessage node nodeId
+      len <- (decode <$> receiveLen 4) >>= either murphy pure :: Zeno () Word32
+      receiveMessage (fromIntegral len) >>= handleMessage node nodeId
 
   where
   murphy :: String -> Zeno () a
-  murphy s = throwIO $ NetworkMurphy $ desc sockAddr s
+  murphy s = throwIO $ NetworkMurphy $ desc ip s
     where desc = [pf|Invariant violation error somehow triggered by: %?: %s|]
-
-  recvWord16 :: Zeno () Word16
-  recvWord16 = (runGet get <$> receiveLen 2) >>= either murphy pure
-
-  recvWord32 :: Zeno () Word32
-  recvWord32 = (runGet get <$> receiveLen 4) >>= either murphy pure
 
   receiveMessage len = do
     when (len > 10000) do
-      throwIO $ NetworkMischief $ [pf|%? sent oversize message: %?|] sockAddr len
+      throwIO $ NetworkMischief $ [pf|%? sent oversize message: %?|] (renderIp ip) len
     receiveLen len
 
   receiveLen :: Int -> Zeno () ByteString
@@ -113,8 +133,19 @@ runConnection node (conn, sockAddr) = do
       case compare newrem 0 of
         EQ -> pure $ BSL.toStrict newbs
         GT -> f newbs newrem
-        LT -> throwIO $ NetworkMurphy "More data received than expected"
+        LT -> murphy "More data received than expected"
 
+  readHeader = do
+    header <- receiveLen 3
+    case decode header of
+      Right ('\0', port) -> pure $ NodeId (renderIp ip) port
+      Right (p, _) -> do
+        throwIO $ NetworkUnsupported $ [pf|Unsupported protocol (%?) from %?|] p ip
+      Left s -> do
+        murphy s
+
+renderIp :: HostAddress -> String
+renderIp ip = "%i.%i.%i.%i" % hostAddressToTuple ip
 
 handleMessage :: Node -> NodeId -> BS.ByteString -> Zeno () ()
 handleMessage _ _ "" = mempty
@@ -129,6 +160,6 @@ handleMessage Node{..} nodeId bs = do
            \case
              Nothing -> do
                let miss = (to, nodeId, rem)
-               modifyTVar recvCache $ receiveCachePut miss
+               modifyTVar missCache $ receiveCachePut miss
              Just (WrappedReceiver write) -> do
                write nodeId rem

@@ -66,7 +66,7 @@ optSeeds = option str
   <> help "ip:port" )
 
 optConsensusConfig = CNC <$> some optSeeds <*> optNetworkConfig
-optNetworkConfig = NC <$> optBind <*> optPort
+optNetworkConfig = NetworkConfig <$> optBind <*> optPort
 
 -- Helpers --------------------------------------------------------------------
 

@@ -1,9 +1,7 @@
 
 module Zeno.Process.Spawn where
 
-import Crypto.Hash
 import qualified Data.ByteString as BS
-import qualified Data.ByteArray as BA
 import Data.Time.Clock
 
 import UnliftIO
@@ -54,10 +52,8 @@ logDiedSync threadName act = do
     logError $ "Thread \"%s\" died with: %s" % (threadName, show e)
     throwIO (e :: SomeException)
 
-
 globalThreadCount :: TVar Int
 globalThreadCount = unsafePerformIO $ newTVarIO 0
-
 
 send :: MonadIO m => AsyncProcess i b -> i -> m ()
 send proc i = atomically $ sendSTM proc i
@@ -72,7 +68,7 @@ receiveMaybe :: (MonadBase m, Typeable i, HasReceive r i) => r -> m (Maybe i)
 receiveMaybe = atomically . receiveMaybeSTM
 
 receiveTimeout :: (MonadBase m, HasReceive r i) => r -> Int -> m (Maybe i)
-receiveTimeout recv us = timeoutSTM us $ receiveMaybeSTM recv
+receiveTimeout recv us = timeoutSTM us $ receiveSTM recv
 
 receiveTimeoutS :: (MonadBase m, Typeable i) => Receiver i -> Int -> m (Maybe i)
 receiveTimeoutS recv = receiveTimeout recv . (* second)
@@ -91,9 +87,3 @@ receiveDuringS recv = receiveDuring recv . (* second)
   
 second :: Num i => i
 second = 1000000
-
-blake2b_160 :: BS.ByteString -> BS.ByteString
-blake2b_160 b = BS.pack (BA.unpack (hash b :: Digest Blake2b_160))
-
-hashServiceId :: BS.ByteString -> ProcessId
-hashServiceId = ProcessId . toFixed . blake2b_160 
