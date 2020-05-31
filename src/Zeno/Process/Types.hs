@@ -9,6 +9,7 @@ import Data.IntMap (IntMap)
 import Data.Serialize
 import Data.String
 import Data.Typeable
+import Data.Word
 import GHC.Generics (Generic)
 import qualified StmContainers.Map as STM
 import Network.Simple.TCP
@@ -21,18 +22,27 @@ newtype ProcessId = ProcessId { unProcessId :: Bytes16 }
 instance Show ProcessId where
   show pid = "ProcessId " ++ show (unProcessId pid)
 
-newtype NodeId = NodeId (HostName, ServiceName)
-  deriving (Show, Eq, Ord, Hashable, Generic, Serialize)
+data NodeId = NodeId
+  { hostName :: !HostName
+  , hostPort :: !Word16
+  } deriving (Eq, Ord, Generic)
+
+instance Show NodeId where
+  show NodeId{..} = hostName ++ ":" ++ show hostPort
+
+instance Hashable NodeId
+instance Serialize NodeId
 
 instance IsString NodeId where
   fromString s =
     let ip = takeWhile (/=':') s
         port = read $ drop (length ip + 1) s
-     in NodeId (ip, port)
+     in NodeId ip port
 
 
 data Node = Node
-  { topics :: STM.Map ProcessId WrappedReceiver
+  { ourPort :: Word16
+  , topics :: STM.Map ProcessId WrappedReceiver
   , mforwarders :: STM.Map NodeId Forwarder
   , recvCache :: TVar ReceiveMissCache
   }

@@ -56,11 +56,11 @@ data ConsensusNetworkConfig = CNC
 consensusDefaultPort :: Word16
 consensusDefaultPort = 40440
 
-optBind = option auto
+optBind = option (Host <$> str)
    ( long "bind"
   <> metavar "IP"
   <> value HostIPv4
-  <> help "IP to bind to (default: listen on all IPv4 addresses)" )
+  <> help "IP to bind to (default: listen on all IPv4 interfaces)" )
 
 optPort = option auto
    ( long "port"
@@ -69,7 +69,7 @@ optPort = option auto
   <> showDefault
   <> help "Port to bind to" )
 
-optSeeds = strOption
+optSeeds = option str
    ( long "seed"
   <> metavar "HOST"
   <> help "ip:port" )

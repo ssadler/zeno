@@ -1,3 +1,4 @@
+{-# LANGUAGE QuasiQuotes #-}
 
 module Zeno.Process.Node where
 
@@ -12,7 +13,7 @@ import Network.Socket (SockAddr(..))
 
 import UnliftIO
 
-import Zeno.Prelude hiding (finally)
+import Zeno.Prelude hiding ((%), finally)
 import Zeno.Process.Types
 import Zeno.Process.Node.ReceiveMissCache
 import Zeno.Process.Remote
@@ -21,7 +22,7 @@ import Zeno.Config
 
 
 withNode :: NetworkConfig -> (Node -> Zeno () a) -> Zeno () a
-withNode (NC host port) act = do
+withNode (NC host ourPort) act = do
   node <-
     liftIO do
       mforwarders <- STM.newIO
@@ -29,18 +30,21 @@ withNode (NC host port) act = do
       recvCache <- newTVarIO mempty
       pure Node{..}
 
+  let
+    -- TODO: if using rio instead of runZeno here, we don't see the message from logDiedSync?
+    -- Is it a logging thing?
+    acceptConn rio s = runZeno PlainLog () $ logDiedSync (show s) (runConnection node s)
 
   withRunInIO \rio -> do
-    listen host (show port) $
+    listen host (show ourPort) $
       \(server, serverAddr) -> do
         rio do
           spawn "socket server" \_ -> do
             forever do
-              -- catch
-                (void $ acceptFork server (rio . runConnection node))
-                -- (\e -> logWarn (x ++ show (e :: SomeException)))
-
+              void $ acceptFork server $ acceptConn rio
+          logInfo $ [pf|Listening on %?|] serverAddr
           act node
+
 
   where
     x :: String
@@ -52,11 +56,12 @@ data NetworkError
   | NetworkMurphy String
   | NetworkUnsupported String
   | UnsupportedForeignHost SockAddr
-  | ConnectonClosed
   deriving (Show)
 
 instance Exception NetworkError
 
+data ConnectionClosed = ConnectionClosed deriving (Show)
+instance Exception ConnectionClosed
 
 
 
@@ -64,19 +69,18 @@ runConnection :: Node -> (Socket, SockAddr) -> Zeno () ()
 runConnection node (conn, sockAddr) = do
   -- TODO: A check that this node isn't spamming us with connections
   -- TODO: logDebug new connections
-  withException run logTerminated
-  where
-  run = do
+  handle (\ConnectionClosed -> mempty) do
+
     nodeId <-
       case sockAddr of
         SockAddrInet _ _ -> do
           let theirHost = takeWhile (/=':') (show sockAddr)
           header <- receiveLen 3
-          case runGet ((,) <$> getWord8 <*> getWord16be) header of
+          case runGet ((,) <$> getWord8 <*> get) header of
             Right (0, port) -> do
-              pure $ NodeId (theirHost, show port)
+              pure $ NodeId theirHost port
             Right (p, _) -> do
-              throwIO $ NetworkUnsupported $ "Unsupported protocol (%i) from %s" % (p, show sockAddr)
+              throwIO $ NetworkUnsupported $ [pf|Unsupported protocol (%i) from %?|] p sockAddr
             Left s -> do
               murphy s
         other -> throwIO $ UnsupportedForeignHost other
@@ -84,29 +88,27 @@ runConnection node (conn, sockAddr) = do
     forever do
       recvWord32 >>= receiveMessage . fromIntegral >>= handleMessage node nodeId
 
+  where
   murphy :: String -> Zeno () a
-  murphy s = throwIO $ NetworkMurphy $ desc % (show sockAddr, s)
-    where desc = "Invariant violation error somehow triggered by: %s: %s"
-
-  recvScalar :: Serialize a => Int -> Zeno () a
-  recvScalar len = do
-    ea <- decode <$> receiveLen len
-    either (murphy) pure ea
+  murphy s = throwIO $ NetworkMurphy $ desc sockAddr s
+    where desc = [pf|Invariant violation error somehow triggered by: %?: %s|]
 
   recvWord16 :: Zeno () Word16
-  recvWord16 = recvScalar 2
+  recvWord16 = (runGet get <$> receiveLen 2) >>= either murphy pure
 
-  recvWord32 :: Zeno () Word16
-  recvWord32 = recvScalar 4
+  recvWord32 :: Zeno () Word32
+  recvWord32 = (runGet get <$> receiveLen 4) >>= either murphy pure
 
   receiveMessage len = do
     when (len > 10000) do
-      throwIO $ NetworkMischief $ printf "%s sent oversize message: %s" % (show sockAddr, len)
+      throwIO $ NetworkMischief $ [pf|%? sent oversize message: %?|] sockAddr len
     receiveLen len
 
+  receiveLen :: Int -> Zeno () ByteString
+  receiveLen 0 = pure ""
   receiveLen len = do
     fix2 "" len \f xs rem -> do
-      s <- recv conn rem >>= maybe (throwIO ConnectonClosed) pure
+      s <- recv conn rem >>= maybe (throwIO ConnectionClosed) pure
       let newbs = xs <> BSL.fromStrict s
           newrem = rem - BS.length s
       case compare newrem 0 of
@@ -114,17 +116,13 @@ runConnection node (conn, sockAddr) = do
         GT -> f newbs newrem
         LT -> throwIO $ NetworkMurphy "More data received than expected"
 
-  logTerminated :: SomeException -> Zeno () ()
-  logTerminated e = do
-    logInfo $ "Receiver thread died with: %s" % show e
-
-
 
 handleMessage :: Node -> NodeId -> BS.ByteString -> Zeno () ()
+handleMessage _ _ "" = mempty
 handleMessage Node{..} nodeId bs = do
   let (toB, rem) = BS.splitAt 16 bs
   if BS.length toB /= 16
-     then logDebug $ "Could not decode packet from: %s" % show nodeId
+     then logDebug $ [pf|Could not decode packet from: %?|] nodeId
      else do
        let to = ProcessId $ unsafeToFixed toB
        atomically do

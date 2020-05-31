@@ -7,11 +7,13 @@ module Zeno.Logging
   , logInfo
   , logError
   , logWarn
+  , logMurphy
   , logTime
   , logMessage
   , AsString
   , asString
   , getLogMessage
+  , pf
   ) where
 
 import Control.Monad (when)
@@ -27,6 +29,8 @@ import Data.Time.LocalTime
 import Control.Monad.Logger as LOG hiding (logDebug, logInfo, logError, logWarn)
 import System.Console.Concurrent
 import UnliftIO
+import qualified Language.Haskell.Printf as Printf
+import Language.Haskell.TH.Quote
 
 import Zeno.Console.Types as LOG
 
@@ -42,6 +46,9 @@ logError = logErrorN . fromString
 
 logWarn :: MonadLogger m => String -> m ()
 logWarn = logWarnN . fromString
+
+logMurphy :: MonadLogger m => String -> m ()
+logMurphy s = logErrorN $ "Invariant violated: " <> fromString s
 
 class AsString a where
   asString :: a -> String
@@ -64,7 +71,7 @@ logMessage console loc source level msg = do
     PlainLog -> BS8.hPutStr stderr line
     Fancy queue -> do
       when (level >= LevelInfo) do
-        outputConcurrent (toS line :: Text)
+        errorConcurrent (toS line :: Text)
 
 logTime :: (MonadIO m, MonadLogger m) => String -> m a -> m a
 logTime s act = do
@@ -75,3 +82,6 @@ logTime s act = do
   logDebug $ s ++ " took: " ++ (show $ round $ (realToFrac t) * 1000) ++ "ms"
   pure r
 
+
+pf :: QuasiQuoter
+pf = Printf.s

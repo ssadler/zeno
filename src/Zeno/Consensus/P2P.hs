@@ -143,11 +143,9 @@ peerController state@PeerState{..} seeds = do
       sendRemote nodeId peerControllerPid GetPeers
 
   dropPeer nodeId = do
-    join $
-      atomically do
-        ps <- readTVar p2pPeers
-        writeTVar p2pPeers $ Set.delete nodeId ps
-        pure $ sendUI $ UI_Peers $ length ps
+    atomically do
+      modifyTVar p2pPeers $ Set.delete nodeId
+    readTVarIO p2pPeers >>= sendUI . UI_Peers . length
 
 
 

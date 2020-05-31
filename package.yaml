@@ -55,6 +55,8 @@ dependencies:
 - string-conv
 - text
 - time
+- template-haskell
+- th-printf
 - transformers
 - unix
 - unliftio

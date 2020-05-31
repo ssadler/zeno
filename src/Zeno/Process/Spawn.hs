@@ -33,9 +33,7 @@ spawn threadName forked = do
       asyncOn 0 do
         unliftIO do
           withLocalResources do
-            withException
-              (readMVar handoff >>= forked)
-              logThreadDied
+            logDiedSync threadName $ readMVar handoff >>= forked
 
     stopThread asnc = do
       cancel asnc
@@ -51,10 +49,11 @@ spawn threadName forked = do
   putMVar handoff proc
   pure proc
 
-  where
-  logThreadDied :: SomeException -> Zeno r ()
-  logThreadDied e = do
+logDiedSync :: String -> Zeno r a -> Zeno r a
+logDiedSync threadName act = do
+  catchAny act $ \e -> do
     logError $ "Thread \"%s\" died with: %s" % (threadName, show e)
+    throwIO (e :: SomeException)
 
 
 globalThreadCount :: TVar Int

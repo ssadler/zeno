@@ -22,6 +22,7 @@ import UnliftIO hiding (Chan)
 import UnliftIO.Concurrent
 import Unsafe.Coerce
 
+import Zeno.Process.Spawn hiding (send)
 import Zeno.Process.Types
 import Zeno.Process.Node.ReceiveMissCache
 import Zeno.Prelude hiding (finally)
@@ -47,7 +48,6 @@ withRemoteForwarder nodeId act = do
     ((chan, onQuit), created, r) <- atomically $ getCreateChan node
     when created do
       void $ forkIOWithUnmask \unmask -> do
-        -- TODO: logDebug with exceptions
         unmask (runForwarder nodeId chan) `finally` cleanup node chan onQuit
     pure r
   where
@@ -63,31 +63,51 @@ withRemoteForwarder nodeId act = do
 
     (fwd, created,) <$> act fwd
 
+  cleanup :: Node -> TQueue ForwardMessage -> TVar (IO ()) -> Zeno r ()
   cleanup Node{..} chan onQuit = do
     join $
       atomically do
-        STM.lookup nodeId mforwarders >>=
-          mapM_ \(chan', onQuit) -> do
-            when (chan' == chan) do
-              STM.delete nodeId mforwarders
+        STM.lookup nodeId mforwarders >>= \case
+          Nothing -> pure mempty
+          Just (chan', _) -> do
+            if chan' == chan
+               then do
+                 STM.delete nodeId mforwarders
+                 pure (pure ())
+               else do
+                 pure $ logMurphy "How is there another chan with the same key?"
 
-        liftIO <$> readTVar onQuit
+    join $ liftIO <$> readTVarIO onQuit
 
 
-runForwarder :: NodeId -> TQueue ForwardMessage -> Zeno r ()
-runForwarder nodeId chan = do
-  withLocalResources do
-    withRunInIO \rio -> do
-      connect hostName serviceName \(conn, _) -> do
-        send conn "0"
-        rio $ loopForward conn
+runForwarder :: Has Node r => NodeId -> TQueue ForwardMessage -> Zeno r ()
+runForwarder nodeId@NodeId{..} chan = do
+  logDiedSync ("outbound(%s)" % show nodeId) do
+    handleIO mempty run
   where
-  NodeId (hostName, serviceName) = nodeId
+  run = do
+    Node {..} <- asks has
+    withLocalResources do
+      withRunInIO \rio -> do
+        connect hostName (show hostPort) \(conn, _) -> do
+          rio do
+            let header = encode (0 :: Word8, ourPort)
+            send conn header
+            forever do
+              delay <- registerDelay 100000
+              bs <- atomically do
+                tryReadTQueue chan >>= \case
+                  Nothing -> (readTVar delay >>= checkSTM) >> pure ""
+                  Just r -> pure r
+              sendSizePrefixed conn bs
 
-  loopForward :: Socket -> Zeno r ()
-  loopForward conn = do
-    forever do
-      atomically (readTQueue chan) >>= sendLazy conn
+  sendSizePrefixed conn bs = do
+    let prefix = encodeLazy (fromIntegral (BSL.length bs) :: Word32)
+    sendLazy conn $ prefix <> bs
+
+  logTerminated :: SomeException -> Zeno r ()
+  logTerminated e = do
+    logInfo $ "Forwarder thread died with: %s" % show e
 
 
 subscribe :: (Has Node r, Serialize i) => ProcessId -> Zeno r (RemoteReceiver i)
