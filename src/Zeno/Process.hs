@@ -7,6 +7,7 @@ module Zeno.Process
   , RemoteMessage(..)
   , Process
   , ProcessId(..) -- This is a misnomer, it refers to remote process IDs.
+  , NetworkConfig(..)
   , NodeId(..)
   , Node
   , monitorRemote

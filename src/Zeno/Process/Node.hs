@@ -18,7 +18,6 @@ import Zeno.Process.Types
 import Zeno.Process.Node.ReceiveMissCache
 import Zeno.Process.Remote
 import Zeno.Process.Spawn
-import Zeno.Config
 
 
 withNode :: NetworkConfig -> (Node -> Zeno () a) -> Zeno () a

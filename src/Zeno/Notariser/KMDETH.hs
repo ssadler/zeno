@@ -14,7 +14,6 @@ import Zeno.EthGateway
 import Zeno.Notariser.KMD
 import Zeno.Notariser.Types
 import Zeno.Consensus
-import Zeno.Config
 import Zeno.Console
 import Zeno.Prelude
 

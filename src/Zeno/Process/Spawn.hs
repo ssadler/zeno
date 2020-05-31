@@ -10,7 +10,6 @@ import UnliftIO
 import UnliftIO.Async
 import UnliftIO.STM
 
-import Zeno.Data.Misc
 import Zeno.Process.Types
 import Zeno.Prelude
 
@@ -28,7 +27,7 @@ spawn threadName forked = do
 
     runThread = do
       when debugThreads do
-        traceM $ emot emSnout ++ " : " ++ threadName
+        -- traceM $ emot emSnout ++ " : " ++ threadName
         atomically (modifyTVar globalThreadCount (+1))
       asyncOn 0 do
         unliftIO do
@@ -38,7 +37,7 @@ spawn threadName forked = do
     stopThread asnc = do
       cancel asnc
       when debugThreads do
-        traceM $ emot emFrogFace ++ " : " ++ threadName
+        -- traceM $ emot emFrogFace ++ " : " ++ threadName
         atomically (modifyTVar globalThreadCount (+(-1)))
         readTVarIO globalThreadCount >>= print
 
@@ -73,20 +72,10 @@ receiveMaybe :: (MonadBase m, Typeable i, HasReceive r i) => r -> m (Maybe i)
 receiveMaybe = atomically . receiveMaybeSTM
 
 receiveTimeout :: (MonadBase m, HasReceive r i) => r -> Int -> m (Maybe i)
-receiveTimeout recv us = do
-  delay <- registerDelay us
-  atomically do
-    receiveMaybeSTM recv >>=
-      \case
-        Just o -> pure (Just o)
-        Nothing -> do
-          readTVar delay >>= checkSTM
-          pure Nothing
-
+receiveTimeout recv us = timeoutSTM us $ receiveMaybeSTM recv
 
 receiveTimeoutS :: (MonadBase m, Typeable i) => Receiver i -> Int -> m (Maybe i)
 receiveTimeoutS recv = receiveTimeout recv . (* second)
-
 
 receiveDuring :: (MonadBase m, Typeable i) => Receiver i -> Int -> (i -> m ()) -> m ()
 receiveDuring recv timeout act = do

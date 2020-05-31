@@ -103,3 +103,9 @@ data TopicIsRegistered = TopicIsRegistered ProcessId
 
 instance Exception TopicIsRegistered
 
+
+data NetworkConfig = NC
+  { hostPref :: HostPreference
+  , port :: Word16
+  } deriving (Show)
+

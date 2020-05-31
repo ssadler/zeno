@@ -14,6 +14,7 @@ import           Network.Simple.TCP
 import           Zeno.Data.Aeson hiding (Parser)
 import           Zeno.Prelude
 import           Zeno.Process.Types
+import           Zeno.Consensus.Types
 
 import           Options.Applicative
 
@@ -42,16 +43,6 @@ optGateway =
     <> metavar "ADDRESS"
     <> help "Gateway contract address 0x..." )
 
-data NetworkConfig = NC
-  { hostPref :: HostPreference
-  , port :: Word16
-  } deriving (Show)
-
-
-data ConsensusNetworkConfig = CNC
-  { seeds :: [NodeId]
-  , netConf :: NetworkConfig
-  } deriving (Show)
 
 consensusDefaultPort :: Word16
 consensusDefaultPort = 40440

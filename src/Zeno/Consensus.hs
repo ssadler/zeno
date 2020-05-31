@@ -21,7 +21,6 @@ import Zeno.Consensus.Types
 import Zeno.Consensus.Round
 import Zeno.Consensus.P2P
 
-import Zeno.Config
 import Zeno.Prelude
 import Zeno.Console
 

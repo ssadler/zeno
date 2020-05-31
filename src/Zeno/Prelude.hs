@@ -16,6 +16,7 @@ module Zeno.Prelude
   , fix1
   , fix2
   , timeDelta
+  , timeoutSTM
   ) where
 
 import Control.Applicative as ALL
@@ -48,6 +49,7 @@ import Data.Text.Encoding as ALL (encodeUtf8, decodeUtf8)
 import Data.Time.Clock as ALL (UTCTime, getCurrentTime, diffUTCTime)
 import Data.Word as ALL (Word8, Word16, Word32, Word64)
 
+import UnliftIO
 import UnliftIO.Concurrent as ALL (threadDelay, forkIO)
 import UnliftIO.Exception as ALL
   (Exception, Handler(..), catchAny, finally, throwIO
@@ -55,7 +57,6 @@ import UnliftIO.Exception as ALL
   , catches
   )
 
-import Network.Ethereum.Errors as ALL
 import Zeno.Data.FixedBytes as ALL
 import Zeno.Monad as ALL
 import Zeno.Logging as ALL
@@ -123,3 +124,14 @@ fix2 a b f = fix f a b
 timeDelta :: MonadIO m => UTCTime -> m Int
 timeDelta t = f <$> liftIO getCurrentTime where
   f now = round . (* 1000000) . realToFrac $ diffUTCTime now t
+
+
+timeoutSTM :: MonadIO m => Int -> STM (Maybe a) -> m (Maybe a)
+timeoutSTM us act = do
+  delay <- registerDelay us
+  atomically do
+    act >>= \case
+      Just r -> pure $ Just r
+      Nothing -> do
+        readTVar delay >>= checkSTM
+        pure Nothing

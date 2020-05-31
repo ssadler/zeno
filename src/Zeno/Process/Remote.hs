@@ -73,8 +73,9 @@ withRemoteForwarder nodeId act = do
             if chan' == chan
                then do
                  STM.delete nodeId mforwarders
-                 pure (pure ())
+                 pure mempty
                else do
+                 -- Given that this is the only location that deletes a forwarder...
                  pure $ logMurphy "How is there another chan with the same key?"
 
     join $ liftIO <$> readTVarIO onQuit
@@ -94,12 +95,10 @@ runForwarder nodeId@NodeId{..} chan = do
             let header = encode (0 :: Word8, ourPort)
             send conn header
             forever do
-              delay <- registerDelay 100000
-              bs <- atomically do
-                tryReadTQueue chan >>= \case
-                  Nothing -> (readTVar delay >>= checkSTM) >> pure ""
-                  Just r -> pure r
-              sendSizePrefixed conn bs
+              timeoutSTM 500000 (tryReadTQueue chan) >>=
+                \case
+                  Just bs -> sendSizePrefixed conn bs
+                  Nothing -> sendSizePrefixed conn ""
 
   sendSizePrefixed conn bs = do
     let prefix = encodeLazy (fromIntegral (BSL.length bs) :: Word32)

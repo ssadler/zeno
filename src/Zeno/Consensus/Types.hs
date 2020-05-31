@@ -105,6 +105,12 @@ data ConsensusParams = ConsensusParams
 
 instance Has EthIdent ConsensusParams where has = ident'
 
+data ConsensusNetworkConfig = CNC
+  { seeds :: [NodeId]
+  , netConf :: NetworkConfig
+  } deriving (Show)
+
+
 -- Monad ----------------------------------------------------------------------
 
 type Consensus = Zeno ConsensusContext

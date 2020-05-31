@@ -2,10 +2,10 @@
 module Zeno.Console.Types where
 
 import qualified Data.ByteString.Char8 as BS8
-import Zeno.Data.FixedBytes
 import Lens.Micro.Platform
 import UnliftIO
 
+import Zeno.Data.FixedBytes
 
 
 data ConsoleCtrl =
