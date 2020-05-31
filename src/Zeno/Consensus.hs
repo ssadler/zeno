@@ -34,9 +34,12 @@ withConsensusNode CNC{..} act = do
     withContext (`ConsensusNode` p2p) act
 
 
-startSeedNode :: NetworkConfig -> IO ()
-startSeedNode nc = do
+startSeedNode :: NetworkConfig -> Bool -> IO ()
+startSeedNode nc useui = do
   let cnc = CNC [] nc
   runZeno PlainLog () do
-    withConsoleUI LevelDebug do
+    withUI do
       withConsensusNode cnc $ threadDelay $ 2^62
+  where
+  withUI = if useui then withConsoleUI LevelDebug else id
+

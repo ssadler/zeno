@@ -45,8 +45,9 @@ runEthNotariserMethod =
   <*> optConsensusConfig
   <*> optGethConfig
   <*> optKmdConfigPath
+  <*> optNoUI
 
 
 runSeedNotariserMethod :: Parser Method
-runSeedNotariserMethod = startSeedNode <$> optNetworkConfig
+runSeedNotariserMethod = startSeedNode <$> optNetworkConfig <*> optNoUI
 

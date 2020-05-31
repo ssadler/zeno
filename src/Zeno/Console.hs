@@ -32,7 +32,6 @@ import Zeno.Monad
 import Zeno.Process
 import Zeno.Prelude
 
-import Debug.Trace
 import System.Exit
 
 

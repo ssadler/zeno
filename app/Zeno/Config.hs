@@ -68,6 +68,10 @@ optSeeds = option str
 optConsensusConfig = CNC <$> some optSeeds <*> optNetworkConfig
 optNetworkConfig = NetworkConfig <$> optBind <*> optPort
 
+optNoUI = switch
+   ( long "ui"
+  <> help "Enable fancy (but currently buggy) status bar" )
+
 -- Helpers --------------------------------------------------------------------
 
 readJson :: FromJSON a => ReadM a
