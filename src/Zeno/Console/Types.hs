@@ -27,7 +27,7 @@ data UIProcess
 
 data Console
   = PlainLog
-  | Fancy (TMVar ConsoleCtrl)
+  | Fancy (TBQueue ConsoleCtrl)
   | FilteredLog LogLevel Console
 
 

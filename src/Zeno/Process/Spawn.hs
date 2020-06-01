@@ -17,7 +17,7 @@ type MonadBase m = (MonadUnliftIO m, MonadResource m, MonadLogger m)
 spawn :: forall i r b. String -> (AsyncProcess i b -> Zeno r b) -> Zeno r (AsyncProcess i b)
 spawn threadName forked = do
   handoff <- newEmptyMVar
-  procMbox <- newEmptyTMVarIO
+  procMbox <- newTBQueueIO 3
   UnliftIO unliftIO <- askUnliftIO
 
   let
@@ -59,7 +59,7 @@ send :: MonadIO m => AsyncProcess i b -> i -> m ()
 send proc i = atomically $ sendSTM proc i
 
 sendSTM :: AsyncProcess i b -> i -> STM ()
-sendSTM Process{..} = putTMVar procMbox
+sendSTM Process{..} = writeTBQueue procMbox
 
 receiveWait :: (HasReceive r i, MonadBase m) => r -> m i
 receiveWait = atomically . receiveSTM

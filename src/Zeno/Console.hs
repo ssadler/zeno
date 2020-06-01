@@ -42,7 +42,7 @@ sendUI evt = do
       fix1 c' \f ->
         \case
           FilteredLog _ console -> f console
-          Fancy chan -> atomically (putTMVar chan $ UIEvent evt)
+          Fancy chan -> atomically (writeTBQueue chan $ UIEvent evt)
           _ -> mempty
 
 withUIProc :: UIProcess -> Zeno r a -> Zeno r a

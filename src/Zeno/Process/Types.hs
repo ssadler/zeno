@@ -3,6 +3,7 @@
 module Zeno.Process.Types where
 
 import Crypto.Hash
+import Control.Applicative
 import qualified Data.ByteArray as BA
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BSL
@@ -92,16 +93,17 @@ type Process i = AsyncProcess i ()
 
 data AsyncProcess i b = Process
   { procAsync :: Async b
-  , procMbox :: TMVar i
+  , procMbox :: TBQueue i
   }
 
 class HasReceive r i | r -> i where
   receiveSTM :: r -> STM i
   receiveMaybeSTM :: r -> STM (Maybe i)
+  receiveMaybeSTM r = Just <$> receiveSTM r <|> pure Nothing
 
 instance HasReceive (AsyncProcess i b) i where
-  receiveSTM (Process{..}) = takeTMVar procMbox
-  receiveMaybeSTM (Process{..}) = tryTakeTMVar procMbox
+  receiveSTM (Process{..}) = readTBQueue procMbox
+  receiveMaybeSTM (Process{..}) = tryReadTBQueue procMbox
 
 instance HasReceive (Receiver i) i where
   receiveSTM = readTQueue
@@ -110,6 +112,9 @@ instance HasReceive (Receiver i) i where
 instance HasReceive (TMVar i) i where
   receiveSTM = takeTMVar
   receiveMaybeSTM = tryTakeTMVar
+
+instance HasReceive (TBQueue i) i where
+  receiveSTM = readTBQueue
 
 data TopicIsRegistered = TopicIsRegistered ProcessId
   deriving (Show, Eq)
