@@ -17,6 +17,7 @@ module Zeno.Prelude
   , fix2
   , timeDelta
   , timeoutSTM
+  , timeoutSTMS
   ) where
 
 import Control.Applicative as ALL
@@ -136,3 +137,6 @@ timeoutSTM us act = do
   atomically do
     (Just <$> act) <|>
       (readTVar delay >>= checkSTM >> pure Nothing)
+
+timeoutSTMS :: MonadIO m => Int -> STM a -> m (Maybe a)
+timeoutSTMS sec = timeoutSTM (sec*1000000)

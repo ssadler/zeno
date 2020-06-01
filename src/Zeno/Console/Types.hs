@@ -12,6 +12,7 @@ import Zeno.Data.FixedBytes
 data ConsoleCtrl
   = UITick
   | UIEvent ConsoleEvent
+  | UILog BS8.ByteString
 
 data ConsoleEvent
   = UI_Peers Int
@@ -25,6 +26,7 @@ data UIProcess
   | UIOther String
   deriving (Show)
 
+-- A bit mental, why not data with level, handle and maybe statusbar
 data Console
   = PlainLog
   | Fancy (TBQueue ConsoleCtrl)

@@ -27,7 +27,6 @@ import Data.Time.Clock
 import Data.Time.Format
 import Data.Time.LocalTime
 import Control.Monad.Logger as LOG hiding (logDebug, logInfo, logError, logWarn)
-import System.Console.Concurrent
 import UnliftIO
 import qualified Language.Haskell.Printf as Printf
 import Language.Haskell.TH.Quote
@@ -69,10 +68,10 @@ logMessage console loc source level msg = do
   line <- getLogMessage loc source level (toLogStr msg)
   runLog console line
   where
-  runLog (Fancy queue) line = errorConcurrent (toS line :: Text)
+  runLog (Fancy queue) line = atomically $ writeTBQueue queue $ UILog line
   runLog (FilteredLog minLevel console) line = do
     when (level >= minLevel) (runLog console line)
-  runLog PlainLog line = outputConcurrent (toS line :: Text)
+  runLog PlainLog line = BS8.putStr line
 
 logTime :: (MonadIO m, MonadLogger m) => String -> m a -> m a
 logTime s act = do

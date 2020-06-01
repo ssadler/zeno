@@ -121,7 +121,8 @@ peerController state@PeerState{..} seeds = do
   where
   handle peer GetPeers = do
     peers <- readTVarIO p2pPeers
-    sendRemote peer peerControllerPid $ Peers peers
+    let peersWithoutCaller = Peers $ Set.delete peer peers
+    sendRemote peer peerControllerPid peersWithoutCaller
     newPeer peer
 
   handle peer (Peers peers) = do
@@ -157,7 +158,7 @@ peerNotifier proc = do
     \go !listeners -> do
       receiveWait proc >>=
         \case
-          SubscribeNewPeers subId f -> do
+          SubscribeNewPeers subId !f -> do
             go $ IntMap.insert subId f listeners
           UnsubscribeNewPeers subId -> do
             go $ IntMap.delete subId listeners

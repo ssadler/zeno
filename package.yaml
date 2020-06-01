@@ -28,7 +28,6 @@ dependencies:
 - base16-bytestring
 - bytestring
 - cereal
-- concurrent-output
 - containers
 - cryptonite
 - directory

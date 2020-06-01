@@ -6,12 +6,12 @@ module Zeno.Console
   , sendUI
   , withUIProc
   , renderStatus
-  , testConsoleConcurrent
+  , testConsole
   ) where
 
 import Control.Monad
 import Control.Monad.State
-import Control.Monad.Logger
+import Control.Monad.Logger hiding (logInfo)
 
 import qualified Data.ByteString.Char8 as BS8
 import Data.Function (fix)
@@ -19,8 +19,6 @@ import Data.Function (fix)
 import Lens.Micro.Platform
 
 import System.Console.ANSI.Codes
-import System.Console.Concurrent
-import System.Console.Regions
 
 import Text.Printf
 
@@ -32,6 +30,7 @@ import Zeno.Monad
 import Zeno.Process
 import Zeno.Prelude
 
+import System.Console.ANSI
 import System.Exit
 
 
@@ -61,23 +60,24 @@ makeLenses ''UI
 
 emptyUIState = UI 0 Nothing ""
 
+
 renderStatus :: UI -> String
 renderStatus UI{..} = sPeers ++ sProc
   where 
-  sPeers = styleWith peersStyle $ printf " Peers: %i " _numPeers
+  sPeers = styleWith peersStyle $ printf "[Peers: %i]" _numPeers
 
   sStep =
     case _cStep of
       "" -> ""
-      s -> printf " [%s]" s
+      s -> printf "[%s]" s
 
   sProc =
     styleWith [SetConsoleIntensity BoldIntensity] $
       case _cProc of
         Nothing -> ""
         Just (UIRound label roundId) -> do
-          (printf " [%s: %s]" (roundId) label) ++ sStep ++ " "
-        Just (UIOther s) -> printf " [%s]" s
+          (printf "[%s: %s]" (roundId) label) ++ sStep ++ " "
+        Just (UIOther s) -> printf "[%s]" s
 
   styleWith style s = setSGRCode style ++ s ++ setSGRCode [Reset]
   peersStyle =
@@ -86,9 +86,8 @@ renderStatus UI{..} = sPeers ++ sProc
     ]
 
 
-
-runConsoleUI :: ConsoleRegion -> Process ConsoleCtrl -> Zeno r ()
-runConsoleUI region proc = do
+runConsoleUI :: Process ConsoleCtrl -> Zeno r ()
+runConsoleUI proc = do
 
   spawn "UI Ticker" \_ -> do
     forever $ send proc UITick >> threadDelay 200000
@@ -98,9 +97,13 @@ runConsoleUI region proc = do
       forever $ atomically (receiveSTM proc) >>= go
 
   where
+  go :: ConsoleCtrl -> StateT UI IO ()
+  go (UILog line) = do
+    log line
+    tick
+
   go UITick = do
-    s <- renderStatus <$> get
-    length s `seq` liftIO (setConsoleRegion region s)
+    tick
 
   go (UIEvent evt) =
     case evt of
@@ -108,44 +111,37 @@ runConsoleUI region proc = do
       UI_Process r -> cProc .= r
       UI_Step r  -> cStep .= r
 
+  log line = do
+    liftIO do
+      clearLine
+      setCursorColumn 0
+      BS8.putStr line           -- Line is assumed to include newline in this case
+
+  tick = do
+    s <- renderStatus <$> get
+    liftIO do
+      showCursor
+      clearLine
+      setCursorColumn 0
+      putStr s
+      hFlush stdout
+
 
 withConsoleUI :: LogLevel -> Zeno r a -> Zeno r a
 withConsoleUI level act = do
-  withRunInIO \rio -> do
-    displayConsoleRegions do
-      withConsoleRegion Linear \region -> do
-        rio do
-          proc <- spawn "UI" $ runConsoleUI region
-          let wrap = if level == LevelDebug then id else FilteredLog level
-          let console = wrap $ Fancy (procMbox proc)
-          localZeno (\app -> app { appConsole = console }) act
+  proc <- spawn "UI" runConsoleUI
+  let wrap = if level == LevelDebug then id else FilteredLog level
+  let console = wrap $ Fancy $ procMbox proc
+  localZeno (\app -> app { appConsole = console }) act
 
 
--- A random function for trying to debug the fancy console
-testConsoleConcurrent :: IO ()
-testConsoleConcurrent = do
-  displayConsoleRegions do
-    withConsoleRegion Linear \region -> do
+testConsole :: IO ()
+testConsole = do
+  runZeno PlainLog () do
+    withConsoleUI LevelDebug do
+      forM_ [0..] \i -> do
+        sendUI $ UI_Peers i
+        when (mod i 3 == 0) do
+          logInfo $ "i is getting longer: " ++ concat (replicate i (show i))
+        threadDelay 400000
 
-      mbox <- newEmptyTMVarIO
-      let
-        run s = do
-          o <- atomically (takeTMVar mbox)
-          case o of
-            Just s' -> run s'
-            Nothing -> setConsoleRegion region s >> run s
-      
-      forkIO $ run ""
-      forkIO $ forever $ atomically (putTMVar mbox Nothing) >> threadDelay 100000
-
-      forever $ do
-        withConcurrentOutput do
-          outputConcurrent ("SomeLongWord\n" :: String)
-        atomically $ do
-          putTMVar mbox $ Just pinkWord
-        withConcurrentOutput do
-          outputConcurrent ("Hello2\n" :: String)
-        threadDelay $ 50000
-  where
-  pinkWord = setSGRCode [SetConsoleIntensity BoldIntensity, SetPaletteColor Foreground 198]
-               ++ "I'm pink" ++ setSGRCode [Reset]

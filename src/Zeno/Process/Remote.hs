@@ -95,7 +95,7 @@ runForwarder nodeId@NodeId{..} chan = do
             let header = encode (0 :: Word8, myPort)
             send conn header
             forever do
-              timeoutSTM 500000 (readTQueue chan) >>=
+              timeoutSTMS 5 (readTQueue chan) >>=
                 sendSizePrefixed conn . maybe "" id
 
   sendSizePrefixed conn bs = do

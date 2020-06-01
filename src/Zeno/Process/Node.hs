@@ -67,10 +67,12 @@ limitInboundConnections Node{..} sockAddr asnc act = do
     SockAddrInet _ ip@16777343 -> do
       -- 127.0.0.1 is special. TODO: Nice way not have to do this, and also be able
       -- to test locally?
+      -- Ah, it could map port ranges to local IPs,
+      -- eg any port between 10k and 11k is .1, etc, and replace the incoming IP.
+      -- Except we don't have the server listen port here, for good reasons.
       act ip
 
     SockAddrInet _ ip -> do
-
       let
         run = do
           mapM_ cancel =<< atomically do
@@ -78,7 +80,7 @@ limitInboundConnections Node{..} sockAddr asnc act = do
               <* STM.insert asnc ip mreceivers
           act ip
 
-        cleanup = do
+      finally run do
           join do
             atomically do
               STM.lookup ip mreceivers >>= \case
@@ -86,8 +88,6 @@ limitInboundConnections Node{..} sockAddr asnc act = do
                 Just oasnc -> do
                   when (asnc == oasnc) (STM.delete ip mreceivers)
                   pure mempty
-
-      finally run cleanup
 
     other -> throwIO $ UnsupportedForeignHost other
 
