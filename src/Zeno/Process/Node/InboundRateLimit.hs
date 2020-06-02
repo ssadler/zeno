@@ -41,17 +41,15 @@ inboundConnectionLimit
   -> m a
   -> m a
 inboundConnectionLimit mreceivers ip asnc act = do
-  let
-    run = do
+  finally
+    do
       mapM_ cancel =<< atomically do
         lookupAsync ip mreceivers <* insertAsync ip asnc mreceivers
       act
-
-  finally run do
+    do
       atomically do
-        lookupAsync ip mreceivers >>= \case
-          Nothing -> pure ()
-          Just oasnc -> do
+        lookupAsync ip mreceivers >>=
+          mapM_ \oasnc -> 
             when (asnc == oasnc) (void $ deleteAsync ip mreceivers)
 
 
@@ -72,14 +70,16 @@ testInboundConnectionLimit = withSetup setup \sem -> do
 
   mreceivers <- atomically (newTVar mempty)
 
-  asyncs <- forM [0..2] \i -> do
+  asyncs <- forM [0..1] \i -> do
       handoff <- newEmptyMVar
       asnc <- async do
         me <- takeMVar handoff
         inboundConnectionLimit mreceivers 0 me do
-          (`finally` atomically (modifyTVar sem (subtract 1))) do
-            threadDelay 1
-            atomically $ modifyTVar sem (+1)
+          finally
+            (do
+               atomically $ modifyTVar sem (+1)
+               threadDelay 1)
+            (do atomically (modifyTVar sem (subtract 1)))
       putMVar handoff asnc
       pure asnc
 
@@ -91,6 +91,9 @@ testInboundConnectionLimit = withSetup setup \sem -> do
     single <- atomically $ newTVar 0
     registerInvariant do
       n <- inspectTVar single
-      when (n > 1) $ error ("too many threads: " ++ show n)
+      when (n > 1) $ throwM TooManyThreads -- error "too many threads"
       pure ()
     pure single
+
+data TooManyThreads = TooManyThreads deriving (Show)
+instance Exception TooManyThreads
