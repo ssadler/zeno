@@ -15,10 +15,13 @@ import UnliftIO
 import UnliftIO.Concurrent
 
 import Zeno.Prelude hiding (finally)
+import Zeno.Process.Spawn
 import Zeno.Process.Types
 import Zeno.Process.Node.ReceiveMissCache
+import Zeno.Process.Node.InboundRateLimit
 import Zeno.Process.Remote
-import Zeno.Process.Spawn
+import qualified Control.Concurrent.Classy.Async as CClassy
+
 
 
 withNode :: NetworkConfig -> Zeno Node a -> Zeno () a
@@ -40,29 +43,30 @@ withNode (NetworkConfig host port) act = do
   mkNode serverSock = do
     myNodeId <- fromString . show <$> getSocketName serverSock -- flimsy?
     mforwarders <- STM.newIO
-    mreceivers <- STM.newIO
+    mreceivers <- newReceiverMap
     topics <- STM.newIO
     missCache <- newTVarIO mempty
     pure Node{..}
 
-  acceptForkAsync :: MonadUnliftIO m => Socket -> ((Socket, SockAddr) -> Async () -> m ()) -> m ()
+  acceptForkAsync :: MonadUnliftIO m => Socket -> ((Socket, SockAddr) -> ClassyAsync () -> m ()) -> m ()
   acceptForkAsync server act = do
     withRunInIO \rio -> do
       accept server \client -> do
         handoff <- newEmptyTMVarIO
         atomically . putTMVar handoff =<<
-          async do
-            atomically (takeTMVar handoff) >>= rio . act client
+          classyAsync do
+            let go = atomically (takeTMVar handoff) >>= rio . act client
+            finally go $ closeSock $ fst client
 
   wrapRunConn node s@(sock, sockAddr) asnc = do
     -- TODO: logDebug new connections
     -- Is it logging connection errors here?
     logDiedSync (show sockAddr) do
-      limitInboundConnections node sockAddr asnc $
+      filterInboundConnections node sockAddr asnc $
         runConnection node sock
 
-limitInboundConnections :: Node -> SockAddr -> Async () -> (HostAddress -> Zeno () a) -> Zeno () a
-limitInboundConnections Node{..} sockAddr asnc act = do
+filterInboundConnections :: Node -> SockAddr -> ClassyAsync () -> (HostAddress -> Zeno () a) -> Zeno () a
+filterInboundConnections Node{..} sockAddr asnc act = do
   case sockAddr of
     SockAddrInet _ ip@16777343 -> do
       -- 127.0.0.1 is special. TODO: Nice way not have to do this, and also be able
@@ -73,21 +77,8 @@ limitInboundConnections Node{..} sockAddr asnc act = do
       act ip
 
     SockAddrInet _ ip -> do
-      let
-        run = do
-          mapM_ cancel =<< atomically do
-            STM.lookup ip mreceivers
-              <* STM.insert asnc ip mreceivers
-          act ip
-
-      finally run do
-          join do
-            atomically do
-              STM.lookup ip mreceivers >>= \case
-                Nothing -> pure $ logMurphy "no value in mreceivers for ip"
-                Just oasnc -> do
-                  when (asnc == oasnc) (STM.delete ip mreceivers)
-                  pure mempty
+      actIO <- toIO $ act ip
+      liftIO $ inboundConnectionLimit mreceivers ip asnc actIO
 
     other -> throwIO $ UnsupportedForeignHost other
 

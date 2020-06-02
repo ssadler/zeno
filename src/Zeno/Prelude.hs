@@ -24,7 +24,6 @@ import Control.Applicative as ALL
 import Control.Monad as ALL (forM, forM_, join, when, replicateM, foldM, forever, unless, void)
 import Control.Monad.IO.Class as ALL (MonadIO, liftIO)
 import Control.Monad.Reader as ALL (ask, asks)
-import Control.Monad.Trans.Class as ALL
 import Control.Monad.Trans.Resource as ALL (MonadResource, allocate)
 import GHC.Generics as ALL (Generic)
 import GHC.Stack (HasCallStack)
