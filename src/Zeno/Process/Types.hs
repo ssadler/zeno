@@ -19,6 +19,7 @@ import Network.Simple.TCP
 import Network.Socket (HostAddress)
 import UnliftIO
 import Zeno.Data.FixedBytes
+import Zeno.Process.Node.InboundRateLimit
 
 newtype ProcessId = ProcessId { unProcessId :: Bytes16 }
   deriving (Eq, Ord, Generic, Hashable, Serialize)
@@ -55,9 +56,9 @@ data Node = Node
   -- a host. The thread reference is a mutex so that it can be synchronously killed.
   -- The reason that we kill the old connection is in case a legitimate node is
   -- reconnecting and there's a dangling TCP connection of some kind. The reason that
-  -- it's killed synchronously is because doing it asynchronosly (and safely) is a
+  -- it's killed synchronously is because doing it asynchronously (and safely) is a
   -- massive ballache of complexity and STM contention.
-  , mreceivers :: STM.Map HostAddress (Async ())
+  , mreceivers :: ReceiverMap IO
   , missCache :: TVar ReceiveMissCache
   }
 

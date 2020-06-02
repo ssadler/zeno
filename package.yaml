@@ -30,6 +30,8 @@ dependencies:
 - cereal
 - containers
 - cryptonite
+- concurrency
+- dejafu
 - directory
 - emojis
 - entropy
@@ -56,10 +58,10 @@ dependencies:
 - time
 - template-haskell
 - th-printf
-- transformers
 - unix
 - unliftio
 - unordered-containers
+
 
 library:
   source-dirs: src
@@ -126,6 +128,9 @@ tests:
     - tasty-discover
     - QuickCheck
     - hspec
+    - concurrency
+    - dejafu
+    - tasty-dejafu
     default-extensions:    OverloadedStrings
                          , MultiParamTypeClasses
                          , DataKinds
