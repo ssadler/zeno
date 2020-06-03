@@ -18,10 +18,13 @@ module Zeno.Prelude
   , timeDelta
   , timeoutSTM
   , timeoutSTMS
+  , threadDelayS
+  , murphy
   ) where
 
 import Control.Applicative as ALL
 import Control.Monad as ALL (forM, forM_, join, when, replicateM, foldM, forever, unless, void)
+import Control.Monad.Except as ALL
 import Control.Monad.IO.Class as ALL (MonadIO, liftIO)
 import Control.Monad.Reader as ALL (ask, asks)
 import Control.Monad.Trans.Resource as ALL (MonadResource, allocate)
@@ -55,7 +58,7 @@ import UnliftIO.Concurrent as ALL (threadDelay, forkIO)
 import UnliftIO.Exception as ALL
   (Exception, Handler(..), catchAny, finally, throwIO
   , withException, onException, handle, bracket, impureThrow
-  , catches
+  , catches, catch
   )
 
 import Zeno.Data.FixedBytes as ALL
@@ -139,3 +142,10 @@ timeoutSTM us act = do
 
 timeoutSTMS :: MonadIO m => Int -> STM a -> m (Maybe a)
 timeoutSTMS sec = timeoutSTM (sec*1000000)
+
+
+murphy :: HasCallStack => String -> a
+murphy s = error $ "Invariant violation: " ++ show s
+
+threadDelayS :: MonadIO m => Int -> m ()
+threadDelayS = threadDelay . (*1000000)

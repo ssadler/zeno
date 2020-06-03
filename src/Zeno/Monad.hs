@@ -7,7 +7,7 @@
 module Zeno.Monad where
 
 import Control.Exception.Safe (MonadMask)
-import Control.Monad.Catch (MonadCatch)
+import Control.Monad.Catch as Catch hiding (bracket)
 import Control.Monad.Logger
 import Control.Monad.Reader
 import Control.Monad.Trans.Resource as ResourceT
@@ -62,6 +62,7 @@ instance Monoid a => Monoid (Zeno r a) where
 
 instance MonadIO (Zeno r) where
   liftIO io = Zeno $ \f app -> io >>= f app
+  {-# INLINE liftIO #-}
 
 instance MonadUnliftIO (Zeno r) where
   withRunInIO inner = Zeno
@@ -86,6 +87,32 @@ instance MonadLoggerIO (Zeno r) where
 
 instance MonadFail (Zeno r) where
   fail = error
+
+instance MonadCatch (Zeno r) where
+  catch (Zeno z) onErr = Zeno
+    \f app -> Catch.catch (z f app) (\e -> unZeno (onErr e) f app)
+
+instance MonadMask (Zeno r) where
+  mask withUnmask = Zeno
+    \f app ->
+      Catch.mask \unmask ->
+        unZeno (withUnmask $ \z -> Zeno \f' app' -> unmask $ unZeno z f' app') f app
+
+  uninterruptibleMask withUnmask = Zeno
+    \f app ->
+      Catch.uninterruptibleMask \unmask ->
+        unZeno (withUnmask $ \z -> Zeno \f' app' -> unmask $ unZeno z f' app') f app
+
+  generalBracket allocate release inner = Zeno
+    \f app -> do
+      f app =<<
+           generalBracket (         unZeno allocate       (\_ -> pure) app)
+                          (\a ec -> unZeno (release a ec) (\_ -> pure) app)
+                          (\a    -> unZeno (inner a)      (\_ -> pure) app)
+
+instance MonadThrow (Zeno r) where
+  throwM e = Zeno \_ _ -> throwM e
+
 
 --------------------------------------------------------------------------------
 -- | Zeno runners

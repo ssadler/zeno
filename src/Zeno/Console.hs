@@ -105,11 +105,12 @@ runConsoleUI proc = do
   go UITick = do
     tick
 
-  go (UIEvent evt) =
+  go (UIEvent evt) = do
     case evt of
       UI_Peers n -> numPeers .= n
       UI_Process r -> cProc .= r
       UI_Step r  -> cStep .= r
+    --tick
 
   log line = do
     liftIO do
