@@ -20,6 +20,9 @@ import           Zeno.Process
 import           Zeno.Consensus.P2P
 
 
+-- TODO: Clean all this up and organise into sections.
+
+
 data ConsensusNode = ConsensusNode
   { cpNode :: Node
   , cpPeers :: PeerState
@@ -78,7 +81,7 @@ instance Serialize a => Serialize (Ballot a)
 
 type Authenticated a = (CompactRecSig, a)
 type Inventory a = Map Address (CompactRecSig, a)
-type Collect a = Inventory a -> Consensus Bool
+type Collect a b = Inventory a -> Consensus (Maybe b)
 
 unInventory :: Inventory a -> [Ballot a]
 unInventory inv = [Ballot a s o | (a, (s, o)) <- Map.toAscList inv]
@@ -115,10 +118,10 @@ data ConsensusNetworkConfig = CNC
 
 type Consensus = Zeno ConsensusContext
 
-data ConsensusException = ConsensusTimeout String
-                        | ConsensusMischief String
-  deriving (Show)
-instance Exception ConsensusException
+data ConsensusTimeout = ConsensusTimeout String deriving (Show)
+instance Exception ConsensusTimeout
+data ConsensusMischief = ConsensusMischief Address String deriving (Show)
+instance Exception ConsensusMischief
 
 
 withTimeout :: Int -> Consensus a -> Consensus a

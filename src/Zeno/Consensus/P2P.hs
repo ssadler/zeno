@@ -31,6 +31,7 @@ data P2PNode = P2PNode
   }
 
 type Peers = Set.Set NodeId
+
 data PeerState = PeerState
   { p2pPeers :: TVar Peers
   , p2pPeerNotifier :: PeerNotifier

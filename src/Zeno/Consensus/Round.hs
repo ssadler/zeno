@@ -4,13 +4,13 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 
 module Zeno.Consensus.Round
-  ( ConsensusException(..)
-  , step
+  ( step
   , propose
   , incStep
   , collectMembers
   , collectMajority
   , collectThreshold
+  , collectWith
   , runConsensus
   , inventoryIndex
   , prioritiseRemoteInventory
@@ -39,7 +39,7 @@ import           Zeno.Console
 
 import           UnliftIO.STM
 import           Control.Monad.STM (orElse, throwSTM)
-import           UnliftIO.Async (waitCatchSTM)
+import           UnliftIO.Async (waitCatchSTM, waitSTM)
 
 
 -- Run round ------------------------------------------------------------------
@@ -47,32 +47,42 @@ import           UnliftIO.Async (waitCatchSTM)
 runConsensus :: (Serialize a, Has ConsensusNode r)
              => String -> ConsensusParams -> a -> Consensus b -> Zeno r b
 runConsensus label params@ConsensusParams{..} entropy act = do
-  cn <- asks has
   tStepNum <- newTVarIO (0, Nothing)
-  let ctx = ConsensusContext cn params (sha3b $ encode entropy) tStepNum
+  let toCC r = ConsensusContext (has r) params (sha3b $ encode entropy) tStepNum
 
-  -- TODO: mask here?
-  Process{..} <-
-    spawn "Consensus Round" $ \proc -> do
-      withContext (\_ -> ctx) actWrapped >>= send proc
-      -- Keep child steps alive for a while, give the stragglers a chance to catch up.
-      threadDelay $ 10 * 1000000
+  withContext toCC do
+    roundId <- getRoundId
+    let roundName = "Round %s (%s)" % (roundId, label)
+  
+    Process{..} <-
+      spawn roundName $ \handoff -> do
 
-  -- TODO: Something funny (but harmless) could happen here if the parent thread is
-  -- killed, ie, we could re-throw it from here.
-  -- Solution: child thread should post a concensus timeout, not throw it.
-  atomically do
-    orElse
-      (receiveSTM procMbox)
-      (waitCatchSTM procAsync >>=
-        \case Left e -> throwSTM e
-              Right () -> error "Round finished without a result - this should not happen")
+        withUIProc (UIRound label roundId) do
+
+          handleTimeout roundName do     -- We will re-throw this outside but we
+                                         -- don't want it being logged
+
+            act >>= send handoff         -- Send result into handoff so runConsensus can return
+
+            threadDelay $ 10 * 1000000   -- for stragglers to catch up
+
+            pure $ murphyNoResult        -- This will not get evaluated unless
+                                         -- nothing is send to the handoff
+
+    r <- atomically $ orElse (receiveSTM procMbox) (waitSTM procAsync >>= throwSTM)
+    logInfo $ "Finished: " ++ roundName
+    pure r
 
   where
-  actWrapped = do
-    roundId <- getRoundId
-    logInfo $ "New round: %s (%s)" % (roundId, label)
-    withUIProc (UIRound label roundId) act
+  murphyNoResult = murphy "Round finished without a result - this should not happen"
+  handleTimeout roundName = do
+    handle \c@(ConsensusTimeout _) -> do
+      logInfo $ "Timeout: " ++ roundName
+      sendUI (UI_Step "Timeout")
+      threadDelayS 4
+      pure c
+
+
 
 
 -- Coordinate Round -----------------------------------------------------------
@@ -82,32 +92,30 @@ type BallotData a = (Typeable a, Serialize a)
 -- | Step initiates the procedure of exchanging signed messages.
 -- | The step is run in a separate thread, and this thread will wait
 -- | until the collect condition has been fulfilled.
-step :: BallotData a => String -> Collect a -> a -> Consensus [Ballot a]
+step :: BallotData a => String -> Collect a b -> a -> Consensus b
 step name collect obj = do
   incStep $ "collect " ++ name
-  unInventory <$> step' name collect obj
+  step' name collect obj
 
-step' :: forall a. BallotData a => String -> Collect a -> a -> Consensus (Inventory a)
+step' :: forall a b. BallotData a => String -> Collect a b -> a -> Consensus b
 step' name collect obj = do
   ConsensusParams{ident' = EthIdent sk myAddr, ..} <- asks ccParams
   let sig = sign sk $ toMessage obj
-  let ballot = Ballot myAddr sig obj
+      ballot = Ballot myAddr sig obj
+      errTimeout = ConsensusTimeout ("Timeout after %i seconds" % quot timeout' 1000000)
 
   recv <- spawnStep ballot
 
-  -- TODO: it would be nice if this was merged with receiveDuring
-  startTime <- liftIO getCurrentTime
-  fix $ \f -> do
-    d <- timeDelta startTime
-    let us = timeout' - min timeout' d
-    minv <- receiveTimeout recv us
-    case minv of
-      Nothing -> throwIO $ errTimeout timeout'
-      Just inv -> do
-        pass <- collect inv
-        if pass then pure inv else f
+  -- The flow is inverted here, we use Left to jump out early
+  r <- runExceptT do
+    receiveDuring recv timeout' \inv -> do
+      pass <- lift $ collect inv
+      maybe (pure ()) throwError pass
+
+  case r of
+    Left inv -> pure inv
+    Right () -> throwIO errTimeout 
   where
-  errTimeout t = ConsensusTimeout ("Timeout after %i seconds" % quot t 1000000)
 
   toMessage =
     if typeRep (Proxy :: Proxy a) == typeRep (Proxy :: Proxy Bytes32)
@@ -137,26 +145,25 @@ propose name mObj = do
         major <- incStepNum
         minor <- incMinorStepNum
 
-        let nextProposer (ConsensusTimeout _) = do
-              logInfo $ "Timeout collecting for proposer: " ++ show pAddr
-              go xs
-            nextProposer e = throwIO e
-
         obj <-
           if isMe
              then logDebug ("Proposer is: %s (me)" % show pAddr) >> (Just <$> mObj)
              else logDebug ("Proposer is: %s" % show pAddr) >> pure Nothing
 
-        handle nextProposer $ do
-          withTimeout (5 * 1000000) do
-            let name' = printf "propose %s" name
-            results <- step' name' (collectMembers [pAddr]) obj
-            case Map.lookup pAddr results of
-                 Just (s, Just obj2) -> do
-                   pure $ Ballot pAddr s obj2
-                 Just (_, Nothing)   -> do
-                   throwIO (ConsensusMischief $ printf "Missing proposal from %s" $ show pAddr)
-                 Nothing -> error "Missing proposal; should not happen"
+        let nextProposer (ConsensusTimeout _) = do
+              logInfo $ "Timeout collecting for proposer: " ++ show pAddr
+              go xs
+
+        handle nextProposer do
+          let name' = printf "propose %s" name
+          results <- step' name' (collectMembers [pAddr]) obj
+          case Map.lookup pAddr results of
+               Just (s, Just obj2) -> do
+                 pure $ Ballot pAddr s obj2
+                 -- TODO: collect should be a fold
+               Just (_, Nothing)   -> murphy "missing proposal"
+               Nothing -> error "Missing proposal; should not happen"
+
 
 determineProposers :: Consensus [(Address, Bool)]
 determineProposers = do
@@ -182,34 +189,43 @@ determineProposers = do
 debugCollect :: Bool
 debugCollect = False
 
-collectMajority :: Serialize a => Collect a
+collectMajority :: Serialize a => Collect a (Inventory a)
 collectMajority inv = do
   ConsensusParams{..} <- asks has
   let have = length inv
       majority = majorityThreshold $ length members'
-      pass = have >= majority
-  when debugCollect do
-    logDebug $ "collect majority: %i >= %i == %s" % (have, majority, show pass)
-  pure pass
+  pure
+    if have >= majority then Just inv else Nothing
+  -- when debugCollect do
+  --   logDebug $ "collect majority: %i >= %i == %s" % (have, majority, show pass)
 
 -- | collectThreshold collects at least n ballots.
 --   At least, because it collects the greater of the given n and
 --   the majority threshold.
-collectThreshold :: Serialize a => Int -> Collect a
+collectThreshold :: Serialize a => Int -> Collect a (Inventory a)
 collectThreshold n inv = do
   ConsensusParams{..} <- asks has
   let t = max n $ majorityThreshold $ length members'
-  let pass = length inv >= t
-  when debugCollect do
-    logDebug $ "collect threshold: %i >= %i == %s" % (length inv, t, show pass)
-  pure pass
+  pure
+    if length inv >= t then Just inv else Nothing
+  -- when debugCollect do
+  --   logDebug $ "collect threshold: %i >= %i == %s" % (length inv, t, show pass)
 
-collectMembers :: Serialize a => [Address] -> Collect a
+collectMembers :: Serialize a => [Address] -> Collect a (Inventory a)
 collectMembers addrs inv = do
   let pass = all (flip Map.member inv) addrs
-  when debugCollect do
-    logDebug $ "collect members: %s ⊆  %s == %s" % (show addrs, show $ Map.keys inv, show pass)
-  pure pass
+  -- when debugCollect do
+  --   logDebug $ "collect members: %s ⊆  %s == %s" % (show addrs, show $ Map.keys inv, show pass)
+  pure
+    if pass then Just inv else Nothing
+
+collectWith :: Serialize a => (Int -> Inventory a -> Maybe b) -> Collect a b
+collectWith f inv = do
+  ConsensusParams{..} <- asks has
+  let majority = majorityThreshold $ length members'
+  pure $ f majority inv
+
+
 
 majorityThreshold :: Int -> Int
 majorityThreshold m = floor $ (fromIntegral m) / 2 + 1

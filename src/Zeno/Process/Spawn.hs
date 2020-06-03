@@ -61,19 +61,19 @@ send proc i = atomically $ sendSTM proc i
 sendSTM :: AsyncProcess i b -> i -> STM ()
 sendSTM Process{..} = writeTBQueue procMbox
 
-receiveWait :: (HasReceive r i, MonadBase m) => r -> m i
+receiveWait :: (HasReceive r i, MonadIO m) => r -> m i
 receiveWait = atomically . receiveSTM
 
-receiveMaybe :: (MonadBase m, Typeable i, HasReceive r i) => r -> m (Maybe i)
+receiveMaybe :: (MonadIO m, Typeable i, HasReceive r i) => r -> m (Maybe i)
 receiveMaybe = atomically . receiveMaybeSTM
 
-receiveTimeout :: (MonadBase m, HasReceive r i) => r -> Int -> m (Maybe i)
+receiveTimeout :: (MonadIO m, HasReceive r i) => r -> Int -> m (Maybe i)
 receiveTimeout recv us = timeoutSTM us $ receiveSTM recv
 
-receiveTimeoutS :: (MonadBase m, Typeable i) => Receiver i -> Int -> m (Maybe i)
+receiveTimeoutS :: (MonadIO m, Typeable i) => Receiver i -> Int -> m (Maybe i)
 receiveTimeoutS recv = receiveTimeout recv . (* second)
 
-receiveDuring :: (MonadBase m, Typeable i) => Receiver i -> Int -> (i -> m ()) -> m ()
+receiveDuring :: (HasReceive r i, MonadIO m) => r -> Int -> (i -> m ()) -> m ()
 receiveDuring recv timeout act = do
   startTime <- liftIO $ getCurrentTime
   fix $ \f -> do

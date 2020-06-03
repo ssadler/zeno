@@ -1,12 +1,14 @@
 
 module Zeno.Notariser.KMD where
 
+import qualified Data.Map as Map
 import Data.Serialize as Ser
 import Network.Bitcoin
 import Network.Komodo
 import Network.ZCash.Sapling
 import qualified Haskoin as H
 
+import Network.Ethereum (Address, deriveEthAddress)
 import Zeno.Notariser.Types
 import Zeno.Prelude
 import Zeno.Consensus
@@ -30,31 +32,29 @@ notariseToKMD nc@NotariserConfig{..} ndata = do
 
   runConsensus "eth ⇒  kmd" cparams opret $ do
   
-    -- Key on opret, collect UTXOs
-    utxoBallots <- step "inputs" (collectThreshold kmdNotarySigs)
-                                 (kmdPubKeyI, getOutPoint utxo)
+    proposal <- step "inputs" (collectWith $ proposeInputs kmdNotarySigs)
+                              (kmdPubKeyI, getOutPoint utxo)
 
-    -- TODO: Key on proposer
-    let proposal = proposeInputs kmdNotarySigs  utxoBallots
-    Ballot _ _ utxosChosen <- propose "inputs" $ pure proposal
+    Ballot _ _ utxos <- propose "inputs" $ pure proposal
   
     -- Sign tx and collect signed inputs
-    let partlySignedTx = signMyInput nc kmdSecKey utxosChosen $ H.DataCarrier opret
+    let partlySignedTx = signMyInput nc kmdSecKey utxos $ H.DataCarrier opret
         myInput = getMyInput utxo partlySignedTx
-        waitSigs = collectOutpoints $ snd <$> utxosChosen
-    allSignedInputs <- step "sigs" waitSigs myInput
-    let finalTx = compileFinalTx partlySignedTx allSignedInputs
-  
+        waitCompileTx = collectWith $ collectTx partlySignedTx utxos
+    finalTx <- step "sigs" waitCompileTx myInput
+
     _ <- step "confirm" collectMajority ()
   
     incStep "wait for tx confirm ..."
     run $ submitNotarisation nc ndata finalTx
 
+type UTXO = (H.PubKeyI, H.OutPoint)
 
-proposeInputs :: Int -> [Ballot (H.PubKeyI, H.OutPoint)] -> [(H.PubKeyI, H.OutPoint)]
-proposeInputs kmdNotaryInputs ballots
-  | length ballots < kmdNotaryInputs = error "Bad error: not enough ballots"
-  | otherwise = take kmdNotaryInputs $ bData <$> sortOn bSig ballots
+proposeInputs :: Int -> Int -> Inventory UTXO -> Maybe (Map Address UTXO)
+proposeInputs kmdNotaryInputs _threshold ballots =
+  if length ballots < kmdNotaryInputs
+     then Nothing
+     else Just $ snd <$> ballots
 
 getNextHeight :: Word32 -> Word32 -> Word32 -> Word32
 getNextHeight interval last current =
@@ -101,36 +101,36 @@ notarisationRecip = H.PayPK "020e46e79a2a8d12b9b5d12c7a91adb4e454edfae43c0a0cb80
                     -- getAddrHash "RXL3YXG2ceaB6C5hfJcN4fvmLH2C34knhA"
 
 -- | Given selected UTXOs, compile a tx and sign own inputs, if any.
-signMyInput :: NotariserConfig -> H.SecKey -> [(H.PubKeyI, H.OutPoint)] -> H.ScriptOutput -> SaplingTx
-signMyInput NotariserConfig{..} wif ins opret = do
+signMyInput :: NotariserConfig -> H.SecKey -> Map Address UTXO -> H.ScriptOutput -> SaplingTx
+signMyInput NotariserConfig{..} wif mapIns opret = do
   let toSigIn (a, o) = H.SigInput (H.PayPK a) kmdInputAmount o H.sigHashAll Nothing
+      ins = Map.elems mapIns
       inputs = toSigIn <$> ins
       outputAmount = kmdInputAmount * (fromIntegral $ length ins - 1)
       outputs = [(notarisationRecip, outputAmount), (opret, 0)]
       etx = saplingFromLegacy <$> H.buildTx (snd <$> ins) outputs
       signTx tx = signTxSapling komodo tx inputs [wif]
-   in either error id $ etx >>= signTx
+   in either murphy id $ etx >>= signTx
 
 getMyInput :: KomodoUtxo -> SaplingTx -> Maybe H.TxIn
 getMyInput myUtxo SaplingTx{..} =
   find (\txIn -> H.prevOutput txIn == getOutPoint myUtxo) txIn
 
-compileFinalTx :: SaplingTx -> [Ballot (Maybe H.TxIn)] -> SaplingTx
-compileFinalTx tx@SaplingTx{..} ballots = tx { txIn = mergedIns }
-  where
-    signedIns = catMaybes $ bData <$> ballots
-    mischief = impureThrow $ ConsensusMischief $ "compileFinalTx: %s" % show (tx, ballots)
-    mergedIns = map combine txIn
-    combine unsigned =
-      case find (\a -> H.prevOutput a == H.prevOutput unsigned) signedIns of
-           Nothing -> mischief
-           Just signed -> unsigned { H.scriptInput = H.scriptInput signed }
 
-collectOutpoints :: [H.OutPoint] -> Collect (Maybe H.TxIn)
-collectOutpoints given inv = do
-  let getOPs = map H.prevOutput . catMaybes . map bData
-      vals = getOPs $ unInventory inv
-   in pure $ sortOn show vals == sortOn show given
+collectTx :: SaplingTx -> Map Address UTXO
+          -> Int -> Inventory (Maybe H.TxIn) -> Maybe SaplingTx
+collectTx tx@SaplingTx{..} utxos threshold inventory = mtx
+  where
+    mtx = (\ins -> tx { txIn = ins }) <$> mapM f txIn
+    f txin = do
+      -- Why are chosenUTXOs and transaction separated?
+      -- because the transaction txin helpfully has a bytestring script.
+      let addr = maybe (murphy "lookup prevout") id $ Map.lookup (H.prevOutput txin) opIdx
+      (sig, msigned) <- Map.lookup addr inventory
+      msigned
+
+    opIdx = Map.fromList [(op, addr) | (addr, (_, op)) <- Map.toList utxos]
+
 
 submitNotarisation :: NotariserConfig -> NotarisationData -> SaplingTx -> Zeno EthNotariser ()
 submitNotarisation NotariserConfig{..} ndata tx = do

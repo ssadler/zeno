@@ -62,8 +62,7 @@ runNotariseKmdToEth pk gateway networkConfig gethConfig kmdConfPath useui = do
     runForever act = forever $ act `catches` handlers
       where
         handlers =
-          [ Handler $ \e -> recover logInfo 1 (e :: ConsensusException)
-          , Handler $ \e -> recover logWarn 20 (fmtHttpException e)
+          [ Handler $ \e -> recover logWarn 20 (fmtHttpException e)
           , Handler $ \e -> recover logWarn 20 (e :: RPCException)
           , Handler $ \e -> recover logError 60 (e :: ConfigException)
           ]
@@ -76,35 +75,36 @@ runNotariseKmdToEth pk gateway networkConfig gethConfig kmdConfPath useui = do
 
 notariserStep :: NotariserConfig -> Zeno EthNotariser ()
 notariserStep nc@NotariserConfig{..} = do
-  getLastNotarisationOnEth nc >>= 
-    \case
-      Nothing -> do
-        logInfo "No prior notarisations found"
-        forward 0
-
-      Just ethnota@NOE{..} -> do
-        logDebug $ "Found notarisation on ETH for %s height %i" % (kmdChainSymbol, foreignHeight)
-
-        getLastNotarisation kmdChainSymbol >>=
-          \case
-            Just (Notarisation _ _ (BND NOR{..}))
-              | blockNumber == foreignHeight -> do
-                logDebug "Found backnotarisation, proceed with next notarisation"
-                forward foreignHeight
-              | blockNumber > foreignHeight -> do
-                logError $ show NOR{..}
-                logError $ show ethnota
-                logError "We have a very bad error, the backnotarised height in KMD is higher\
-                         \ than the notarised height in ETH. Continuing to notarise to ETH again."
-                forward foreignHeight
-
-            _ -> do
-              logDebug "Backnotarisation not found, proceed to backnotarise"
-              opret <- getBackNotarisation nc ethnota
-              notariseToKMD nc opret
-
+  getLastNotarisationOnEth nc >>= handleTimeout . go
   where
-    forward lastNotarisedHeight = do
+  handleTimeout = handle \(ConsensusTimeout _) -> mempty
+
+  go Nothing = do
+    logInfo "No prior notarisations found"
+    forward 0
+
+  go (Just ethnota@NOE{..}) = do
+    logDebug $ "Found notarisation on ETH for %s height %i" % (kmdChainSymbol, foreignHeight)
+
+    getLastNotarisation kmdChainSymbol >>=
+      \case
+        Just (Notarisation _ _ (BND NOR{..}))
+          | blockNumber == foreignHeight -> do
+            logDebug "Found backnotarisation, proceed with next notarisation"
+            forward foreignHeight
+          | blockNumber > foreignHeight -> do
+            logError $ show NOR{..}
+            logError $ show ethnota
+            logError "The backnotarised height in KMD is higher than the notarised\
+                     \ height in ETH. Is ETH node is lagging? Proceeding anyway."
+            forward foreignHeight
+
+        _ -> do
+          logDebug "Backnotarisation not found, proceed to backnotarise"
+          opret <- getBackNotarisation nc ethnota
+          notariseToKMD nc opret
+
+  forward lastNotarisedHeight = do
       newHeight <- waitKmdNotariseHeight kmdBlockInterval lastNotarisedHeight
       notariseToETH nc newHeight
 
@@ -137,7 +137,7 @@ notariseToETH nc@NotariserConfig{..} height32 = do
     sigBallots <- step "tx sigs" (collectThreshold threshold)
                                  (ethMakeProxySigMessage proxyParams)
 
-    let proxyCallData = ethMakeProxyCallData proxyParams (bSig <$> sigBallots)
+    let proxyCallData = ethMakeProxyCallData proxyParams (bSig <$> unInventory sigBallots)
         buildTx = run $ ethMakeNotarisationTx nc proxyCallData
     ballot@(Ballot proposer _ tx) <- propose "tx sender" buildTx
     run $ checkTxProposed ballot
@@ -207,6 +207,6 @@ getBackNotarisation NotariserConfig{..} NOE{..} = do
 checkTxProposed :: Ballot Transaction -> Zeno EthNotariser ()
 checkTxProposed (Ballot sender _ tx) = do
   case recoverFrom tx of
-    Nothing -> throwIO $ ConsensusMischief $ "Can't recover sender from tx"
-    Just s | s /= sender -> throwIO $ ConsensusMischief $ "Sender wrong"
+    Nothing -> throwIO $ ConsensusMischief sender "Can't recover sender from tx"
+    Just s | s /= sender -> throwIO $ ConsensusMischief sender "Sender wrong"
     _ -> pure ()

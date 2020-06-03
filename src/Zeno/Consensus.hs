@@ -10,6 +10,7 @@ module Zeno.Consensus
   , collectMajority
   , collectThreshold
   , collectMembers
+  , collectWith
   , majorityThreshold
   ) where
 

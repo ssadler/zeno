@@ -20,8 +20,6 @@ import Zeno.Process.Types
 import Zeno.Process.Node.ReceiveMissCache
 import Zeno.Process.Node.InboundRateLimit
 import Zeno.Process.Remote
-import qualified Control.Concurrent.Classy.Async as CClassy
-
 
 
 withNode :: NetworkConfig -> Zeno Node a -> Zeno () a
@@ -61,7 +59,7 @@ withNode (NetworkConfig host port) act = do
   wrapRunConn node s@(sock, sockAddr) asnc = do
     -- TODO: logDebug new connections
     -- Is it logging connection errors here?
-    logDiedSync (show sockAddr) do
+    logDiedSync ("IN:" ++ show sockAddr) do
       filterInboundConnections node sockAddr asnc $
         runConnection node sock
 
@@ -70,7 +68,7 @@ filterInboundConnections Node{..} sockAddr asnc act = do
   case sockAddr of
     SockAddrInet _ ip@16777343 -> do
       -- 127.0.0.1 is special. TODO: Nice way not have to do this, and also be able
-      -- to test locally?
+      -- to test locally? Need to get the integrate script using a local docker network.
       -- Ah, it could map port ranges to local IPs,
       -- eg any port between 10k and 11k is .1, etc, and replace the incoming IP.
       -- Except we don't have the server listen port here, for good reasons.
@@ -130,10 +128,17 @@ runConnection node@Node{..} conn ip = do
     header <- receiveLen 3
     case decode header of
       Right ('\0', port) -> pure $ NodeId (renderIp ip) port
-      Right (p, _) -> do
-        throwIO $ NetworkUnsupported $ [pf|Unsupported protocol (%?) from %?|] p ip
-      Left s -> do
-        murphy s
+      Left s -> murphy s -- How can we fail to decode exactly 3 bytes into a (Word8, Word32)
+      Right (_, _) -> do
+        -- Someone is port scanning, or running incorrect version
+        more <- recv conn 20 >>= maybe mempty pure
+        let (line: _) = lines $ toS $ header <> more
+        if take 4 line == "GET" || take 4 line == "POST"
+           then logInfo $ "%s :eyes: %s" % (renderIp ip, show line)
+           else logDebug $ [pf|Unsupported protocol (%s)|] (show line)
+        throwIO ConnectionClosed
+
+
 
 renderIp :: HostAddress -> String
 renderIp ip = "%i.%i.%i.%i" % hostAddressToTuple ip
