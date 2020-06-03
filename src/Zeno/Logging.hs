@@ -71,7 +71,9 @@ logMessage console loc source level msg = do
   runLog (Fancy queue) line = atomically $ writeTBQueue queue $ UILog line
   runLog (FilteredLog minLevel console) line = do
     when (level >= minLevel) (runLog console line)
-  runLog PlainLog line = BS8.putStr line
+  runLog PlainLog line = do
+    BS8.putStr line
+    hFlush stdout
 
 logTime :: (MonadIO m, MonadLogger m) => String -> m a -> m a
 logTime s act = do
