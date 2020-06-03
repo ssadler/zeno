@@ -52,6 +52,9 @@ logDiedSync threadName act = do
     logError $ "Thread \"%s\" died with: %s" % (threadName, show e)
     throwIO (e :: SomeException)
 
+spawnNoHandle :: forall i r b. String -> Zeno r b -> Zeno r ()
+spawnNoHandle label act = void $ spawn label \_ -> act
+
 globalThreadCount :: TVar Int
 globalThreadCount = unsafePerformIO $ newTVarIO 0
 

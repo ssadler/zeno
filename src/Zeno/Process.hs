@@ -21,6 +21,7 @@ module Zeno.Process
   , sendRemote
   , hashServiceId
   , spawn
+  , spawnNoHandle
   , subscribe
   , withNode
   , withRemoteMessage
