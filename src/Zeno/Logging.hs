@@ -25,7 +25,6 @@ import Data.String.Conv
 import Data.Text (Text)
 import Data.Time.Clock
 import Data.Time.Format
-import Data.Time.LocalTime
 import Control.Monad.Logger as LOG hiding (logDebug, logInfo, logError, logWarn)
 import UnliftIO
 import qualified Language.Haskell.Printf as Printf
@@ -60,7 +59,7 @@ instance AsString Value where
 
 getLogMessage :: Loc -> LogSource -> LogLevel -> LogStr -> IO BS8.ByteString
 getLogMessage loc source level str = do
-  t <- formatTime defaultTimeLocale "[%T]" <$> getZonedTime
+  t <- formatTime defaultTimeLocale "[%T]" <$> getCurrentTime
   pure $ fromLogStr $ toLogStr t <> defaultLogStr loc source level str
 
 logMessage :: ToLogStr msg => Console -> Loc -> LogSource -> LogLevel -> msg -> IO ()

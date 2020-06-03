@@ -43,6 +43,7 @@ dependencies:
 - memory
 - microlens-platform
 - monad-logger
+- msgpack
 - mtl
 - network
 - network-simple

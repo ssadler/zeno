@@ -8,10 +8,9 @@ import Network.Komodo
 import Network.HTTP.Simple
 import Network.JsonRpc
 
-import Zeno.Notariser.UTXO
-
 import Zeno.EthGateway
-import Zeno.Notariser.KMD
+import Zeno.Notariser.Interfaces.KMD
+import Zeno.Notariser.KMDDpow
 import Zeno.Notariser.Types
 import Zeno.Consensus
 import Zeno.Console
@@ -37,7 +36,7 @@ runNotariseKmdToEth pk gateway networkConfig gethConfig kmdConfPath useui = do
           logInfo $ "KMD address: " ++ show kmdAddress
           logInfo $ "ETH address: " ++ show ethAddress
 
-          forkMonitorUTXOs kmdInputAmount 5 20
+          runKmdThreads
 
           runForever do
             nc <- getNotariserConfig "KMDETH"
@@ -102,7 +101,7 @@ notariserStep nc@NotariserConfig{..} = do
         _ -> do
           logDebug "Backnotarisation not found, proceed to backnotarise"
           opret <- getBackNotarisation nc ethnota
-          notariseToKMD nc opret
+          notariseKmdDpow nc opret
 
   forward lastNotarisedHeight = do
       newHeight <- waitKmdNotariseHeight kmdBlockInterval lastNotarisedHeight

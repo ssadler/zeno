@@ -1,8 +1,6 @@
 
 module Network.ZCash.Sapling.Types where
 
-
-
 import Data.Bits
 import Data.Serialize as S
 import Data.Aeson
@@ -50,6 +48,10 @@ saplingToLegacy SaplingTx{..} = H.Tx{..} where txWitness = []
 
 nullTx :: SaplingTx
 nullTx = SaplingTx 4 [] [] 0
+
+saplingTx :: [H.OutPoint] -> [H.TxOut] -> SaplingTx
+saplingTx utxos outs = SaplingTx 4 ins outs 0
+  where ins = [H.TxIn u mempty maxBound | u <- utxos]
 
 instance Serialize SaplingTx where
   get = do

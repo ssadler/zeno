@@ -1,26 +1,40 @@
 
-module Zeno.Notariser.KMD where
+module Zeno.Notariser.Interfaces.KMD where
 
 import qualified Data.Map as Map
-import Data.Serialize as Ser
+import Data.Serialize
 import Network.Bitcoin
 import Network.Komodo
 import Network.ZCash.Sapling
 import qualified Haskoin as H
 
 import Network.Ethereum (Address, deriveEthAddress)
-import Zeno.Notariser.Types
-import Zeno.Prelude
 import Zeno.Consensus
 import Zeno.Console
+import Zeno.Notariser.Types
+import Zeno.Prelude
+import Zeno.Notariser.UTXO
 
 
 kmdInputAmount :: Word64
 kmdInputAmount = 9800
 
 
-notariseToKMD :: NotariserConfig -> NotarisationData -> Zeno EthNotariser ()
-notariseToKMD nc@NotariserConfig{..} ndata = do
+runKmdThreads :: Zeno EthNotariser ()
+runKmdThreads = do
+  forkMonitorUTXOs kmdInputAmount 5 20
+
+
+kmdDataOutputs :: NotariserConfig -> H.ScriptOutput -> ByteString -> [H.TxOut]
+kmdDataOutputs NotariserConfig{kmdNotarySigs} recip opret = 
+  let outputAmount = kmdInputAmount * (fromIntegral $ kmdNotarySigs - 1)
+   in [ H.TxOut outputAmount $ H.encodeOutputBS recip
+      , H.TxOut 0 $ H.encodeOutputBS $ H.DataCarrier opret
+      ]
+
+
+notariseToKMD :: NotariserConfig -> String -> [H.TxOut] -> Zeno EthNotariser H.TxHash
+notariseToKMD nc@NotariserConfig{..} label outputs = do
   KomodoIdent{..} <- asks has
 
   utxo <- waitForUtxo
@@ -28,9 +42,8 @@ notariseToKMD nc@NotariserConfig{..} ndata = do
   cparams <- getConsensusParams nc
   r <- ask :: Zeno EthNotariser EthNotariser
   let run = withContext (const r)
-  let opret = Ser.encode ndata
 
-  runConsensus "eth ⇒  kmd" cparams opret $ do
+  runConsensus label cparams outputs $ do
   
     proposal <- step "inputs" (collectWith $ proposeInputs kmdNotarySigs)
                               (kmdPubKeyI, getOutPoint utxo)
@@ -38,7 +51,7 @@ notariseToKMD nc@NotariserConfig{..} ndata = do
     Ballot _ _ utxos <- propose "inputs" $ pure proposal
   
     -- Sign tx and collect signed inputs
-    let partlySignedTx = signMyInput nc kmdSecKey utxos $ H.DataCarrier opret
+    let partlySignedTx = signMyInput nc kmdSecKey utxos outputs
         myInput = getMyInput utxo partlySignedTx
         waitCompileTx = collectWith $ collectTx partlySignedTx utxos
     finalTx <- step "sigs" waitCompileTx myInput
@@ -46,7 +59,7 @@ notariseToKMD nc@NotariserConfig{..} ndata = do
     _ <- step "confirm" collectMajority ()
   
     incStep "wait for tx confirm ..."
-    run $ submitNotarisation nc ndata finalTx
+    run $ submitNotarisation nc finalTx
 
 type UTXO = (H.PubKeyI, H.OutPoint)
 
@@ -96,21 +109,15 @@ waitForUtxo = do
           threadDelay $ 10 * 1000000
           getKomodoUtxo >>= maybe f pure
 
-notarisationRecip :: H.ScriptOutput
-notarisationRecip = H.PayPK "020e46e79a2a8d12b9b5d12c7a91adb4e454edfae43c0a0cb805427d2ac7613fd9"
-                    -- getAddrHash "RXL3YXG2ceaB6C5hfJcN4fvmLH2C34knhA"
-
 -- | Given selected UTXOs, compile a tx and sign own inputs, if any.
-signMyInput :: NotariserConfig -> H.SecKey -> Map Address UTXO -> H.ScriptOutput -> SaplingTx
-signMyInput NotariserConfig{..} wif mapIns opret = do
+signMyInput :: NotariserConfig -> H.SecKey -> Map Address UTXO -> [H.TxOut] -> SaplingTx
+signMyInput NotariserConfig{..} wif mapIns outputs = do
   let toSigIn (a, o) = H.SigInput (H.PayPK a) kmdInputAmount o H.sigHashAll Nothing
       ins = Map.elems mapIns
       inputs = toSigIn <$> ins
-      outputAmount = kmdInputAmount * (fromIntegral $ length ins - 1)
-      outputs = [(notarisationRecip, outputAmount), (opret, 0)]
-      etx = saplingFromLegacy <$> H.buildTx (snd <$> ins) outputs
+      tx = saplingTx (snd <$> ins) outputs
       signTx tx = signTxSapling komodo tx inputs [wif]
-   in either murphy id $ etx >>= signTx
+   in either murphy id $ signTx tx
 
 getMyInput :: KomodoUtxo -> SaplingTx -> Maybe H.TxIn
 getMyInput myUtxo SaplingTx{..} =
@@ -132,14 +139,17 @@ collectTx tx@SaplingTx{..} utxos threshold inventory = mtx
     opIdx = Map.fromList [(op, addr) | (addr, (_, op)) <- Map.toList utxos]
 
 
-submitNotarisation :: NotariserConfig -> NotarisationData -> SaplingTx -> Zeno EthNotariser ()
-submitNotarisation NotariserConfig{..} ndata tx = do
+submitNotarisation :: NotariserConfig -> SaplingTx -> Zeno EthNotariser H.TxHash
+submitNotarisation NotariserConfig{..} tx = do
   logInfo $ "Broadcast transaction: " ++ show (txHashSapling tx)
   -- TODO: Return the whole data structure from getrawtransaction
-  txHash <- bitcoinSubmitTxSync 1 tx
-  liftIO $ threadDelay $ 1 * 1000000
+  bitcoinSubmitTxSync 1 tx
 
-  -- Consistency check
+ 
+-- | Validate assumptions
+dpowCheck :: NotariserConfig -> H.TxHash -> NotarisationData -> Zeno EthNotariser ()
+dpowCheck NotariserConfig{..} txHash ndata = do
+  threadDelayS 1 -- We hope this isnt' neccesary
   height <- bitcoinGetTxHeight txHash >>=
     maybe (throwIO $ Inconsistent "Notarisation tx confirmed but could not get height") pure
   scanNotarisationsDB height kmdChainSymbol 1 >>=

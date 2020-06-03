@@ -1,6 +1,7 @@
 
 module Zeno.Consensus
   ( module Zeno.Consensus.Types
+  , Address
   , startSeedNode
   , withConsensusNode
   , runConsensus
@@ -21,6 +22,7 @@ import Zeno.Process
 import Zeno.Consensus.Types
 import Zeno.Consensus.Round
 import Zeno.Consensus.P2P
+import Network.Ethereum.Crypto.Address (Address)
 
 import Zeno.Prelude
 import Zeno.Console
