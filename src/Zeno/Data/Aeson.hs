@@ -2,6 +2,7 @@
 
 module Zeno.Data.Aeson
   ( module DA
+  , SerializeAeson(..)
   , StrictObject
   , withStrictObject
   , (.:-)
@@ -11,6 +12,8 @@ module Zeno.Data.Aeson
   ) where
 
 
+import           Control.Monad
+import qualified Data.Aeson as Aeson
 import           Data.Aeson as DA hiding (Key(..), Parser, encode, decode)
 import           Data.Aeson.Types as DA hiding (Key(..))
 import           Data.Aeson.Quick as DA (build, (.?), (.!), (.%))
@@ -21,6 +24,7 @@ import           Data.HashMap.Strict
 import qualified Data.Set as Set
 import           Data.Text
 import           Data.Text.Encoding
+import qualified Data.Serialize as S
 
 import           System.IO.Unsafe
 
@@ -33,6 +37,18 @@ fromJsonHex v = do
 
 toJsonHex :: ByteString -> Value
 toJsonHex = String . decodeUtf8 . B16.encode
+
+newtype SerializeAeson a = SerializeAeson { unSerializeAeson :: a }
+
+instance (ToJSON a, FromJSON a) => S.Serialize (SerializeAeson a) where
+  put = S.put . Aeson.encode . unSerializeAeson
+  get = do
+    bs <- S.get
+    either fail (pure . SerializeAeson) $ Aeson.eitherDecode bs
+
+--------------------------------------------------------------------------------
+-- Strict Object - An object where the parse operation must consume all keys
+--------------------------------------------------------------------------------
 
 data StrictObject = StrictObject Object (IORef (Set.Set Text))
 

@@ -40,7 +40,7 @@ withConsensusNode CNC{..} act = do
 startSeedNode :: NetworkConfig -> Bool -> IO ()
 startSeedNode nc useui = do
   let cnc = CNC [] nc
-  runZeno PlainLog () do
+  runZeno defaultLog () do
     withUI do
       withConsensusNode cnc $ threadDelay $ 2^62
   where

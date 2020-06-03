@@ -136,11 +136,11 @@ incStep label = do
 -- for a majority of timeout votes.
 propose :: forall a. BallotData a => String -> Consensus a -> Consensus (Ballot a)
 propose name mObj = do
-  determineProposers >>= go
+  determineProposers >>= go True
     where
-      go :: [(Address, Bool)] -> Consensus (Ballot a)
-      go [] = throwIO $ ConsensusTimeout "Ran out of proposers"
-      go ((pAddr, isMe):xs) = do
+      go :: Bool -> [(Address, Bool)] -> Consensus (Ballot a)
+      go _ [] = throwIO $ ConsensusTimeout "Ran out of proposers"
+      go primary ((pAddr, isMe):xs) = do
 
         major <- incStepNum
         minor <- incMinorStepNum
@@ -150,19 +150,22 @@ propose name mObj = do
              then logDebug ("Proposer is: %s (me)" % show pAddr) >> (Just <$> mObj)
              else logDebug ("Proposer is: %s" % show pAddr) >> pure Nothing
 
-        let nextProposer (ConsensusTimeout _) = do
-              logInfo $ "Timeout collecting for proposer: " ++ show pAddr
-              go xs
+        let
+          nextProposer (ConsensusTimeout _) = do
+            logInfo $ "Timeout collecting for proposer: " ++ show pAddr
+            evtProposerTimeout primary pAddr 
+            go False xs
+
+          name' = printf "propose %s" name
+
+          collect _ inv =
+            case Map.lookup pAddr inv of
+              Just (s, Just obj2) -> do
+                Just $ Ballot pAddr s obj2
+              Nothing -> Nothing
 
         handle nextProposer do
-          let name' = printf "propose %s" name
-          results <- step' name' (collectMembers [pAddr]) obj
-          case Map.lookup pAddr results of
-               Just (s, Just obj2) -> do
-                 pure $ Ballot pAddr s obj2
-                 -- TODO: collect should be a fold
-               Just (_, Nothing)   -> murphy "missing proposal"
-               Nothing -> error "Missing proposal; should not happen"
+          step' name' (collectWith collect) obj
 
 
 determineProposers :: Consensus [(Address, Bool)]
@@ -183,6 +186,11 @@ determineProposers = do
   let i = mod (msg2sum (roundId, n)) (length members')
       proposers = take 3 $ drop i $ cycle members'
   pure $ [(p, p == ethAddress ident') | p <- proposers]
+
+evtProposerTimeout :: Bool -> Address -> Consensus ()
+evtProposerTimeout isPrimary proposer = do
+  ConsensusParams{onProposerTimeout'} <- asks has
+  (maybe mempty id onProposerTimeout') isPrimary proposer
 
 -- Check Majority -------------------------------------------------------------
 

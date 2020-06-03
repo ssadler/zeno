@@ -43,7 +43,6 @@ dependencies:
 - memory
 - microlens-platform
 - monad-logger
-- msgpack
 - mtl
 - network
 - network-simple
@@ -66,24 +65,26 @@ dependencies:
 
 library:
   source-dirs: src
-  default-extensions:    OverloadedStrings
-                       , MultiParamTypeClasses
-                       , DataKinds
-                       , RecordWildCards
-                       , LambdaCase
-                       , FlexibleContexts
-                       , ScopedTypeVariables
-                       , DeriveGeneric
-                       , TemplateHaskell
+  default-extensions:    BangPatterns
                        , BlockArguments
-                       , NamedFieldPuns
-                       , TypeSynonymInstances
-                       , FlexibleInstances
-                       , GeneralizedNewtypeDeriving
-                       , BangPatterns
                        , ConstraintKinds
+                       , DataKinds
+                       , DeriveGeneric
+                       , DerivingStrategies
+                       , DerivingVia
+                       , FlexibleContexts
+                       , FlexibleInstances
                        , FunctionalDependencies
+                       , GeneralizedNewtypeDeriving
+                       , OverloadedStrings
+                       , LambdaCase
+                       , MultiParamTypeClasses
+                       , NamedFieldPuns
+                       , RecordWildCards
+                       , ScopedTypeVariables
+                       , TemplateHaskell
                        , TupleSections
+                       , TypeSynonymInstances
 
   c-sources: cbits/blake2_personalized.c
   when:

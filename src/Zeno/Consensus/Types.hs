@@ -14,6 +14,7 @@ import           Network.Ethereum.Crypto
 import           GHC.Generics (Generic)
 import           UnliftIO
 
+import           Zeno.Data.Aeson
 import           Zeno.Data.FixedBytes
 import           Zeno.Prelude
 import           Zeno.Process
@@ -101,9 +102,10 @@ type AuthenticatedStepMessage i = RemoteMessage (CompactRecSig, StepMessage i)
 type Timeout = Int
 
 data ConsensusParams = ConsensusParams
-  { members' :: [Address]
-  , ident' :: EthIdent
-  , timeout' :: Timeout
+  { members'           :: [Address]
+  , ident'             :: EthIdent
+  , timeout'           :: Timeout
+  , onProposerTimeout' :: Maybe (Bool -> Address -> Consensus ())
   }
 
 instance Has EthIdent ConsensusParams where has = ident'
@@ -128,3 +130,20 @@ withTimeout :: Int -> Consensus a -> Consensus a
 withTimeout t =
   local $
     \c -> c { ccParams = (ccParams c) { timeout' = t } }
+
+
+--------------------------------------------------------------------------------
+-- Stats types
+--------------------------------------------------------------------------------
+
+data ProposerTimeout = ProposerTimeout
+  { roundId :: RoundId
+  , stepNum :: String
+  , proposer :: Address
+  } deriving (Show, Generic)
+    deriving Serialize via (SerializeAeson ProposerTimeout)
+ 
+instance ToJSON ProposerTimeout
+instance FromJSON ProposerTimeout
+
+

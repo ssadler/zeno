@@ -27,9 +27,13 @@ data UIProcess
   deriving (Show)
 
 -- A bit mental, why not data with level, handle and maybe statusbar
-data Console
-  = PlainLog
-  | Fancy (TBQueue ConsoleCtrl)
-  | FilteredLog LogLevel Console
+data Console = Console
+  { logLevel :: LogLevel
+  , statusBar :: Maybe (TBQueue ConsoleCtrl)
+  , writeStatusEvents :: Bool
+  }
 
+consoleWarn = Console LevelWarn Nothing False
+
+defaultLog = Console LevelDebug Nothing False
 

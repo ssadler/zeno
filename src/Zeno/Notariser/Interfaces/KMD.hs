@@ -1,5 +1,11 @@
 
-module Zeno.Notariser.Interfaces.KMD where
+module Zeno.Notariser.Interfaces.KMD
+  ( notariseToKMD
+  , runKmdThreads
+  , kmdDataOutputs
+  , dpowCheck
+  , waitKmdNotariseHeight
+  ) where
 
 import qualified Data.Map as Map
 import Data.Serialize

@@ -19,7 +19,7 @@ import Zeno.Prelude
 
 runNotariseKmdToEth :: PubKey -> Address -> ConsensusNetworkConfig -> GethConfig -> FilePath -> Bool -> IO ()
 runNotariseKmdToEth pk gateway networkConfig gethConfig kmdConfPath useui = do
-  runZeno PlainLog () do
+  runZeno defaultLog () do
     let withUI = if useui then withConsoleUI LevelInfo else id
     withUI do
       threadDelay 1000000

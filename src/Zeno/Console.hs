@@ -37,12 +37,10 @@ import System.Exit
 sendUI :: ConsoleEvent -> Zeno r ()
 sendUI evt = do
   getConsole >>=
-    \c' ->
-      fix1 c' \f ->
-        \case
-          FilteredLog _ console -> f console
-          Fancy chan -> atomically (writeTBQueue chan $ UIEvent evt)
-          _ -> mempty
+    \case
+      Console _ (Just chan) True ->
+        atomically (writeTBQueue chan $ UIEvent evt)
+      _ -> pure ()
 
 withUIProc :: UIProcess -> Zeno r a -> Zeno r a
 withUIProc proc act = do
@@ -131,14 +129,13 @@ runConsoleUI proc = do
 withConsoleUI :: LogLevel -> Zeno r a -> Zeno r a
 withConsoleUI level act = do
   proc <- spawn "UI" runConsoleUI
-  let wrap = if level == LevelDebug then id else FilteredLog level
-  let console = wrap $ Fancy $ procMbox proc
+  let console = Console level (Just $ procMbox proc) True
   localZeno (\app -> app { appConsole = console }) act
 
 
 testConsole :: IO ()
 testConsole = do
-  runZeno PlainLog () do
+  runZeno defaultLog () do
     withConsoleUI LevelDebug do
       forM_ [0..] \i -> do
         sendUI $ UI_Peers i

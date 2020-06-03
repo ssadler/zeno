@@ -45,6 +45,7 @@ import Data.List as ALL (elemIndex, find, findIndex, sort, sortOn)
 import Data.Map as ALL (Map)
 import Data.Maybe as ALL
 import Data.Monoid as ALL
+import qualified Data.Serialize as S
 import Data.Set as ALL (Set)
 import Data.String.Conv as ALL
 import Data.String as ALL (IsString, fromString)
