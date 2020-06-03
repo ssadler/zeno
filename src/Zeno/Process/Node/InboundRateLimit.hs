@@ -8,11 +8,10 @@ module Zeno.Process.Node.InboundRateLimit
   , testInboundConnectionLimit
   ) where
 
+import Data.Word
 import Control.Monad
 import Control.Monad.Catch
-import Network.Socket (HostAddress)
 import Test.DejaFu
-import Test.DejaFu.Conc.Internal.Common
 import Test.DejaFu.Conc.Internal.STM
 
 import Control.Monad.Conc.Class
@@ -20,10 +19,10 @@ import Control.Concurrent.Classy hiding (wait)
 import Control.Concurrent.Classy.Async
 import Control.Concurrent.Classy.MVar
 
-import Network.Socket (HostAddress)
 import qualified Data.Map as Map
 
 
+type HostAddress = Word32
 type ReceiverMap m = TVar (STM m) (Map.Map HostAddress (Async m ()))
 type ClassyAsync = Async IO
 classyAsync :: MonadConc m => m a -> m (Async m a)
@@ -43,8 +42,10 @@ inboundConnectionLimit
 inboundConnectionLimit mreceivers ip asnc act = do
   finally
     do
-      mapM_ cancel =<< atomically do
-        lookupAsync ip mreceivers <* insertAsync ip asnc mreceivers
+      r <- atomically do
+        lookupAsync ip mreceivers <*
+          insertAsync ip asnc mreceivers
+      mapM_ cancel r -- Synchronously cancel
       act
     do
       atomically do
@@ -70,16 +71,17 @@ testInboundConnectionLimit = withSetup setup \sem -> do
 
   mreceivers <- atomically (newTVar mempty)
 
-  asyncs <- forM [0..1] \i -> do
+  asyncs <- forM [0..2] \i -> do
       handoff <- newEmptyMVar
       asnc <- async do
         me <- takeMVar handoff
         inboundConnectionLimit mreceivers 0 me do
           finally
-            (do
+            do
                atomically $ modifyTVar sem (+1)
-               threadDelay 1)
-            (do atomically (modifyTVar sem (subtract 1)))
+               -- threadDelay 1                                      Test breaks if uncommented.
+               --                                 https://github.com/barrucadu/dejafu/issues/323
+            do atomically (modifyTVar sem (subtract 1))
       putMVar handoff asnc
       pure asnc
 
@@ -91,7 +93,7 @@ testInboundConnectionLimit = withSetup setup \sem -> do
     single <- atomically $ newTVar 0
     registerInvariant do
       n <- inspectTVar single
-      when (n > 1) $ throwM TooManyThreads -- error "too many threads"
+      when (n > 1) $ error "too many threads"
       pure ()
     pure single
 
