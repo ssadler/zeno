@@ -44,6 +44,7 @@ dependencies:
 - microlens-platform
 - monad-logger
 - msgpack
+- msgpack-aeson
 - mtl
 - network
 - network-simple

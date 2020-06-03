@@ -2,6 +2,7 @@
 
 module Zeno.Data.Aeson
   ( module DA
+  , MessagePack(..)
   , StrictObject
   , withStrictObject
   , (.:-)
@@ -14,6 +15,8 @@ module Zeno.Data.Aeson
 import           Data.Aeson as DA hiding (Key(..), Parser, encode, decode)
 import           Data.Aeson.Types as DA hiding (Key(..))
 import           Data.Aeson.Quick as DA (build, (.?), (.!), (.%))
+import qualified Data.MessagePack as Msgpack
+import qualified Data.MessagePack.Aeson as Msgpack
 import           Data.ByteString (ByteString)
 import qualified Data.ByteString.Base16 as B16
 import           Data.IORef
@@ -21,6 +24,7 @@ import           Data.HashMap.Strict
 import qualified Data.Set as Set
 import           Data.Text
 import           Data.Text.Encoding
+import qualified Data.Serialize as S
 
 import           System.IO.Unsafe
 
@@ -33,6 +37,26 @@ fromJsonHex v = do
 
 toJsonHex :: ByteString -> Value
 toJsonHex = String . decodeUtf8 . B16.encode
+
+--------------------------------------------------------------------------------
+-- MessagePack adapters
+--------------------------------------------------------------------------------
+
+newtype MessagePack a = MessagePack a
+
+instance (ToJSON a, FromJSON a) => S.Serialize (MessagePack a) where
+  put (MessagePack a) = S.put $ Msgpack.pack $ Msgpack.fromAeson $ toJSON a
+  get = do
+    bs <- S.get
+    msg <- maybe (fail "cannot decode msgpack") pure $ Msgpack.unpack bs
+    val <- maybe (fail "cannot convert msgpack to json") pure $ Msgpack.toAeson msg
+    case fromJSON val of
+      Error s -> fail s
+      Success a -> pure $ MessagePack a
+
+--------------------------------------------------------------------------------
+-- Strict Object - An object where the parse operation must consume all keys
+--------------------------------------------------------------------------------
 
 data StrictObject = StrictObject Object (IORef (Set.Set Text))
 
