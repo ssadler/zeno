@@ -104,6 +104,9 @@ executables:
     - -threaded
     - -rtsopts
     - -with-rtsopts=-N
+    - -dcore-lint
+    - -debug
+    - -g
     dependencies:
     - zeno
 
