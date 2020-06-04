@@ -45,7 +45,6 @@ import Data.List as ALL (elemIndex, find, findIndex, sort, sortOn)
 import Data.Map as ALL (Map)
 import Data.Maybe as ALL
 import Data.Monoid as ALL
-import qualified Data.Serialize as S
 import Data.Set as ALL (Set)
 import Data.String.Conv as ALL
 import Data.String as ALL (IsString, fromString)
@@ -131,8 +130,10 @@ fix2 a b f = fix f a b
 
 timeDelta :: MonadIO m => UTCTime -> m Int
 timeDelta t = f <$> liftIO getCurrentTime where
-  f now = round . (* 1000000) . realToFrac $ diffUTCTime now t
+  f now = round . (* 1000000) . toDouble $ diffUTCTime now t
 
+toDouble :: Real i => i -> Double
+toDouble = realToFrac
 
 timeoutSTM :: MonadIO m => Int -> STM a -> m (Maybe a)
 timeoutSTM us act = do

@@ -6,7 +6,6 @@
 
 module Zeno.Monad where
 
-import Control.Exception.Safe (MonadMask)
 import Control.Monad.Catch as Catch hiding (bracket)
 import Control.Monad.Logger
 import Control.Monad.Reader
@@ -14,7 +13,6 @@ import Control.Monad.Trans.Resource as ResourceT
 import UnliftIO
 
 import Zeno.Logging
-import Zeno.Console.Types
 
 --------------------------------------------------------------------------------
 -- | Zeno App context
@@ -103,12 +101,12 @@ instance MonadMask (Zeno r) where
       Catch.uninterruptibleMask \unmask ->
         unZeno (withUnmask $ \z -> Zeno \f' app' -> unmask $ unZeno z f' app') f app
 
-  generalBracket allocate release inner = Zeno
+  generalBracket allocate' release' inner = Zeno
     \f app -> do
       f app =<<
-           generalBracket (         unZeno allocate       (\_ -> pure) app)
-                          (\a ec -> unZeno (release a ec) (\_ -> pure) app)
-                          (\a    -> unZeno (inner a)      (\_ -> pure) app)
+           generalBracket (         unZeno allocate'       (\_ -> pure) app)
+                          (\a ec -> unZeno (release' a ec) (\_ -> pure) app)
+                          (\a    -> unZeno (inner a)       (\_ -> pure) app)
 
 instance MonadThrow (Zeno r) where
   throwM e = Zeno \_ _ -> throwM e

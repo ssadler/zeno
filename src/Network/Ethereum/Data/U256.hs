@@ -13,14 +13,15 @@ newtype U256 = U256 { unU256 :: Integer }
   deriving (Eq, Ord, Enum, Num, Integral, Real, RLPEncodable)
 
 instance FromJSON U256 where
+  {-# INLINABLE parseJSON #-}
   parseJSON v = do
-    let toDec c = maybe (fail "Invalid hex char") pure $
-          lookup c $ zip "0123456789abcdef" [0..]
-        un a b = a * 16 + fromIntegral b
     (pre, body) <- splitAt 2 <$> parseJSON v
     r <- foldl un 0 <$> mapM toDec body
     if pre == "0x" then pure $ U256 r else fail "Invalid hex prefix"
-  {-# INLINABLE parseJSON #-}
+    where
+    un :: Integer -> Integer -> Integer
+    un a b = a * 16 + (fromIntegral b :: Integer)
+    toDec c = maybe (fail "Invalid hex char") pure $ lookup c $ zip "0123456789abcdef" [0..]
 
 instance ToJSON U256 where
   toJSON (U256 n) =

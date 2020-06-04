@@ -31,7 +31,6 @@ module Zeno.Data.FixedBytes
   ) where
 
 
-import           Control.Monad (replicateM)
 import           Data.Aeson
 import           Data.Proxy as Out (Proxy(..))
 import qualified Data.ByteString as BS
@@ -48,8 +47,6 @@ import qualified Data.RLP as RLP
 import           GHC.TypeLits
 import           Text.Printf
 
-import           Unsafe.Coerce
-
 
 -- Bytes type -----------------------------------------------------------------
 --
@@ -60,7 +57,7 @@ instance Show (FixedBytes n) where
   show = BS8.unpack . B16.encode . unFixed
 
 instance forall n. KnownNat n => Read (FixedBytes n) where
-  readsPrec p s = [(fromString s, "")]
+  readsPrec _ s = [(fromString s, "")]
 
 instance forall n. KnownNat n => IsString (FixedBytes n) where
   fromString = either error id . bytesFromHex . BS8.pack

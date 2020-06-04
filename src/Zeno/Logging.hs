@@ -8,7 +8,6 @@ module Zeno.Logging
   , logError
   , logWarn
   , logMurphy
-  , logTime
   , logMessage
   , AsString
   , asString
@@ -21,8 +20,6 @@ import Data.Aeson
 import qualified Data.ByteString.Char8 as BS8
 import Data.ByteString.Lazy (toStrict)
 import Data.String (fromString)
-import Data.String.Conv
-import Data.Text (Text)
 import Data.Time.Clock
 import Data.Time.Format
 import Control.Monad.Logger as LOG hiding (logDebug, logInfo, logError, logWarn)
@@ -35,6 +32,7 @@ import Zeno.Console.Types as LOG
 
 logDebug :: MonadLogger m => String -> m ()
 logDebug = logDebugN . fromString
+
 
 logInfo :: MonadLogger m => String -> m ()
 logInfo = logInfoN . fromString
@@ -57,6 +55,7 @@ instance AsString BS8.ByteString where
 instance AsString Value where
   asString = asString . toStrict . encode
 
+
 getLogMessage :: Loc -> LogSource -> LogLevel -> LogStr -> IO BS8.ByteString
 getLogMessage loc source level str = do
   t <- formatTime defaultTimeLocale "[%T]" <$> getCurrentTime
@@ -69,15 +68,6 @@ logMessage (Console lvlFilter mstatus _) loc source level msg = do
     case mstatus of
       Just queue -> atomically $ writeTBQueue queue $ UILog line
       Nothing -> BS8.putStr line *> hFlush stdout
-
-logTime :: (MonadIO m, MonadLogger m) => String -> m a -> m a
-logTime s act = do
-  startTime <- liftIO $ getCurrentTime
-  r <- act
-  endTime <- liftIO $ getCurrentTime
-  let t = diffUTCTime endTime startTime
-  logDebug $ s ++ " took: " ++ (show $ round $ (realToFrac t) * 1000) ++ "ms"
-  pure r
 
 
 pf :: QuasiQuoter

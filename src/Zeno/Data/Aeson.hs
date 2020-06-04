@@ -12,10 +12,9 @@ module Zeno.Data.Aeson
   ) where
 
 
-import           Control.Monad
 import qualified Data.Aeson as Aeson
-import           Data.Aeson as DA hiding (Key(..), Parser, encode, decode)
-import           Data.Aeson.Types as DA hiding (Key(..))
+import           Data.Aeson as DA hiding (encode, decode)
+import           Data.Aeson.Types as DA
 import           Data.Aeson.Quick as DA (build, (.?), (.!), (.%))
 import           Data.ByteString (ByteString)
 import qualified Data.ByteString.Base16 as B16

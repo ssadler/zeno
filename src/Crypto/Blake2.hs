@@ -4,7 +4,6 @@ module Crypto.Blake2
   ) where
 
 
-import qualified Data.ByteString.Base16 as B16
 import Data.ByteArray as B
 import Data.ByteString as BS
 import Data.Word

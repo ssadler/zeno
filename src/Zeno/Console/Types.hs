@@ -2,7 +2,6 @@
 module Zeno.Console.Types where
 
 import qualified Data.ByteString.Char8 as BS8
-import Lens.Micro.Platform
 import UnliftIO
 import Control.Monad.Logger (LogLevel(..))
 
@@ -32,8 +31,10 @@ data Console = Console
   , writeStatusEvents :: Bool
   }
 
+consoleWarn :: Console
 consoleWarn = Console LevelWarn Nothing False
 
+defaultLog :: Console
 defaultLog = Console LevelDebug Nothing False
 
 

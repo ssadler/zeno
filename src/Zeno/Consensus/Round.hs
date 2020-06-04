@@ -1,7 +1,3 @@
-{-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE MonoLocalBinds #-}
-{-# LANGUAGE ScopedTypeVariables #-}
 
 module Zeno.Consensus.Round
   ( step
@@ -91,7 +87,6 @@ spawnChildRound :: Serialize a
                 => String -> ConsensusParams -> a -> Consensus () -> Consensus ()
 spawnChildRound label ccParams entropy act = do
 
-  -- TODO: when you have to do this lens has become a neccesary evil
   localZeno filterLogWarn do
     proc <- spawn label \_ -> runConsensus label ccParams entropy act
     ConsensusContext{..} <- ask
