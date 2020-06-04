@@ -11,6 +11,8 @@ import qualified StmContainers.Map as STM
 import Network.Simple.TCP
 import Network.Socket (SockAddr(..), HostAddress, hostAddressToTuple, getSocketName)
 
+import System.Posix.Signals
+
 import UnliftIO
 import UnliftIO.Concurrent
 
@@ -24,6 +26,7 @@ import Zeno.Process.Spawn
 withNode :: NetworkConfig -> Zeno Node a -> Zeno () a
 withNode (NetworkConfig host port) act = do
   withRunInIO \rio -> do
+    setupSignals
     listen host (show port) $ \(server, serverAddr) -> do
       node <- mkNode server
       rio do
@@ -60,6 +63,11 @@ withNode (NetworkConfig host port) act = do
     logDiedSync (show sockAddr) do
       limitInboundConnections node sockAddr asnc $
         runConnection node sock
+
+  setupSignals = do
+    -- http://hackage.haskell.org/package/network-2.6.0.2/docs/Network.html#g:10
+    installHandler sigPIPE Ignore Nothing 
+
 
 limitInboundConnections :: Node -> SockAddr -> Async () -> (HostAddress -> Zeno () a) -> Zeno () a
 limitInboundConnections Node{..} sockAddr asnc act = do
