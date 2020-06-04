@@ -36,7 +36,6 @@ data ConsensusContext = ConsensusContext
   , ccParams   :: ConsensusParams
   , ccEntropy  :: Bytes32
   , ccStepNum  :: TVar StepNum
-  , ccChildren :: TVar [Process ()]
   }
 instance Has ConsensusNode ConsensusContext where has = ccNode
 instance Has Node ConsensusContext where has = has . ccNode
@@ -73,12 +72,17 @@ getRoundId = do
   entropy <- asks ccEntropy
   pure $ toFixedR $ unFixed entropy
 
+getMyAddress :: Consensus Address
+getMyAddress = asks $ ethAddress . ident' . ccParams
+
 
 data Ballot a = Ballot
   { bMember :: Address
   , bSig :: CompactRecSig
   , bData :: a
   } deriving (Show, Generic)
+
+type BallotData a = (Typeable a, Serialize a)
 
 instance Serialize a => Serialize (Ballot a)
 
@@ -107,7 +111,7 @@ data ConsensusParams = ConsensusParams
   { members'           :: [Address]
   , ident'             :: EthIdent
   , timeout'           :: Timeout
-  , onProposerTimeout' :: Maybe (Bool -> ProposerTimeout -> Consensus ())
+  , onProposerTimeout' :: Maybe (ProposerTimeout -> IO ())
   }
 
 instance Has EthIdent ConsensusParams where has = ident'
@@ -148,4 +152,5 @@ data ProposerTimeout = ProposerTimeout
 instance ToJSON ProposerTimeout
 instance FromJSON ProposerTimeout
 
-
+newtype ProposerSequence = ProposerSequence Int
+  deriving (Show, Eq, Ord, Num)

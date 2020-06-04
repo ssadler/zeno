@@ -18,32 +18,22 @@ import Zeno.Notariser.Types
 import Zeno.Prelude
 
 
-notariseKmdDpow :: NotariserConfig -> NotarisationData -> Zeno EthNotariser ()
-notariseKmdDpow nc@NotariserConfig{..} ndata = do
-  cparams <- getConsensusParams nc
-  txhash <- notariseToKMD nc cparams "eth ⇒  kmd" outputs
-  dpowCheck nc txhash ndata
-  where
-  outputs = kmdDataOutputs outputAmount dpowRecip $ encode ndata
-  outputAmount = kmdInputAmount -- Miners get the majority
-  dpowRecip = H.PayPK "020e46e79a2a8d12b9b5d12c7a91adb4e454edfae43c0a0cb805427d2ac7613fd9"
-
-
-notariseToKMD :: NotariserConfig -> ConsensusParams -> String -> [H.TxOut] -> Zeno EthNotariser H.TxHash
-notariseToKMD nc@NotariserConfig{..} cparams label outputs = do
-  KomodoIdent{..} <- asks has
-
+notariseKmdDpow :: NotariserConfig -> ProposerSequence -> NotarisationData -> Zeno EthNotariser ()
+notariseKmdDpow nc@NotariserConfig{..} seq ndata = do
   utxo <- waitForUtxo
+  KomodoIdent{..} <- asks has
+  cparams <- getConsensusParams nc
+  let label = "eth ⇒  kmd"
 
   r <- ask :: Zeno EthNotariser EthNotariser
   let run = withContext (const r)
 
-  runConsensus label cparams outputs $ do
+  txhash <- runConsensus label cparams outputs $ do
   
     proposal <- step "inputs" (collectWith $ proposeInputs kmdNotarySigs)
                               (kmdPubKeyI, getOutPoint utxo)
 
-    Ballot _ _ utxos <- propose "inputs" $ pure proposal
+    Ballot _ _ utxos <- propose "inputs" (Just seq) $ pure proposal
   
     -- Sign tx and collect signed inputs
     let partlySignedTx = signMyInput nc kmdSecKey utxos outputs
@@ -55,6 +45,13 @@ notariseToKMD nc@NotariserConfig{..} cparams label outputs = do
   
     incStep "wait for tx confirm ..."
     run $ submitNotarisation nc finalTx
+
+  dpowCheck nc txhash ndata
+
+  where
+  outputs = kmdDataOutputs outputAmount dpowRecip $ encode ndata
+  outputAmount = kmdInputAmount -- Miners get the majority
+  dpowRecip = H.PayPK "020e46e79a2a8d12b9b5d12c7a91adb4e454edfae43c0a0cb805427d2ac7613fd9"
 
 type UTXO = (H.PubKeyI, H.OutPoint)
 
@@ -83,26 +80,6 @@ waitKmdNotariseHeight interval lastHeight = do
            if curHeight < nextHeight
               then f
               else pure nextHeight
-
-
-getKomodoUtxo :: Zeno EthNotariser (Maybe KomodoUtxo)
-getKomodoUtxo = do
-  kmdAddress <- asks $ kmdAddress . has
-  listToMaybe . choose <$> komodoUtxos [kmdAddress]
-  where
-  choose = reverse . sortOn (\c -> (utxoConfirmations c, utxoTxid c))
-                   . filter ((== kmdInputAmount) . utxoAmount)
-
-waitForUtxo :: Zeno EthNotariser KomodoUtxo
-waitForUtxo = do
-  getKomodoUtxo >>= \case
-    Just u -> pure u
-    Nothing -> do
-      logWarn "Waiting for UTXOs"
-      withUIProc (UIOther "Waiting for UTXOs") do
-        fix \f -> do
-          threadDelay $ 10 * 1000000
-          getKomodoUtxo >>= maybe f pure
 
 -- | Given selected UTXOs, compile a tx and sign own inputs, if any.
 signMyInput :: NotariserConfig -> H.SecKey -> Map Address UTXO -> [H.TxOut] -> SaplingTx

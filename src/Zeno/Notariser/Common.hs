@@ -13,7 +13,6 @@ import Network.Komodo
 import Network.ZCash.Sapling
 
 import Zeno.Data.Aeson
-import Zeno.Notariser.Stats
 import Zeno.Notariser.Types
 import Zeno.Consensus
 import Zeno.Prelude
@@ -25,7 +24,7 @@ import Data.Time.Calendar
 
 
 getConsensusParams :: NotariserConfig -> Zeno EthNotariser ConsensusParams
-getConsensusParams NotariserConfig{..} = do
+getConsensusParams nc@NotariserConfig{..} = do
   ident <- asks has
   let members' = members
       ident' = ident

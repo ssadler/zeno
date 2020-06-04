@@ -44,8 +44,10 @@ sendUI evt = do
 
 withUIProc :: UIProcess -> Zeno r a -> Zeno r a
 withUIProc proc act = do
-  sendUI $ UI_Process $ Just proc
-  finally act $ sendUI $ UI_Process Nothing
+  mask $ \unmask -> do
+    sendUI $ UI_Process $ Just proc
+    finally (unmask act)
+            (sendUI $ UI_Process Nothing)
 
 
 data UI = UI

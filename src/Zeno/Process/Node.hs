@@ -56,8 +56,9 @@ withNode (NetworkConfig host port) act = do
         handoff <- newEmptyTMVarIO
         atomically . putTMVar handoff =<<
           classyAsync do
-            let go = atomically (takeTMVar handoff) >>= rio . act client
-            finally go $ closeSock $ fst client
+            finally
+              do atomically (takeTMVar handoff) >>= rio . act client
+              do closeSock $ fst client
 
   wrapRunConn node s@(sock, sockAddr) asnc = do
     -- TODO: logDebug new connections

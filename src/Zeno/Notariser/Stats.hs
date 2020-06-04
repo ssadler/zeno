@@ -2,6 +2,8 @@
 module Zeno.Notariser.Stats where
 
 import Data.Serialize
+import Data.Time.Clock
+import Data.Time.Calendar
 
 import qualified Haskoin as H
 
@@ -9,44 +11,65 @@ import Network.Bitcoin
 import Network.Komodo
 import Network.ZCash.Sapling
 
+import UnliftIO
+
 import Zeno.Data.Aeson
 import Zeno.Notariser.Types
+import Zeno.Notariser.Common
 import Zeno.Notariser.Common.KMD
 import Zeno.Consensus
 import Zeno.Prelude
 import Zeno.Process
 
-import Data.Time.Clock
-import Data.Time.Calendar
-
 
 outputAmount :: Word64
-outputAmount = 1000 -- High enough not to trigger dust threshold
+outputAmount = 1000 -- High enough not to look like dust hopefully
 
 
-forkRecordProposerTimeout :: NotariserConfig -> Bool -> ProposerTimeout -> Consensus ()
-forkRecordProposerTimeout _  False _ = logWarn "Timeout of fallback proposer"
-forkRecordProposerTimeout nc True proposerTimeout = do
-  roundId <- getRoundId
-  cparams <- asks ccParams <&> \cp -> cp { onProposerTimeout' = Nothing }
-  let label = "proposer timeout: " ++ show roundId
-  t <- liftIO getCurrentTime
-  let addr = statsAddress "proposer timeout" $ utctDay t
-  let outputs = kmdDataOutputs outputAmount addr $ encode proposerTimeout
-  
-  spawnChildRound label cparams proposerTimeout do
-    tx <- step "tx sigs" (collectWith $ collectTx outputs)
-                         (sha256b $ encode outputs)
-    (Ballot _ _ chosenTx) <- propose "tx sender" $ pure tx
-    undefined
+getConsensusParamsWithStats :: NotariserConfig -> Zeno EthNotariser ConsensusParams
+getConsensusParamsWithStats nc = do
+  -- Importantly, this captures the resource context so that any thread spawned
+  -- will be a child of the current thread, not the thread where the action
+  -- is called.
+  params <- getConsensusParams nc
+  rio <- askRunInIO
+  let opt = rio . forkRecordProposerTimeout nc
+  pure $ params { onProposerTimeout' = Just opt }
 
-    -- txid <- bitcoinSubmitTxSync 0 chosenTx
-    -- logInfo $ "Posted stats: \"%s\" (%s)" % (label, show txid)
+
+forkRecordProposerTimeout :: NotariserConfig -> ProposerTimeout -> Zeno EthNotariser ()
+forkRecordProposerTimeout nc proposerTimeout = do
+
+  let label = "proposer timeout: " ++ show (roundId proposerTimeout)
+  spawnNoHandle label do
+
+    utxo <- waitForUtxo
+    KomodoIdent{..} <- asks has
+    t <- liftIO getCurrentTime
+
+    let
+      markerAddr = statsAddress "proposer timeout" $ utctDay t
+      payload = encode proposerTimeout
+      outputsToSign = kmdDataOutputs outputAmount markerAddr payload
+      collect = collectWith \t inv -> do
+        guard $ length inv >= t
+        let sigs = [s | (s, _) <- toList inv]
+        let signedPayload = encode (sigs, proposerTimeout)
+        let outputs' = kmdDataOutputs outputAmount markerAddr signedPayload
+        let outpoint = getOutPoint utxo
+        let tx = saplingTx [outpoint] outputs'
+        let sigIn = H.SigInput (H.PayPK kmdPubKeyI) kmdInputAmount outpoint H.sigHashAll Nothing
+        let signed = either murphy id $ signTxSapling komodo tx [sigIn] [kmdSecKey]
+        Just signed
     
+    cparams <- getConsensusParams nc
+    (Ballot _ _ chosenTx) <- 
+      runConsensus label cparams proposerTimeout do
+        tx <- step "tx sigs" collect (sha256b $ encode outputsToSign)
+        propose "tx sender" Nothing $ pure tx
 
-collectTx :: [H.TxOut] -> Int -> Inventory Bytes32 -> Maybe SaplingTx
-collectTx = undefined
-
+    txid <- bitcoinSubmitTxSync 0 chosenTx
+    logInfo $ "Posted stats: \"%s\" (%s)" % (label, show txid)
 
 
 statsAddress :: String -> Day -> H.ScriptOutput

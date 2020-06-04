@@ -81,9 +81,9 @@ notariserStep nc@NotariserConfig{..} = do
 
   go Nothing = do
     logInfo "No prior notarisations found"
-    forward 0
+    forward 0 0
 
-  go (Just ethnota@NOE{..}) = do
+  go (Just (ethnota@NOE{..}, sequence)) = do
     logDebug $ "Found notarisation on ETH for %s height %i" % (kmdChainSymbol, foreignHeight)
 
     getLastNotarisation kmdChainSymbol >>=
@@ -91,26 +91,30 @@ notariserStep nc@NotariserConfig{..} = do
         Just (Notarisation _ _ (BND NOR{..}))
           | blockNumber == foreignHeight -> do
             logDebug "Found backnotarisation, proceed with next notarisation"
-            forward foreignHeight
+            forward sequence foreignHeight
           | blockNumber > foreignHeight -> do
             logError $ show NOR{..}
             logError $ show ethnota
             logError "The backnotarised height in KMD is higher than the notarised\
                      \ height in ETH. Is ETH node is lagging? Proceeding anyway."
-            forward foreignHeight
+            forward sequence foreignHeight
 
         _ -> do
           logDebug "Backnotarisation not found, proceed to backnotarise"
           opret <- getBackNotarisation nc ethnota
-          notariseKmdDpow nc opret
+          let seq = shiftSequence 2 sequence
+          notariseKmdDpow nc seq opret
 
-  forward lastNotarisedHeight = do
+  forward sequence lastNotarisedHeight = do
       newHeight <- waitKmdNotariseHeight kmdBlockInterval lastNotarisedHeight
-      notariseToETH nc newHeight
+      notariseToETH nc sequence newHeight
+
+  shiftSequence n seq =
+    seq + ProposerSequence (quot (length members) n)
 
 
-notariseToETH :: NotariserConfig -> Word32 -> Zeno EthNotariser ()
-notariseToETH nc@NotariserConfig{..} height32 = do
+notariseToETH :: NotariserConfig -> ProposerSequence -> Word32 -> Zeno EthNotariser ()
+notariseToETH nc@NotariserConfig{..} seq height32 = do
 
   let height = fromIntegral height32
   logDebug $ "Notarising from block %i" % height
@@ -139,7 +143,7 @@ notariseToETH nc@NotariserConfig{..} height32 = do
 
     let proxyCallData = ethMakeProxyCallData proxyParams (bSig <$> unInventory sigBallots)
         buildTx = run $ ethMakeNotarisationTx nc proxyCallData
-    ballot@(Ballot proposer _ tx) <- propose "tx sender" buildTx
+    ballot@(Ballot proposer _ tx) <- propose "tx sender" (Just seq) buildTx
     run $ checkTxProposed ballot
 
     -- There's a bit of an open question here: A single node is selected to create the transaction,
@@ -180,13 +184,14 @@ ethMakeNotarisationTx NotariserConfig{..} callData = do
   pure $ signTx sk tx
 
 
-getLastNotarisationOnEth :: NotariserConfig -> Zeno EthNotariser (Maybe NotarisationOnEth)
+getLastNotarisationOnEth :: NotariserConfig
+                         -> Zeno EthNotariser (Maybe (NotarisationOnEth, ProposerSequence))
 getLastNotarisationOnEth NotariserConfig{..} = do
-  r <- ethCallABI notarisationsContract "getLastNotarisation()" ()
+  (r, sequence) <- ethCallABI notarisationsContract "getLastNotarisation()" ()
   pure $
     case r of
       NOE 0 _ _ _ -> Nothing
-      noe -> Just noe
+      _ -> Just (r, ProposerSequence sequence)
 
 
 getBackNotarisation :: NotariserConfig -> NotarisationOnEth -> Zeno EthNotariser NotarisationData

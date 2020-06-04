@@ -41,6 +41,7 @@ import qualified Data.ByteString.Lazy as BSL (ByteString)
 import Data.ByteString.Short as ALL (ShortByteString, toShort, fromShort)
 import Data.Either as ALL (fromRight)
 import Data.Function as ALL (fix)
+import Data.Foldable as ALL (toList)
 import Data.List as ALL (elemIndex, find, findIndex, sort, sortOn)
 import Data.Map as ALL (Map)
 import Data.Maybe as ALL

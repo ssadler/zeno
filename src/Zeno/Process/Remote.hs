@@ -20,7 +20,6 @@ import qualified StmContainers.Map as STM
 import UnliftIO hiding (Chan)
 
 import UnliftIO.Concurrent
-import Unsafe.Coerce
 
 import Zeno.Process.Spawn hiding (send)
 import Zeno.Process.Types
@@ -41,6 +40,7 @@ monitorRemote nodeId act = do
     modifyTVar onQuit (>> ioAct)
 
 
+-- TODO: Dejafu test
 withRemoteForwarder :: Has Node r => NodeId -> (Forwarder -> STM a) -> Zeno r a
 withRemoteForwarder nodeId act = do
   node <- asks has
@@ -48,7 +48,9 @@ withRemoteForwarder nodeId act = do
     ((chan, onQuit), created, r) <- atomically $ getCreateChan node
     when created do
       void $ forkIOWithUnmask \unmask -> do
-        unmask (runForwarder nodeId chan) `finally` cleanup node chan onQuit
+        finally
+          do unmask (runForwarder nodeId chan)
+          do cleanup node chan onQuit
     pure r
   where
   getCreateChan Node{..} = do

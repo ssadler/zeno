@@ -13,7 +13,6 @@ module Zeno.Consensus
   , collectMembers
   , collectWith
   , majorityThreshold
-  , spawnChildRound
   ) where
 
 import qualified Data.ByteString as BS
@@ -22,6 +21,7 @@ import Zeno.Process
 
 import Zeno.Consensus.Types
 import Zeno.Consensus.Round
+import Zeno.Consensus.Propose
 import Zeno.Consensus.P2P
 import Network.Ethereum.Crypto.Address (Address)
 
