@@ -14,9 +14,10 @@ import Network.ZCash.Sapling
 import UnliftIO
 
 import Zeno.Data.Aeson
-import Zeno.Notariser.Types
 import Zeno.Notariser.Common
 import Zeno.Notariser.Common.KMD
+import Zeno.Notariser.Types
+import Zeno.Notariser.UTXO
 import Zeno.Consensus
 import Zeno.Prelude
 import Zeno.Process
@@ -42,34 +43,35 @@ forkRecordProposerTimeout nc proposerTimeout = do
 
   let label = "proposer timeout: " ++ show (roundId proposerTimeout)
   spawnNoHandle label do
+    localZeno (console . writeStatusEvents .~ False) do
 
-    utxo <- waitForUtxo
-    KomodoIdent{..} <- asks has
-    t <- liftIO getCurrentTime
+      utxo <- waitForUtxo
+      KomodoIdent{..} <- asks has
+      t <- liftIO getCurrentTime
 
-    let
-      markerAddr = statsAddress "proposer timeout" $ utctDay t
-      payload = encode proposerTimeout
-      outputsToSign = kmdDataOutputs outputAmount markerAddr payload
-      collect = collectWith \t inv -> do
-        guard $ length inv >= t
-        let sigs = [s | (s, _) <- toList inv]
-        let signedPayload = encode (sigs, proposerTimeout)
-        let outputs' = kmdDataOutputs outputAmount markerAddr signedPayload
-        let outpoint = getOutPoint utxo
-        let tx = saplingTx [outpoint] outputs'
-        let sigIn = H.SigInput (H.PayPK kmdPubKeyI) kmdInputAmount outpoint H.sigHashAll Nothing
-        let signed = either murphy id $ signTxSapling komodo tx [sigIn] [kmdSecKey]
-        Just signed
-    
-    cparams <- getConsensusParams nc
-    (Ballot _ _ chosenTx) <- 
-      runConsensus label cparams proposerTimeout do
-        tx <- step "tx sigs" collect (sha256b $ encode outputsToSign)
-        propose "tx sender" Nothing $ pure tx
+      let
+        markerAddr = statsAddress "proposer timeout" $ utctDay t
+        payload = encode proposerTimeout
+        outputsToSign = kmdDataOutputs outputAmount markerAddr payload
+        collect = collectWith \t inv -> do
+          guard $ length inv >= t
+          let sigs = [s | (s, _) <- toList inv]
+          let signedPayload = encode (sigs, proposerTimeout)
+          let outputs' = kmdDataOutputs outputAmount markerAddr signedPayload
+          let outpoint = getOutPoint utxo
+          let tx = saplingTx [outpoint] outputs'
+          let sigIn = H.SigInput (H.PayPK kmdPubKeyI) kmdInputAmount outpoint H.sigHashAll Nothing
+          let signed = either murphy id $ signTxSapling komodo tx [sigIn] [kmdSecKey]
+          Just signed
+      
+      cparams <- getConsensusParams nc
+      (Ballot _ _ chosenTx) <- 
+        runConsensus label cparams proposerTimeout do
+          tx <- step "tx sigs" collect (sha256b $ encode outputsToSign)
+          propose "tx sender" Nothing $ pure tx
 
-    txid <- bitcoinSubmitTxSync 0 chosenTx
-    logInfo $ "Posted stats: \"%s\" (%s)" % (label, show txid)
+      txid <- bitcoinSubmitTxSync 0 chosenTx
+      logInfo $ "Posted stats: \"%s\" (%s)" % (label, show txid)
 
 
 statsAddress :: String -> Day -> H.ScriptOutput

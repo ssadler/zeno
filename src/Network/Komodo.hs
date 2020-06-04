@@ -95,6 +95,12 @@ data KomodoUtxo = Utxo
   , utxoSpendable :: Bool
   } deriving (Show)
 
+instance Eq KomodoUtxo where
+  a == b = getOutPoint a == getOutPoint b
+
+instance Ord KomodoUtxo where
+  compare a b = compare (getOutPoint a) (getOutPoint b)
+
 instance FromJSON KomodoUtxo where
   parseJSON val = do
     obj <- parseJSON val

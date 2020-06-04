@@ -38,7 +38,7 @@ tmux split-window -v -t 4
 CHAIN=TXSCLZDEV
 
 notarise="stack exec zeno -- notarise"
-ethkmd="kmdeth --ui --gateway=$1 --seed=127.0.0.1:40440 --kmd=~/.komodo/$CHAIN/$CHAIN.conf --geth=http://127.0.0.1:9545/"
+ethkmd="kmdeth --gateway=$1 --seed=127.0.0.1:40440 --kmd=~/.komodo/$CHAIN/$CHAIN.conf --geth=http://127.0.0.1:9545/"
 
 tmux send-keys -t 1 "$notarise seed --bind=127.0.0.1 --port=40440" Enter
 tmux send-keys -t 2 "$notarise $ethkmd --pubkey=$pk0 --port=40441" Enter

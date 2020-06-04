@@ -1,7 +1,3 @@
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE RankNTypes #-}
 
 module Zeno.Monad where
@@ -10,6 +6,9 @@ import Control.Monad.Catch as Catch hiding (bracket)
 import Control.Monad.Logger
 import Control.Monad.Reader
 import Control.Monad.Trans.Resource as ResourceT
+
+import Lens.Micro.Platform hiding (has)
+
 import UnliftIO
 
 import Zeno.Logging
@@ -19,13 +18,15 @@ import Zeno.Logging
 --------------------------------------------------------------------------------
 
 data ZenoApp r = App
-  { appContext   :: r
-  , appConsole   :: Console
-  , appResources :: ResourceT.InternalState
+  { _context   :: r
+  , _console   :: Console
+  , _resources :: ResourceT.InternalState
   }
 
+makeLenses ''ZenoApp
+
 instance Functor ZenoApp where
-  fmap f z = z { appContext = f (appContext z) }
+  fmap f z = z & context %~ f
 
 --------------------------------------------------------------------------------
 -- | Zeno monad and instances
@@ -67,21 +68,21 @@ instance MonadUnliftIO (Zeno r) where
     \f app -> inner (\(Zeno z) -> z (\_ -> pure) app) >>= f app
 
 instance MonadReader r (Zeno r) where
-  ask = Zeno $ \f app -> f app $ appContext app
+  ask = Zeno $ \f app -> f app $ _context app
   {-# INLINE ask #-}
   local = withContext
 
 instance MonadResource (Zeno r) where
   liftResourceT resT = Zeno
-    \f app -> runInternalState resT (appResources app) >>= f app
+    \f app -> runInternalState resT (_resources app) >>= f app
 
 instance MonadLogger (Zeno r) where
   monadLoggerLog a b c d = Zeno
-    \rest app -> logMessage (appConsole app) a b c d >>= rest app
+    \rest app -> logMessage (_console app) a b c d >>= rest app
 
 instance MonadLoggerIO (Zeno r) where
   askLoggerIO = Zeno
-    \rest app -> rest app (logMessage (appConsole app))
+    \rest app -> rest app (logMessage (_console app))
 
 instance MonadFail (Zeno r) where
   fail = error
@@ -128,13 +129,13 @@ withLocalResources :: Zeno r a -> Zeno r a
 withLocalResources z = do
   bracket ResourceT.createInternalState
           ResourceT.closeInternalState
-          (\rti -> localZeno (\app -> app { appResources = rti }) z)
+          (\rti -> localZeno (resources .~ rti) z)
 
 withContext :: (r -> r') -> Zeno r' a -> Zeno r a
 withContext = localZeno . fmap
 
 getConsole :: Zeno r Console
-getConsole = Zeno \rest app -> rest app (appConsole app)
+getConsole = Zeno \rest app -> rest app (_console app)
 
 --------------------------------------------------------------------------------
 -- | Has typeclass

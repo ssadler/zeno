@@ -13,6 +13,7 @@ import Zeno.Notariser.Common
 import Zeno.Notariser.Common.KMD
 import Zeno.Notariser.KMDDpow
 import Zeno.Notariser.Types
+import Zeno.Notariser.Stats
 import Zeno.Consensus
 import Zeno.Console
 import Zeno.Prelude
@@ -121,7 +122,7 @@ notariseToETH nc@NotariserConfig{..} seq height32 = do
 
   ident@(EthIdent _ myAddress) <- asks has
   gateway <- asks getEthGateway
-  cparams <- getConsensusParams nc
+  cparams <- getConsensusParamsWithStats nc
   r <- ask
   let run = withContext (const r)
       roundLabel = "kmd@%i ⇒  eth" % height

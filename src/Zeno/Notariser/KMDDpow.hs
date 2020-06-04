@@ -14,7 +14,9 @@ import Zeno.Console
 import Zeno.Consensus
 import Zeno.Notariser.Common.KMD
 import Zeno.Notariser.Common
+import Zeno.Notariser.Stats
 import Zeno.Notariser.Types
+import Zeno.Notariser.UTXO
 import Zeno.Prelude
 
 
@@ -22,7 +24,7 @@ notariseKmdDpow :: NotariserConfig -> ProposerSequence -> NotarisationData -> Ze
 notariseKmdDpow nc@NotariserConfig{..} seq ndata = do
   utxo <- waitForUtxo
   KomodoIdent{..} <- asks has
-  cparams <- getConsensusParams nc
+  cparams <- getConsensusParamsWithStats nc
   let label = "eth ⇒  kmd"
 
   r <- ask :: Zeno EthNotariser EthNotariser

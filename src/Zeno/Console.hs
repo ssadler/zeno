@@ -131,8 +131,8 @@ runConsoleUI proc = do
 withConsoleUI :: LogLevel -> Zeno r a -> Zeno r a
 withConsoleUI level act = do
   proc <- spawn "UI" runConsoleUI
-  let console = Console level (Just $ procMbox proc) True
-  localZeno (\app -> app { appConsole = console }) act
+  let c = Console level (Just $ procMbox proc) True
+  localZeno (console .~ c) act
 
 
 testConsole :: IO ()

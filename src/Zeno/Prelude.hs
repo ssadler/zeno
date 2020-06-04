@@ -8,7 +8,6 @@ module Zeno.Prelude
   ( module ALL
   , LazyByteString
   , PercentFormat(..)
-  , (<&>)
   , traceE
   , fromHex
   , toHex
@@ -54,6 +53,8 @@ import Data.Text.Encoding as ALL (encodeUtf8, decodeUtf8)
 import Data.Time.Clock as ALL (UTCTime, getCurrentTime, diffUTCTime)
 import Data.Word as ALL (Word8, Word16, Word32, Word64)
 
+import Lens.Micro.Platform as ALL hiding ((.=), has)
+
 import UnliftIO
 import UnliftIO.Concurrent as ALL (threadDelay, forkIO)
 import UnliftIO.Exception as ALL
@@ -74,10 +75,6 @@ import System.IO.Unsafe as ALL (unsafePerformIO)
 import Debug.Trace as ALL (traceShowId, traceM, traceShowM)
 
 type LazyByteString = BSL.ByteString
-
-(<&>) :: Functor f => f a -> (a -> b) -> f b
-(<&>) = flip fmap
-infixl 1 <&>
 
 traceE :: String -> Zeno r a -> Zeno r a
 traceE prefix act = do

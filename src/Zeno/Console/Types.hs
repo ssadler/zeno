@@ -5,6 +5,8 @@ import qualified Data.ByteString.Char8 as BS8
 import UnliftIO
 import Control.Monad.Logger (LogLevel(..))
 
+import Lens.Micro.Platform
+
 import Zeno.Data.FixedBytes
 
 
@@ -26,10 +28,12 @@ data UIProcess
   deriving (Show)
 
 data Console = Console
-  { logLevel :: LogLevel
-  , statusBar :: Maybe (TBQueue ConsoleCtrl)
-  , writeStatusEvents :: Bool
+  { _logLevel :: LogLevel
+  , _statusBar :: Maybe (TBQueue ConsoleCtrl)
+  , _writeStatusEvents :: Bool
   }
+
+makeLenses ''Console
 
 consoleWarn :: Console
 consoleWarn = Console LevelWarn Nothing False
