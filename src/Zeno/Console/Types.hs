@@ -26,7 +26,6 @@ data UIProcess
   | UIOther String
   deriving (Show)
 
--- A bit mental, why not data with level, handle and maybe statusbar
 data Console = Console
   { logLevel :: LogLevel
   , statusBar :: Maybe (TBQueue ConsoleCtrl)
@@ -36,4 +35,5 @@ data Console = Console
 consoleWarn = Console LevelWarn Nothing False
 
 defaultLog = Console LevelDebug Nothing False
+
 

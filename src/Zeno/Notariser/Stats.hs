@@ -10,8 +10,8 @@ import Network.Komodo
 import Network.ZCash.Sapling
 
 import Zeno.Data.Aeson
-import Zeno.Notariser.Interfaces.KMD
 import Zeno.Notariser.Types
+import Zeno.Notariser.Common.KMD
 import Zeno.Consensus
 import Zeno.Prelude
 import Zeno.Process
@@ -20,28 +20,29 @@ import Data.Time.Clock
 import Data.Time.Calendar
 
 
-recordProposerTimeout :: NotariserConfig -> ProposerTimeout -> Zeno EthNotariser ()
-recordProposerTimeout nc@NotariserConfig{..} pt = do
-  let label = "proposer timeout: " ++ show (roundId pt)
+outputAmount :: Word64
+outputAmount = 1000 -- High enough not to trigger dust threshold
+
+
+forkRecordProposerTimeout :: NotariserConfig -> Bool -> ProposerTimeout -> Consensus ()
+forkRecordProposerTimeout _  False _ = logWarn "Timeout of fallback proposer"
+forkRecordProposerTimeout nc True proposerTimeout = do
+  roundId <- getRoundId
+  cparams <- asks ccParams <&> \cp -> cp { onProposerTimeout' = Nothing }
+  let label = "proposer timeout: " ++ show roundId
   t <- liftIO getCurrentTime
   let addr = statsAddress "proposer timeout" $ utctDay t
-  let outputs = kmdDataOutputs nc addr (encode pt)
-  cparams <- getConsensusParams nc <&> \nc -> nc { onProposerTimeout' = Nothing }
-  spawnNoHandle label do
-    localZeno filterLogWarn do
-      (Ballot _ _ chosenTx) <- 
-        runConsensus label cparams pt do
-          tx <- step "tx sigs" (collectWith $ collectTx outputs)
-                               (sha256b $ encode outputs)
-          propose "tx sender" $ pure tx
+  let outputs = kmdDataOutputs outputAmount addr $ encode proposerTimeout
+  
+  spawnChildRound label cparams proposerTimeout do
+    tx <- step "tx sigs" (collectWith $ collectTx outputs)
+                         (sha256b $ encode outputs)
+    (Ballot _ _ chosenTx) <- propose "tx sender" $ pure tx
+    undefined
 
-      txid <- bitcoinSubmitTxSync 0 chosenTx
-      logInfo $ "Posted stats: \"%s\" (%s)" % (label, show txid)
-  where
-    filterLogWarn app =
-      let Console _ status doEvents = appConsole app
-       in app { appConsole = Console LevelWarn status False }
-
+    -- txid <- bitcoinSubmitTxSync 0 chosenTx
+    -- logInfo $ "Posted stats: \"%s\" (%s)" % (label, show txid)
+    
 
 collectTx :: [H.TxOut] -> Int -> Inventory Bytes32 -> Maybe SaplingTx
 collectTx = undefined
@@ -51,5 +52,4 @@ collectTx = undefined
 statsAddress :: String -> Day -> H.ScriptOutput
 statsAddress name day = 
   let s = name ++ show day
-      hash = H.ripemd160 (toS s :: ByteString)
-   in H.PayPKHash hash
+   in H.PayPKHash $ H.ripemd160 (toS s :: ByteString)

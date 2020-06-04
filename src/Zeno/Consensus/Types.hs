@@ -32,11 +32,13 @@ instance Has Node ConsensusNode where has = cpNode
 instance Has PeerState ConsensusNode where has = cpPeers
 
 data ConsensusContext = ConsensusContext
-  { ccNode    :: ConsensusNode
-  , ccParams  :: ConsensusParams
-  , ccEntropy :: Bytes32
-  , ccStepNum :: TVar StepNum
+  { ccNode     :: ConsensusNode
+  , ccParams   :: ConsensusParams
+  , ccEntropy  :: Bytes32
+  , ccStepNum  :: TVar StepNum
+  , ccChildren :: TVar [Process ()]
   }
+instance Has ConsensusNode ConsensusContext where has = ccNode
 instance Has Node ConsensusContext where has = has . ccNode
 instance Has PeerState ConsensusContext where has = has . ccNode
 instance Has ConsensusParams ConsensusContext where has = ccParams
@@ -105,7 +107,7 @@ data ConsensusParams = ConsensusParams
   { members'           :: [Address]
   , ident'             :: EthIdent
   , timeout'           :: Timeout
-  , onProposerTimeout' :: Maybe (Bool -> Address -> Consensus ())
+  , onProposerTimeout' :: Maybe (Bool -> ProposerTimeout -> Consensus ())
   }
 
 instance Has EthIdent ConsensusParams where has = ident'
@@ -137,9 +139,9 @@ withTimeout t =
 --------------------------------------------------------------------------------
 
 data ProposerTimeout = ProposerTimeout
-  { roundId :: RoundId
-  , stepNum :: String
-  , proposer :: Address
+  { proposer :: Address
+  , roundId  :: RoundId
+  , stepNum  :: StepNum
   } deriving (Show, Generic)
     deriving Serialize via (SerializeAeson ProposerTimeout)
  

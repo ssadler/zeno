@@ -9,7 +9,8 @@ import Network.HTTP.Simple
 import Network.JsonRpc
 
 import Zeno.EthGateway
-import Zeno.Notariser.Interfaces.KMD
+import Zeno.Notariser.Common
+import Zeno.Notariser.Common.KMD
 import Zeno.Notariser.KMDDpow
 import Zeno.Notariser.Types
 import Zeno.Consensus

@@ -16,6 +16,7 @@ module Zeno.Consensus.Round
   , prioritiseRemoteInventory
   , dedupeInventoryQueries
   , majorityThreshold
+  , spawnChildRound
   ) where
 
 import           Control.Monad.Reader
@@ -46,9 +47,12 @@ import           UnliftIO.Async (waitCatchSTM, waitSTM)
 
 runConsensus :: (Serialize a, Has ConsensusNode r)
              => String -> ConsensusParams -> a -> Consensus b -> Zeno r b
-runConsensus label params@ConsensusParams{..} entropy act = do
-  tStepNum <- newTVarIO (0, Nothing)
-  let toCC r = ConsensusContext (has r) params (sha3b $ encode entropy) tStepNum
+runConsensus label ccParams@ConsensusParams{..} entropy act = do
+
+  ccStepNum <- newTVarIO (0, Nothing)
+  ccChildren <- newTVarIO []
+  let ccEntropy = sha3b $ encode entropy
+      toCC r = let ccNode = has r in ConsensusContext{..}
 
   withContext toCC do
     roundId <- getRoundId
@@ -66,7 +70,7 @@ runConsensus label params@ConsensusParams{..} entropy act = do
 
             threadDelay $ 10 * 1000000   -- for stragglers to catch up
 
-            pure $ murphyNoResult        -- This will not get evaluated unless
+            pure murphyNoResult          -- This will not get evaluated unless
                                          -- nothing is send to the handoff
 
     r <- atomically $ orElse (receiveSTM procMbox) (waitSTM procAsync >>= throwSTM)
@@ -82,6 +86,20 @@ runConsensus label params@ConsensusParams{..} entropy act = do
       threadDelayS 4
       pure c
 
+
+spawnChildRound :: Serialize a
+                => String -> ConsensusParams -> a -> Consensus () -> Consensus ()
+spawnChildRound label ccParams entropy act = do
+
+  -- TODO: when you have to do this lens has become a neccesary evil
+  localZeno filterLogWarn do
+    proc <- spawn label \_ -> runConsensus label ccParams entropy act
+    ConsensusContext{..} <- ask
+    atomically $ modifyTVar ccChildren (proc:)
+  where
+  filterLogWarn app =
+    let Console _ status doEvents = appConsole app
+     in app { appConsole = Console LevelWarn status False }
 
 
 
@@ -189,8 +207,9 @@ determineProposers = do
 
 evtProposerTimeout :: Bool -> Address -> Consensus ()
 evtProposerTimeout isPrimary proposer = do
-  ConsensusParams{onProposerTimeout'} <- asks has
-  (maybe mempty id onProposerTimeout') isPrimary proposer
+  timeout <- ProposerTimeout proposer <$> getRoundId <*> getStepNum
+  ConsensusParams{..} <- asks has
+  (maybe mempty id onProposerTimeout') isPrimary timeout
 
 -- Check Majority -------------------------------------------------------------
 

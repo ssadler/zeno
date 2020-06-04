@@ -24,11 +24,11 @@ data EthNotariser = EthNotariser
   , getSecret :: SecKey
   }
 
-instance Has GethConfig    EthNotariser where has = gethConfig
 instance Has BitcoinConfig EthNotariser where has = getKomodoConfig
 instance Has ConsensusNode EthNotariser where has = getNode
-instance Has KomodoIdent   EthNotariser where has = deriveKomodoIdent . getSecret
 instance Has EthIdent      EthNotariser where has = deriveEthIdent . getSecret
+instance Has GethConfig    EthNotariser where has = gethConfig
+instance Has KomodoIdent   EthNotariser where has = deriveKomodoIdent . getSecret
 
 
 data NotariserConfig = NotariserConfig
@@ -62,11 +62,6 @@ instance FromJSON NotariserConfig where
       threshold = uninit
       uninit = error "NotariserConfig not fully initialized"
       defaultTimeout = 10 * 1000000
-
-getConsensusParams :: NotariserConfig -> Zeno EthNotariser ConsensusParams
-getConsensusParams NotariserConfig{..} = do
-  ident <- asks has
-  pure $ ConsensusParams members ident consensusTimeout Nothing
 
 
 instance Exception ConfigException

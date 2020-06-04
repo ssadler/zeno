@@ -13,6 +13,7 @@ module Zeno.Consensus
   , collectMembers
   , collectWith
   , majorityThreshold
+  , spawnChildRound
   ) where
 
 import qualified Data.ByteString as BS
