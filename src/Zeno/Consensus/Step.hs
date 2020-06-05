@@ -15,6 +15,7 @@ module Zeno.Consensus.Step
 -- have a full inventory.
 
 import           Control.Monad
+import           Control.Monad.STM (orElse)
 
 import           Data.Bits
 import           Data.Serialize
@@ -34,7 +35,8 @@ import           UnliftIO
 import           UnliftIO.Concurrent
 
 
--- TODO: All messages should be authenticated
+inventoryQueryInterval :: Int
+inventoryQueryInterval = 100 * 1000
 
 data Step i = Step
   { processId :: ProcessId
@@ -43,13 +45,8 @@ data Step i = Step
   , yieldTo   :: Process (Inventory i)
   }
 
-
-spawnStep :: forall a i. Serialize i
-          => Ballot i -> Consensus (Process (Inventory i))
+spawnStep :: forall a i. Serialize i => Ballot i -> Consensus (Process (Inventory i))
 spawnStep myBallot = do
-
-  -- Build the step context
-  tInv <- newTVarIO Map.empty
 
   ConsensusContext{ccParams = ConsensusParams{..},..} <- ask
   stepNum <- getStepNum
@@ -59,36 +56,44 @@ spawnStep myBallot = do
       suffix = toFixed $ sha3' $ encode (ccEntropy, stepNum)
       processId = ProcessId $ roundId `bappend` suffix
       stepName = "step: " ++ show processId
-      builderName = "inventory builder: " ++ show processId
 
   spawn stepName \process -> do
-    
+    tInv <- newTVarIO Map.empty
     let step = Step processId tInv members' process
-    recv <- subscribe processId
-
-    -- Spawn inventory builder
-    builder <- spawn builderName $ inventoryBuilder step
-
-    -- Register so that we get new peer events
     registerOnNewPeer $ onNewPeer step
-
+    -- | This kick-starts the process
     onInventoryData step $ Map.singleton myAddr (mySig, myData)
+    buildInventoryLoop step processId
 
-    forever do
-      receiveWait recv >>=
-        authenticate step
-          \peer ->
-            \case
-              InventoryIndex theirIdx -> do
-                send builder (peer, theirIdx)
-              
-              GetInventory wanted -> do
-                inv <- readTVarIO tInv
-                let subset = getInventorySubset wanted members' inv
-                sendAuthenticated step [peer] $ InventoryData subset
 
-              InventoryData inv -> do
-                onInventoryData step inv
+buildInventoryLoop :: Serialize i => Step i -> ProcessId -> Consensus ()
+buildInventoryLoop step@Step{..} pid = do
+  recv <- subscribe pid
+  forever do
+    delay <- registerDelay inventoryQueryInterval
+    fix1 [] $ \go !idxs -> do
+      join do
+        atomically do
+          orElse
+            do readTVar delay >>= checkSTM
+               pure $ sendInventoryQueries step idxs
+
+            do receiveSTM recv <&>
+                 authenticate step
+                   \peer ->
+                     \case
+                       InventoryIndex theirIdx -> do
+                         go $ (peer, theirIdx) : idxs
+
+                       GetInventory wanted -> do
+                         inv <- readTVarIO tInv
+                         let subset = getInventorySubset wanted members inv
+                         sendAuthenticated step [peer] $ InventoryData subset
+                         go idxs
+
+                       InventoryData inv -> do
+                         onInventoryData step inv
+                         go idxs
 
 
 onNewPeer :: forall i. Serialize i => Step i -> NodeId -> Consensus ()
@@ -113,33 +118,14 @@ onInventoryData step@Step{..} theirInv = do
     peers <- getPeers
     sendAuthenticated step peers (InventoryIndex idx :: StepMessage i)
 
-
--- | Inventory builder, continually builds and dispatches queries for remote inventory
-
-inventoryBuilder :: Serialize i
-                 => Step i
-                 -> Process (NodeId, Integer)
-                 -> Consensus ()
-inventoryBuilder step@Step{..} mbox = do
-  forever do
-    getInventoryQueries step mbox >>=
-      mapM_ \(peer, wanted) ->
-        sendAuthenticated step [peer] $ GetInventory wanted
-
-    threadDelay $ 100 * 1000
-
-
-getInventoryQueries :: Serialize i
-                    => Step i
-                    -> Process (NodeId, Integer)
-                    -> Zeno r [(NodeId, Integer)]
-getInventoryQueries Step{..} mbox = do
-  idxs <- recvAll
+sendInventoryQueries :: Serialize i => Step i -> [(NodeId, Integer)] -> Consensus ()
+sendInventoryQueries step@Step{..} idxs = do
   inv <- readTVarIO tInv
   let ordered = prioritiseRemoteInventory members inv idxs
-  pure $ dedupeInventoryQueries ordered
-  where
-  recvAll = receiveMaybe mbox >>= maybe (pure []) (\a -> (a:) <$> recvAll)
+      queries = dedupeInventoryQueries ordered
+
+  forM_ queries \(peer, wanted) ->
+    sendAuthenticated step [peer] $ GetInventory wanted
 
 --------------------------------------------------------------------------------
 -- | Message authentication
@@ -191,18 +177,18 @@ prioritiseRemoteInventory members inv idxs =
 
 -- Get queries for remote inventory filtering duplicates
 dedupeInventoryQueries :: [(a, Integer)] -> [(a, Integer)]
-dedupeInventoryQueries = f 0
-  where f seen ((peer, idx):xs) =
-          let wanted = idx .&. complement seen
-              rest = f (seen .|. wanted) xs
-           in if wanted /= 0
-                 then (peer, wanted) : rest
-                 else []
-        f _ [] = []
+dedupeInventoryQueries = f 0 where
+  f _ [] = []
+  f seen ((peer, idx):xs) =
+    let wanted = idx .&. complement seen
+        rest = f (seen .|. wanted) xs
+     in if wanted /= 0
+           then (peer, wanted) : rest
+           else []
 
 -- Get part of the inventory according to an index
 getInventorySubset :: Integer -> [Address] -> Inventory a -> Inventory a
 getInventorySubset idx members =
   Map.filterWithKey $
-    \k _ -> let Just i = elemIndex k members
+    \k _ -> let Just i = elemIndex k members   -- Bit of a murphy here
              in testBit idx i
