@@ -41,14 +41,12 @@ instance Functor (Zeno r) where
   {-# INLINE fmap #-}
 
 instance Applicative (Zeno r) where
-  pure = return
+  pure x = Zeno $ \f app -> f app x
   {-# INLINE pure #-}
   (<*>) = ap
-  {-# INLINE (<*>) #-}
 
 instance Monad (Zeno r) where
-  return x = Zeno $ \f app -> f app x
-  {-# INLINE return #-}
+  return = pure
   Zeno f >>= g = Zeno $
     \rest -> f (\app a -> unZeno (g a) rest app)
   {-# INLINE (>>=) #-}

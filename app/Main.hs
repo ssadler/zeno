@@ -40,7 +40,7 @@ parseAct = infoH topMethods $ fullDesc <> progDesc "Notariser for Komodo network
 
    statsMethods = subparser $
         (command "proposerTimeouts" $ infoH runDumpProposerTimeoutsMethod $
-          progDesc "Dump proposer timeouts")
+         progDesc "Dump proposer timeouts")
 
 
 runEthNotariserMethod :: Parser Method

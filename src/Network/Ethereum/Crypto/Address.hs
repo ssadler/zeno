@@ -17,12 +17,7 @@ import           Zeno.Prelude
 
 newtype Address = Address { unAddress :: PrefixedHex 20 }
   deriving (Eq, Ord, Serialize, ToJSON, FromJSON, IsString, RLPEncodable)
-
-instance Show Address where
-  show = show . unAddress
-
-instance Read Address where
-  readsPrec _ s = [(fromString s, "")]
+  deriving (Read, Show) via (PrefixedHex 20)
 
 instance GetABI Address where
   getABI = do

@@ -13,6 +13,7 @@ module Zeno.Data.FixedBytes
   , FixedBytes
   , bytesReverse
   , eitherFixed
+  , prefixedFromHex
   , newFixed
   , nullBytes
   , fixedGetN
@@ -57,10 +58,16 @@ instance Show (FixedBytes n) where
   show = BS8.unpack . B16.encode . unFixed
 
 instance forall n. KnownNat n => Read (FixedBytes n) where
-  readsPrec _ s = [(fromString s, "")]
+  readsPrec _ s =
+    case bytesFromHex (toS s) of
+      Left _ -> []
+      Right b -> [(b, "")]
 
 instance forall n. KnownNat n => IsString (FixedBytes n) where
-  fromString = either error id . bytesFromHex . BS8.pack
+  fromString s =
+    case bytesFromHex (BS8.pack s) of
+      Left s -> error s
+      Right o -> o
 
 instance forall n. KnownNat n => Serialize (FixedBytes n) where
   put = putByteString . unFixed
@@ -172,6 +179,11 @@ type Bytes33 = FixedBytes 33
 
 
 
+prefixedFromHex :: forall n. KnownNat n => ByteString -> Either String (PrefixedHex n)
+prefixedFromHex bs =
+  let n = if BS.take 2 bs == "0x" then 2 else 0
+   in PrefixedHex <$> bytesFromHex (BS.drop n bs)
+
 
 newtype PrefixedHex n = PrefixedHex { unPrefixedHex :: FixedBytes n }
   deriving (Eq, Ord, Serialize)
@@ -180,7 +192,10 @@ instance Show (PrefixedHex n) where
   show (PrefixedHex a) = "0x" ++ show a
 
 instance forall n. KnownNat n => Read (PrefixedHex n) where
-  readsPrec _ s = [(fromString s, "")]
+  readsPrec _ s =
+    case prefixedFromHex (toS s) of
+      Left _ -> []
+      Right o -> [(o, "")]
 
 instance forall n. KnownNat n => FromJSON (PrefixedHex n) where
   parseJSON val = do
