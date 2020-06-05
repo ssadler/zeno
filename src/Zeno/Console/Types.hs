@@ -2,10 +2,12 @@
 module Zeno.Console.Types where
 
 import qualified Data.ByteString.Char8 as BS8
-import UnliftIO
 import Control.Monad.Logger (LogLevel(..))
 
 import Lens.Micro.Platform
+
+import System.IO
+import UnliftIO
 
 import Zeno.Data.FixedBytes
 
@@ -31,14 +33,17 @@ data Console = Console
   { _logLevel :: LogLevel
   , _statusBar :: Maybe (TBQueue ConsoleCtrl)
   , _writeStatusEvents :: Bool
+  , _fileHandle :: Handle
   }
 
 makeLenses ''Console
 
 consoleWarn :: Console
-consoleWarn = Console LevelWarn Nothing False
+consoleWarn = Console LevelWarn Nothing False stdout
 
 defaultLog :: Console
-defaultLog = Console LevelDebug Nothing False
+defaultLog = Console LevelDebug Nothing False stdout
 
+stderrLog :: Console
+stderrLog = Console LevelDebug Nothing False stderr
 

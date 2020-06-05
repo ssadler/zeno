@@ -111,7 +111,7 @@ step name collect obj = do
 step' :: forall a b. BallotData a => String -> Collect a b -> a -> Consensus b
 step' name collect obj = do
   ConsensusParams{ident' = EthIdent sk myAddr, ..} <- asks ccParams
-  let sig = sign sk $ toMessage obj
+  let sig = sign sk message
       ballot = Ballot myAddr sig obj
       errTimeout = ConsensusTimeout ("Timeout after %i seconds" % quot timeout' 1000000)
 
@@ -128,10 +128,11 @@ step' name collect obj = do
     Right () -> throwIO errTimeout 
   where
 
-  toMessage =
-    if typeRep (Proxy :: Proxy a) == typeRep (Proxy :: Proxy Bytes32)
-       then unsafeCoerce
-       else sha3b . encode
+  -- This thing is a bit terrible. It would be easy to make a mistake using it.
+  message =
+    case cast obj of
+      Just b -> b
+      Nothing -> sha3b $ encode obj
 
 incStep :: String -> Consensus ()
 incStep label = do

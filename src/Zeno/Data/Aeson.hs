@@ -16,7 +16,9 @@ import qualified Data.Aeson as Aeson
 import           Data.Aeson as DA hiding (encode, decode)
 import           Data.Aeson.Types as DA
 import           Data.Aeson.Quick as DA (build, (.?), (.!), (.%))
+import           Data.Aeson.Encode.Pretty as Pretty
 import           Data.ByteString (ByteString)
+import qualified Data.ByteString.Lazy as BSL
 import qualified Data.ByteString.Base16 as B16
 import           Data.IORef
 import           Data.HashMap.Strict
@@ -37,13 +39,21 @@ fromJsonHex v = do
 toJsonHex :: ByteString -> Value
 toJsonHex = String . decodeUtf8 . B16.encode
 
-newtype SerializeAeson a = SerializeAeson { unSerializeAeson :: a }
+--------------------------------------------------------------------------------
+-- SerializeAeson - A wrapper to provide Serialize via Aeson
+--------------------------------------------------------------------------------
+
+newtype SerializeAeson a = SerializeAeson a
 
 instance (ToJSON a, FromJSON a) => S.Serialize (SerializeAeson a) where
-  put = S.put . Aeson.encode . unSerializeAeson
+  put (SerializeAeson a) = S.put $ encodeStable a
   get = do
     bs <- S.get
     either fail (pure . SerializeAeson) $ Aeson.eitherDecode bs
+
+encodeStable :: ToJSON a => a -> BSL.ByteString
+encodeStable = Pretty.encodePretty' conf
+  where conf = Pretty.Config (Pretty.Spaces 0) compare Pretty.Generic False
 
 --------------------------------------------------------------------------------
 -- Strict Object - An object where the parse operation must consume all keys

@@ -72,6 +72,12 @@ optNoUI = switch
    ( long "ui"
   <> help "Enable fancy (but currently buggy) status bar" )
 
+optNumberOfDays :: Parser Int
+optNumberOfDays = option auto
+   ( long "days"
+  <> metavar "DAYS"
+  <> help "Number of days" )
+
 -- Helpers --------------------------------------------------------------------
 
 readJson :: FromJSON a => ReadM a

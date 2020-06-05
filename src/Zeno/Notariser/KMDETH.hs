@@ -49,7 +49,7 @@ runNotariseKmdToEth pk gateway networkConfig gethConfig kmdConfPath useui = do
   where
     getNotariserConfig configName = do
       gateway <- asks getEthGateway
-      (threshold, members) <- ethCallABI gateway "getMembers()" ()
+      (threshold, members) <- gatewayGetMembers gateway
       JsonInABI nc <- ethCallABI gateway "getConfig(string)" (configName :: Text)
       pure $ nc { members, threshold }
 

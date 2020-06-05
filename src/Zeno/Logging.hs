@@ -62,12 +62,12 @@ getLogMessage loc source level str = do
   pure $ fromLogStr $ toLogStr t <> defaultLogStr loc source level str
 
 logMessage :: ToLogStr msg => Console -> Loc -> LogSource -> LogLevel -> msg -> IO ()
-logMessage (Console lvlFilter mstatus _) loc source level msg = do
+logMessage (Console lvlFilter mstatus _ h) loc source level msg = do
   line <- getLogMessage loc source level (toLogStr msg)
   when (level >= lvlFilter) do
     case mstatus of
       Just queue -> atomically $ writeTBQueue queue $ UILog line
-      Nothing -> BS8.putStr line *> hFlush stdout
+      Nothing -> BS8.hPutStr h line *> hFlush stdout
 
 
 pf :: QuasiQuoter
