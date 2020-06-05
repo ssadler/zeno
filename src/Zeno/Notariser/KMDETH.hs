@@ -122,7 +122,7 @@ notariseToETH nc@NotariserConfig{..} seq height32 = do
 
   ident@(EthIdent _ myAddress) <- asks has
   gateway <- asks getEthGateway
-  cparams <- getConsensusParamsWithStats nc
+  cparams <- getConsensusParamsWithStats nc KmdToEth
   r <- ask
   let run = withContext (const r)
       roundLabel = "kmd@%i ⇒  eth" % height

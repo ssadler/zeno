@@ -7,6 +7,8 @@ import qualified Data.Map as Map
 import qualified Data.Set as Set
 import           Data.Serialize
 
+import qualified Haskoin as H
+
 import           Control.Exception
 import           Control.Monad.Reader
 import           Control.Monad.State
@@ -14,8 +16,6 @@ import           Network.Ethereum.Crypto
 import           GHC.Generics (Generic)
 import           UnliftIO
 
-import           Zeno.Data.Aeson
-import           Zeno.Data.FixedBytes
 import           Zeno.Prelude
 import           Zeno.Process
 import           Zeno.Consensus.P2P
@@ -112,6 +112,7 @@ data ConsensusParams = ConsensusParams
   , ident'             :: EthIdent
   , timeout'           :: Timeout
   , onProposerTimeout' :: Maybe (ProposerTimeout -> IO ())
+  , roundTypeId        :: VarInt
   }
 
 instance Has EthIdent ConsensusParams where has = ident'
@@ -122,6 +123,9 @@ data ConsensusNetworkConfig = CNC
   } deriving (Show)
 
 
+newtype RoundProtocol = RoundProtocol Word64
+  deriving Serialize via H.VarInt
+
 -- Monad ----------------------------------------------------------------------
 
 type Consensus = Zeno ConsensusContext
@@ -131,12 +135,11 @@ instance Exception ConsensusTimeout
 data ConsensusMischief = ConsensusMischief Address String deriving (Show)
 instance Exception ConsensusMischief
 
-
+-- Do we need this?
 withTimeout :: Int -> Consensus a -> Consensus a
 withTimeout t =
   local $
     \c -> c { ccParams = (ccParams c) { timeout' = t } }
-
 
 --------------------------------------------------------------------------------
 -- Stats types

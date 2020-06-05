@@ -22,13 +22,13 @@ import Data.Time.Clock
 import Data.Time.Calendar
 
 
-
-getConsensusParams :: NotariserConfig -> Zeno EthNotariser ConsensusParams
-getConsensusParams nc@NotariserConfig{..} = do
+getConsensusParams :: NotariserConfig -> RoundType -> Zeno EthNotariser ConsensusParams
+getConsensusParams nc@NotariserConfig{..} roundType = do
   ident <- asks has
   let members' = members
       ident' = ident
       timeout' = consensusTimeout
       onProposerTimeout' = Nothing
+      roundTypeId = fromIntegral $ fromEnum roundType
   pure $ ConsensusParams{..}
 

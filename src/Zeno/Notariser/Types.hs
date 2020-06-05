@@ -4,6 +4,8 @@ module Zeno.Notariser.Types where
 
 import Zeno.Data.Aeson
 
+import qualified Haskoin as H
+
 import Network.Ethereum.Crypto.Address
 import Network.Komodo
 import Network.Bitcoin
@@ -14,6 +16,13 @@ import Zeno.Consensus
 import Zeno.Prelude
 
 import UnliftIO
+
+
+data RoundType              -- Don't go changing this willy nilly
+  = KmdToEth                -- Things will break
+  | EthToKmd
+  | StatsToKmd
+  deriving (Enum)
 
 
 data EthNotariser = EthNotariser

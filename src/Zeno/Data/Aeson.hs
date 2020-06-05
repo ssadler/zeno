@@ -22,10 +22,12 @@ import qualified Data.ByteString.Lazy as BSL
 import qualified Data.ByteString.Base16 as B16
 import           Data.IORef
 import           Data.HashMap.Strict
+import qualified Data.Serialize as S
 import qualified Data.Set as Set
 import           Data.Text
 import           Data.Text.Encoding
 import qualified Data.Serialize as S
+import           Zeno.Data.VarInt
 
 import           System.IO.Unsafe
 
@@ -46,9 +48,9 @@ toJsonHex = String . decodeUtf8 . B16.encode
 newtype SerializeAeson a = SerializeAeson a
 
 instance (ToJSON a, FromJSON a) => S.Serialize (SerializeAeson a) where
-  put (SerializeAeson a) = S.put $ encodeStable a
+  put (SerializeAeson a) = S.put $ VarPrefixedLazyByteString $ encodeStable a
   get = do
-    bs <- S.get
+    VarPrefixedLazyByteString bs <- S.get
     either fail (pure . SerializeAeson) $ Aeson.eitherDecode bs
 
 encodeStable :: ToJSON a => a -> BSL.ByteString

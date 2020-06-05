@@ -36,11 +36,11 @@ outputAmount :: Word64
 outputAmount = 1000 -- High enough not to look like dust hopefully
 
 
-getConsensusParamsWithStats :: NotariserConfig -> Zeno EthNotariser ConsensusParams
-getConsensusParamsWithStats nc = do
+getConsensusParamsWithStats :: NotariserConfig -> RoundType -> Zeno EthNotariser ConsensusParams
+getConsensusParamsWithStats nc roundType = do
   -- Importantly, this captures the resource context so that any thread spawned
   -- will be a child of this thread, not the thread where the action is called.
-  params <- getConsensusParams nc
+  params <- getConsensusParams nc roundType
   rio <- askRunInIO
   let opt = rio . forkRecordProposerTimeout nc
   pure $ params { onProposerTimeout' = Just opt }
@@ -72,7 +72,7 @@ forkRecordProposerTimeout nc proposerTimeout = do
           let signed = either murphy id $ signTxSapling komodo tx [sigIn] [kmdSecKey]
           Just signed
 
-      cparams <- getConsensusParams nc
+      cparams <- getConsensusParams nc StatsToKmd
 
       (Ballot _ _ chosenTx) <- 
 

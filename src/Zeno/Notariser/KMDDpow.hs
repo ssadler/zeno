@@ -24,7 +24,7 @@ notariseKmdDpow :: NotariserConfig -> ProposerSequence -> NotarisationData -> Ze
 notariseKmdDpow nc@NotariserConfig{..} seq ndata = do
   utxo <- waitForUtxo
   KomodoIdent{..} <- asks has
-  cparams <- getConsensusParamsWithStats nc
+  cparams <- getConsensusParamsWithStats nc EthToKmd
   let label = "eth ⇒  kmd"
 
   r <- ask :: Zeno EthNotariser EthNotariser
