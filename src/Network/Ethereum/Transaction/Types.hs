@@ -58,7 +58,7 @@ instance RLPEncodable Transaction where
 
     _to <- case BS8.length to of
              0  -> pure $ Nothing
-             20 -> pure $ Just (Address $ PrefixedHex $ unsafeToFixed to)
+             20 -> pure $ Just (Address $ unsafeToFixed to)
              _  -> Left "Invalid address"
 
     let pad32 "" = ""

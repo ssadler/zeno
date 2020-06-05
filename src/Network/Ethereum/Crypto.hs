@@ -43,7 +43,7 @@ deriveEthIdent :: SecKey -> EthIdent
 deriveEthIdent sk = EthIdent sk $ deriveEthAddress $ derivePubKey sk
 
 deriveEthAddress :: PubKey -> Address
-deriveEthAddress = Address . PrefixedHex . toFixedR . sha3' . BS.drop 1 . Secp256k1.exportPubKey False
+deriveEthAddress = Address . toFixedR . sha3' . BS.drop 1 . Secp256k1.exportPubKey False
 
 type ToBytes32 s = StringConv s Bytes32
 toBytes32 :: ToBytes32 s => s -> Bytes32

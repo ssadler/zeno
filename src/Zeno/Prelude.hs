@@ -46,6 +46,7 @@ import Data.Map as ALL (Map)
 import Data.Maybe as ALL
 import Data.Monoid as ALL
 import Data.Set as ALL (Set)
+import Data.Serialize as ALL (Serialize)
 import Data.String.Conv as ALL
 import Data.String as ALL (IsString, fromString)
 import Data.Text as ALL (Text, unpack)

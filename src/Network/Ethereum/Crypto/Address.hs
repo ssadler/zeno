@@ -15,22 +15,22 @@ import           Network.Ethereum.Data
 import           Zeno.Prelude
 
 
-newtype Address = Address { unAddress :: PrefixedHex 20 }
-  deriving (Eq, Ord, Serialize, ToJSON, FromJSON, IsString, RLPEncodable)
-  deriving (Read, Show) via (PrefixedHex 20)
+newtype Address = Address { unAddress :: Bytes20 }
+  deriving (Eq, Ord, RLPEncodable, Read, Show, Serialize, ToJSON, FromJSON, IsString)
+       via (PrefixedHex 20)
 
 instance GetABI Address where
   getABI = do
     fixed <- getABI
-    pure $ Address $ PrefixedHex $ toFixedR (unFixed (fixed :: Bytes32))
+    pure $ Address $ toFixedR (unFixed (fixed :: Bytes32))
 
 instance PutABI Address where
   putABI (Address bs) = do
-    let bn = toFixedR $ unFixed $ unPrefixedHex bs
+    let bn = toFixedR $ unFixed bs
     putABI (bn :: Bytes32)
 
 instance StringConv Address ByteString where
-  strConv _ = unFixed . unPrefixedHex . unAddress
+  strConv _ = unFixed . unAddress
 
 nullAddress, maxAddress :: Address
 nullAddress = "0x0000000000000000000000000000000000000000"

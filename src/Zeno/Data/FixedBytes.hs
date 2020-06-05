@@ -86,6 +86,11 @@ instance forall n. KnownNat n => StringConv (FixedBytes n) (FixedBytes n) where
 instance forall n. KnownNat n => PrintfArg (FixedBytes n) where
   formatArg = formatArg . BS8.unpack . B16.encode . unFixed
 
+instance forall n. KnownNat n => RLP.RLPEncodable (FixedBytes n) where
+  rlpEncode = RLP.rlpEncode . unFixed
+  rlpDecode r = do
+    RLP.rlpDecode r >>= eitherFixed
+
 bappend :: forall n m. (KnownNat n, KnownNat m)
         => FixedBytes n -> FixedBytes m -> FixedBytes (n + m)
 bappend (Bytes b) (Bytes b') = Bytes (b <> b')
@@ -186,7 +191,7 @@ prefixedFromHex bs =
 
 
 newtype PrefixedHex n = PrefixedHex { unPrefixedHex :: FixedBytes n }
-  deriving (Eq, Ord, Serialize)
+  deriving (Eq, Ord, Serialize, RLP.RLPEncodable)
 
 instance Show (PrefixedHex n) where
   show (PrefixedHex a) = "0x" ++ show a
@@ -214,13 +219,6 @@ instance forall n. KnownNat n => IsString (PrefixedHex n) where
   fromString s =
     let s' = if take 2 s == "0x" then drop 2 s else s
      in PrefixedHex $ fromString s'
-
-
-instance forall n. KnownNat n => RLP.RLPEncodable (PrefixedHex n) where
-  rlpEncode = RLP.rlpEncode . unFixed . unPrefixedHex
-  rlpDecode r = do
-    s <- RLP.rlpDecode r >>= eitherFixed
-    pure $ PrefixedHex s
 
 instance forall n. KnownNat n => StringConv (PrefixedHex n) (FixedBytes n) where
   strConv _ = unPrefixedHex
