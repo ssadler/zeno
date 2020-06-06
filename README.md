@@ -32,10 +32,6 @@ However, the limitation of the consensus process is that currently it does not p
 
 ## Message protocol
 
-For now this is not a complete description of the message protocol.
-
-### Message protocol
-
 For now this is not a complete description of the protocol.
 
 A round message in Zeno looks like:
