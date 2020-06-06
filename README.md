@@ -42,11 +42,11 @@ The step num identifies the type of data in a step, and consists of the followin
 
 ```
 1 1 3 0
-| | | ^ Minor step number, usually 0, usually a retry of a previous step e.g. in case of proposer timeout
+| | | ^ Minor step number, in case of a retry of the step, eg in case of proposer timeout.
 | | ^   Major step number, indicates the data type being exchanged in the step.
 | ^     Round ID, 
 ^       Prefix, indicating whether or not the 3 bytes following will be present.
 
 0
-^ The step number prefix is 0, indicating that 
+^ The step number prefix is 0, indicating that the following 3 step number bytes are not present.
 ```
