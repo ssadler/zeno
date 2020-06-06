@@ -8,7 +8,7 @@ import Zeno.Prelude
 
 
 
-testLog = FilteredLog LevelWarn PlainLog
+testLog = consoleWarn
 
 
 withTestNode :: Zeno Node r -> IO r

@@ -20,6 +20,7 @@ import Control.Concurrent.Classy.Async
 import Control.Concurrent.Classy.MVar
 
 import qualified Data.Map as Map
+import Debug.Trace
 
 
 type HostAddress = Word32
@@ -45,7 +46,12 @@ inboundConnectionLimit mreceivers ip asnc act = do
       r <- atomically do
         lookupAsync ip mreceivers <*
           insertAsync ip asnc mreceivers
-      mapM_ cancel r -- Synchronously cancel
+      case r of
+        Nothing -> pure ()
+        Just asnc -> do
+          traceM "Killing thread"
+          cancel asnc -- Synchronously cancel
+          void $ waitCatch asnc
       act
     do
       atomically do
@@ -71,7 +77,7 @@ testInboundConnectionLimit = withSetup setup \sem -> do
 
   mreceivers <- atomically (newTVar mempty)
 
-  asyncs <- forM [0..2] \i -> do
+  asyncs <- forM [0..1] \i -> do
       handoff <- newEmptyMVar
       asnc <- async do
         me <- takeMVar handoff
@@ -79,7 +85,7 @@ testInboundConnectionLimit = withSetup setup \sem -> do
           finally
             do
                atomically $ modifyTVar sem (+1)
-               -- threadDelay 1                                      Test breaks if uncommented.
+               -- threadDelay 1                                   -- Test breaks if uncommented.
                --                                 https://github.com/barrucadu/dejafu/issues/323
             do atomically (modifyTVar sem (subtract 1))
       putMVar handoff asnc
@@ -99,3 +105,20 @@ testInboundConnectionLimit = withSetup setup \sem -> do
 
 data TooManyThreads = TooManyThreads deriving (Show)
 instance Exception TooManyThreads
+
+-- testInboundConnectionLimit :: Program (WithSetup (ModelTVar IO Int)) IO Int
+-- testInboundConnectionLimit = withSetup setup $ \tvar -> do
+--     a <- async (act tvar)
+--     b <- async (act tvar)
+--     _ <- waitCatch a
+--     _ <- waitCatch b
+--     atomically $ readTVar tvar
+-- 
+--   where
+--     setup = atomically $ newTVar 0
+-- 
+--     act tvar = do
+--       atomically $ modifyTVar tvar (+1)
+--       threadDelay 1
+--       atomically (readTVar tvar) >>= traceShowM
+--       atomically $ modifyTVar tvar (subtract 1)
