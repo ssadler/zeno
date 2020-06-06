@@ -22,6 +22,7 @@ module Zeno.Data.FixedBytes
   , unsafeToFixed
   , unFixed
   , bappend
+  , reFixed
   , Bytes0 , Bytes1 , Bytes2 , Bytes3 , Bytes4 , Bytes5 , Bytes6 , Bytes7
   , Bytes8 , Bytes9 , Bytes10 , Bytes11 , Bytes12 , Bytes13 , Bytes14 , Bytes15
   , Bytes16 , Bytes17 , Bytes18 , Bytes19 , Bytes20 , Bytes21 , Bytes22 , Bytes23
@@ -145,6 +146,9 @@ eitherFixed bs
   where
   n = fixedGetN (Proxy :: Proxy n)
   l = BS.length bs
+
+reFixed :: (KnownNat n, KnownNat m) => FixedBytes n -> FixedBytes m
+reFixed = toFixed . unFixed
 
 
 type Bytes0  = FixedBytes 0

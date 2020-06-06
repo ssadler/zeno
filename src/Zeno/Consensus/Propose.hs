@@ -46,7 +46,7 @@ determineProposers (Just (ProposerSequence seq)) = do
   ((primary, True):) . take 2 <$> determineProposers Nothing
 determineProposers Nothing = do
   ConsensusParams{members'}  <- asks has
-  entropy <- (,) <$> getStepNum <*> getRoundId
+  entropy <- getStepEntropy
   {- This gives fairly good distribution:
   import hashlib
   dist = [0] * 64
@@ -81,8 +81,7 @@ propose name mseq mobj = do
       go [] = throwIO $ ConsensusTimeout "Ran out of proposers"
       go ((pAddr, isPrimary):xs) = do
 
-        major <- incStepNum
-        minor <- incMinorStepNum
+        incMajorStepNum
 
         obj <- do
           myAddress <- getMyAddress
@@ -106,6 +105,7 @@ propose name mseq mobj = do
             logInfo $ "Timeout collecting for proposer: " ++ show pAddr
             when isPrimary do
               dispatchProposerTimeout pAddr 
+            incMinorStepNum
             go xs
 
 

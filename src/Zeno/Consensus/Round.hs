@@ -60,7 +60,7 @@ runConsensus :: (Serialize a, Has ConsensusNode r)
              => String -> ConsensusParams -> a -> Consensus b -> Zeno r b
 runConsensus label ccParams@ConsensusParams{..} entropy act = do
 
-  ccStepNum <- newTVarIO (0, Nothing)
+  ccStepNum <- newTVarIO $ StepNum roundTypeId 0 0
   ccChildren <- newTVarIO []
   let ccEntropy = sha3b $ encode entropy
       toCC r = let ccNode = has r in ConsensusContext{..}
@@ -136,7 +136,7 @@ step' name collect obj = do
 
 incStep :: String -> Consensus ()
 incStep label = do
-  major <- incStepNum
+  major <- incMajorStepNum
   sendUI $ UI_Step $ "%i: %s" % (major, label)
 
 

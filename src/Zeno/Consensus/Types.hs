@@ -24,6 +24,26 @@ import           Zeno.Consensus.P2P
 -- TODO: Clean all this up and organise into sections.
 
 
+data StepNum = StepNum
+  { stRound  :: VarInt
+  , stMajor  :: VarInt
+  , stMinor  :: VarInt
+  } deriving (Show, Generic)
+
+instance Serialize StepNum
+
+instance ToJSON StepNum where
+  toJSON (StepNum a b c) = toJSON (a, b, c)
+
+instance FromJSON StepNum where
+  parseJSON val = do
+    (a, b, c) <- parseJSON val
+    pure $ StepNum a b c
+
+makeLensesWith abbreviatedFields ''StepNum
+
+
+
 data ConsensusNode = ConsensusNode
   { cpNode :: Node
   , cpPeers :: PeerState
@@ -43,26 +63,26 @@ instance Has PeerState ConsensusContext where has = has . ccNode
 instance Has ConsensusParams ConsensusContext where has = ccParams
 instance Has EthIdent ConsensusContext where has = has . ccParams
 
-type StepNum = (Int, (Maybe Int))
+getRoundEntropy :: Consensus Bytes32
+getRoundEntropy = asks ccEntropy
+
+getStepEntropy :: Consensus Bytes32
+getStepEntropy = do
+  (,) <$> getRoundEntropy <*> getStepNum <&> sha3b . encode
 
 getStepNum :: Consensus StepNum
 getStepNum = asks ccStepNum >>= readTVarIO
 
-incStepNum :: Consensus Int
-incStepNum = do
+incMajorStepNum :: Consensus VarInt
+incMajorStepNum = do
   t <- asks ccStepNum
-  (major, _) <- readTVarIO t
-  let next = major + 1
-  atomically $ writeTVar t (next, Nothing)
-  pure next
+  atomically $ modifyTVar t $ (major +~ 1) . (minor .~ 0)
+  readTVarIO t <&> view major
 
-incMinorStepNum :: Consensus Int
+incMinorStepNum :: Consensus ()
 incMinorStepNum = do
   t <- asks ccStepNum
-  (major, minor) <- readTVarIO t
-  let next = maybe 1 (+1) minor
-  atomically $ writeTVar t (major, Just next)
-  pure next
+  atomically $ modifyTVar t $ minor +~ 0
 
 
 type RoundId = Bytes6
@@ -100,8 +120,12 @@ data StepMessage a =
   deriving (Generic, Show)
 
 instance Serialize a => Serialize (StepMessage a)
+-- The idea is that WrappedStepMessage should go away once we convert to combined StepMessage
+data WrappedStepMessage i = WrappedStepMessage CompactRecSig (Maybe StepNum) (StepMessage i)
+  deriving (Generic)
+instance Serialize i => Serialize (WrappedStepMessage i)
 
-type AuthenticatedStepMessage i = RemoteMessage (CompactRecSig, StepMessage i)
+type AuthenticatedStepMessage i = RemoteMessage (WrappedStepMessage i)
 
 -- Params ---------------------------------------------------------------------
 

@@ -1,7 +1,6 @@
 
 module DumpMessages where
 
-import Network.Transport
 import Network.Ethereum.Crypto
 import Data.Serialize
 import qualified Data.ByteString.Char8 as BS8
@@ -26,13 +25,14 @@ dump a = do
 sk :: SecKey
 sk = "12f72e7ca1a25292e913319d9b28e40c931db883b6bb2c29ea4834b991c7053a"
 
-sig =  sign sk "12f72e7ca1a25292e913319d9b28e40c931db883b6bb2c29ea4834b991c7053a"
+sig :: CompactRecSig
+sig =  sign sk ("12f72e7ca1a25292e913319d9b28e40c931db883b6bb2c29ea4834b991c7053a" :: Bytes32)
 
 dumpMessages :: IO ()
 dumpMessages = do
 
   let pid = peerControllerPid
-  let nid i = NodeId $ EndPointAddress $ toS $ "127.0.0.1:4044" ++ show i ++ ":0:8"
+  let nid i = NodeId "127.0.0.1" i
   let hello = (peerControllerPid, GetPeers)
   let peers = (peerControllerPid, Peers $ Set.fromList [nid 2, nid 3, nid 4])
 

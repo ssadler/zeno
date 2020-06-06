@@ -49,12 +49,10 @@ spawnStep :: forall a i. Serialize i => Ballot i -> Consensus (Process (Inventor
 spawnStep myBallot = do
 
   ConsensusContext{ccParams = ConsensusParams{..},..} <- ask
-  stepNum <- getStepNum
   roundId <- getRoundId
+  processId <- ProcessId . bappend roundId . reFixed <$> getStepEntropy
 
   let (Ballot myAddr mySig myData) = myBallot
-      suffix = toFixed $ sha3' $ encode (ccEntropy, stepNum)
-      processId = ProcessId $ roundId `bappend` suffix
       stepName = "step: " ++ show processId
 
   spawn stepName \process -> do
@@ -131,15 +129,16 @@ sendInventoryQueries step@Step{..} idxs = do
 -- | Message authentication
 --------------------------------------------------------------------------------
 
-getMessageToSign :: Serialize o => Step o -> StepMessage o -> Bytes32
+getMessageToSign :: Serialize i => Step i -> (Maybe StepNum, StepMessage i) -> Bytes32
 getMessageToSign Step{..} obj = sha3b $ encode (processId, obj)
 
 sendAuthenticated :: Serialize o
                   => Step o -> [NodeId] -> StepMessage o -> Consensus ()
 sendAuthenticated Step{..} peers obj = do
   EthIdent{..} <- asks has
-  let sig = sign ethSecKey $ getMessageToSign Step{..} obj
-  forM_ peers $ \peer -> sendRemote peer processId (sig, obj)
+  stepNum <- Just <$> getStepNum
+  let sig = sign ethSecKey $ getMessageToSign Step{..} (stepNum, obj)
+  forM_ peers $ \peer -> sendRemote peer processId (sig, stepNum, obj)
 
 -- TODO: Track who sends bad data
 authenticate :: Serialize i
@@ -147,9 +146,10 @@ authenticate :: Serialize i
              -> (NodeId -> StepMessage i -> Consensus ())
              -> AuthenticatedStepMessage i
              -> Consensus ()
-authenticate step@Step{..} act (RemoteMessage nodeId (theirSig, obj)) = do
-  let message = getMessageToSign step obj
-  case recoverAddr message theirSig of
+authenticate step@Step{..} act (RemoteMessage nodeId wsm) = do
+  let WrappedStepMessage theirSig sn obj = wsm
+  let sighash = getMessageToSign step (sn, obj)
+  case recoverAddr sighash theirSig of
        Just addr ->
          if elem addr members
             then act nodeId obj
