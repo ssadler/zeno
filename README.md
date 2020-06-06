@@ -34,7 +34,13 @@ However, the limitation of the consensus process is that currently it does not p
 
 For now this is not a complete description of the message protocol.
 
-### Step Num
+### Message protocol
+
+For now this is not a complete description of the protocol.
+
+A round message in Zeno looks like:
+
+`{8 bytes length}{16 bytes process ID}{66 bytes signature}{step num}{object}`
 
 The step num identifies the type of data in a step, and consists of the following:
 
