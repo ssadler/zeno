@@ -34,9 +34,11 @@ However, the limitation of the consensus process is that currently it does not p
 
 For now this is not a complete description of the protocol.
 
-A round message in Zeno looks like:
+A step message in Zeno looks like:
 
-`{8 bytes length}{16 bytes process ID}{66 bytes signature}{step num}{object}`
+`{4 bytes length}{16 bytes process ID}{66 bytes signature}{StepNum}{InventoryMessage}`
+
+#### StepNum
 
 The step num identifies the type of data in a step, and consists of the following:
 
@@ -50,3 +52,19 @@ The step num identifies the type of data in a step, and consists of the followin
 0
 ^ The step number prefix is 0, indicating that the following 3 step number bytes are not present.
 ```
+
+#### InventoryMessage
+
+Inventory, in general terms, is the set of votes from each member, so it's a mapping of member address to (signature, payload).
+
+The inventory message is a tuple of `{Index}{Request}{Inventory}`.
+
+*Index*: a bitmask\* advertising available inventory, in case peers want to query us for it.
+
+*Request*: a bitmask\* requesting inventory.
+
+*Inventory*: A list of `{20 bytes member address}{payload}`, where the payload depends on the StepNum.
+
+* The bitmask is a bigint (encoding TBD) where each bit corresponds to the index of an address in the members list, which is sorted and supposed to be the same for all peers.
+
+

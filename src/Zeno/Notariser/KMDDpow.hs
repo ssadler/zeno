@@ -75,6 +75,7 @@ waitKmdNotariseHeight interval lastHeight = do
   if nextHeight <= height
      then pure nextHeight
      else do
+       logInfo $ "Waiting for KMD height: " ++ show nextHeight
        withUIProc (UIOther $ "Waiting for KMD block %i" % nextHeight) do
          fix \f -> do
            threadDelay $ 5 * 1000000

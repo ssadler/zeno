@@ -113,14 +113,13 @@ type Collect a b = Inventory a -> Consensus (Maybe b)
 unInventory :: Inventory a -> [Ballot a]
 unInventory inv = [Ballot a s o | (a, (s, o)) <- Map.toAscList inv]
 
-data StepMessage a =
-    InventoryIndex Integer
-  | GetInventory Integer
-  | InventoryData (Inventory a)
-  deriving (Generic, Show)
+data StepMessage a = StepMessage
+  { msgIndex   :: Integer
+  , msgRequest :: Integer
+  , msgInvData :: Inventory a
+  } deriving (Generic, Show)
 
 instance Serialize a => Serialize (StepMessage a)
--- The idea is that WrappedStepMessage should go away once we convert to combined StepMessage
 data WrappedStepMessage i = WrappedStepMessage CompactRecSig (Maybe StepNum) (StepMessage i)
   deriving (Generic)
 instance Serialize i => Serialize (WrappedStepMessage i)
