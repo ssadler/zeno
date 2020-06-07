@@ -12,6 +12,7 @@ import Lens.Micro.Platform hiding (has)
 import UnliftIO
 
 import Zeno.Logging
+import GHC.Stack
 
 --------------------------------------------------------------------------------
 -- | Zeno App context
@@ -140,7 +141,7 @@ getConsole = Zeno \rest app -> rest app (_console app)
 --------------------------------------------------------------------------------
 
 class Has r a where
-  has :: a -> r
+  has :: HasCallStack => a -> r
 
 instance Has r r where
   has = id

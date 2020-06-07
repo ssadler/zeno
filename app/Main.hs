@@ -59,7 +59,7 @@ runSeedNotariserMethod = startSeedNode <$> optNetworkConfig <*> optNoUI
 
 runDumpProposerTimeoutsMethod :: Parser Method
 runDumpProposerTimeoutsMethod =
-  runDumpProposerTimeouts
+  undefined -- runDumpProposerTimeouts
   <$> optKmdConfigPath
   <*> optGateway
   <*> optGethConfig

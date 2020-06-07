@@ -16,6 +16,7 @@ import Zeno.Consensus
 import Zeno.Prelude
 
 import UnliftIO
+import Debug.Trace
 
 
 data RoundType              -- Don't go changing this willy nilly

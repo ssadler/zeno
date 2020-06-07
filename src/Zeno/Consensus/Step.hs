@@ -1,4 +1,3 @@
-{-# LANGUAGE Strict #-}
 
 module Zeno.Consensus.Step
   ( Ballot(..)

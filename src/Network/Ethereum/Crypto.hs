@@ -31,6 +31,7 @@ import           Zeno.Prelude
 import           Zeno.Data.Hex
 
 import           System.Entropy
+import GHC.Stack
 
 
 data EthIdent = EthIdent 
@@ -39,7 +40,7 @@ data EthIdent = EthIdent
   }
   deriving (Show)
 
-deriveEthIdent :: SecKey -> EthIdent
+deriveEthIdent :: HasCallStack => SecKey -> EthIdent
 deriveEthIdent sk = EthIdent sk $ deriveEthAddress $ derivePubKey sk
 
 deriveEthAddress :: PubKey -> Address

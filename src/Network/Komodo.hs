@@ -14,6 +14,7 @@ import           Haskoin.Constants
 import           Zeno.Prelude
 import           Zeno.Data.Aeson
 import           Zeno.Data.Hex
+import GHC.Stack
 
 
 -- Komodo network constants --------------------------------------------------
@@ -73,7 +74,7 @@ data KomodoIdent = KomodoIdent
   , kmdAddress :: RAddress
   } deriving (Show)
 
-deriveKomodoIdent :: SecKey -> KomodoIdent
+deriveKomodoIdent :: HasCallStack => SecKey -> KomodoIdent
 deriveKomodoIdent kmdSecKey =
   let kmdPubKey = EC.derivePubKey kmdSecKey
       kmdPubKeyI = H.wrapPubKey True kmdPubKey

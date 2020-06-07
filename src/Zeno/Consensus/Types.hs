@@ -1,6 +1,5 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE ConstraintKinds #-}
-{-# LANGUAGE Strict #-}
 
 module Zeno.Consensus.Types where
 
