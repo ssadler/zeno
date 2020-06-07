@@ -125,7 +125,7 @@ notariseToETH nc@NotariserConfig{..} seq height32 = do
   cparams <- getConsensusParamsWithStats nc KmdToEth
   r <- ask
   let run = withContext (const r)
-      roundLabel = "kmd@%i ⇒  eth" % height
+      roundLabel = "kmd.%i ⇒  eth" % height
 
   -- we already have all the data for the call to set the new block height
   -- in our ethereum contract. so create the call.

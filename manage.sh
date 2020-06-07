@@ -24,8 +24,8 @@ function queryKmdTest () {
   komodo-cli --ac_name=TXSCLZDEV $@
 }
 
-# eg: ./manage.sh dot | xdot -
 function dot () {
+    # eg: ./manage.sh dot | xdot -
     graphmod -  # --collapse=Module
 }
  

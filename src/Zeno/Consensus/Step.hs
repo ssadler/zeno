@@ -1,3 +1,4 @@
+{-# LANGUAGE Strict #-}
 
 module Zeno.Consensus.Step
   ( Ballot(..)
@@ -104,7 +105,7 @@ onInventoryData step@Step{..} forwardInv theirInv = do
 
   -- TODO: Authenticate all the inventory we don't have.
   
-  mr <- 
+  mr <-
     atomically do
       let theirIdx = inventoryIndex members theirInv
       (oldIdx, oldInv) <- readTVar tInv

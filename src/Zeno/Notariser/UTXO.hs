@@ -20,7 +20,7 @@ import Zeno.Console
 
 
 kmdInputAmount :: Word64
-kmdInputAmount = 9800
+kmdInputAmount = 9850
 
 
 -- TODO: Should be a single "Has Komodo r"
@@ -78,7 +78,6 @@ makeSplits amount nsplits = do
           [] -> do
             logWarn $ "No funds! Need a spendable input of at least " ++ fromSats total ++ " KMD"
           (x:_) -> do
-            logDebug $ "Chose input: " ++ show (getOutPoint x)
             case buildSplit x of
                  Left err -> do
                    logError $ "Could not build transaction: " <> err

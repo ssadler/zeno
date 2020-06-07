@@ -1,6 +1,6 @@
 name:                zeno
-version:             0.1.0.0
-github:              "komodoplatform/zeno"
+version:             0.2.1.0
+github:              "ssadler/zeno"
 license:             BSD3
 author:              "ssadler"
 maintainer:          "developers@komodoplatform.com"
