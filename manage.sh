@@ -28,6 +28,10 @@ function dot () {
     # eg: ./manage.sh dot | xdot -
     graphmod -  # --collapse=Module
 }
+
+function buildProfile () {
+  stack build --profile --ghc-options=-fprof-auto-top
+}
  
 
 cmd=$1;

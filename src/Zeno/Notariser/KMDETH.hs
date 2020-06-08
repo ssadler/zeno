@@ -29,9 +29,11 @@ runNotariseKmdToEth pk gateway networkConfig gethConfig kmdConfPath useui = do
       let kmdAddress = deriveKomodoAddress pk
       wif <- withContext (const bitcoinConf) $ queryBitcoin "dumpprivkey" [kmdAddress]
       sk <- either error pure $ parseWif komodo wif
+      let kmdIdent = deriveKomodoIdent sk
+          ethIdent = deriveEthIdent sk
 
       withConsensusNode networkConfig do
-        let toNotariser node = EthNotariser bitcoinConf node gethConfig gateway sk
+        let toNotariser node = EthNotariser bitcoinConf node gethConfig gateway kmdIdent ethIdent
         withContext toNotariser do
           KomodoIdent{..} <- asks has
           EthIdent{..} <- asks has

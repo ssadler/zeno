@@ -4,7 +4,6 @@ module Zeno.Consensus.P2P
   ( startP2P
   , PeerState
   , getPeers
-  , sendPeers
   , registerOnNewPeer
   -- For testing
   , PeerMsg(..)
@@ -55,11 +54,6 @@ getPeers :: Has PeerState r => Zeno r [NodeId]
 getPeers = do
   PeerState{..} <- asks has
   Set.toList <$> readTVarIO p2pPeers
-
-sendPeers :: (Has PeerState r, Has Node r, Serialize o) => ProcessId -> o -> Zeno r ()
-sendPeers pid msg = do
-  peers <- getPeers
-  forM_ peers $ \peer -> sendRemote peer pid msg
 
 registerOnNewPeer :: Has PeerState r => (NodeId -> Zeno r ()) -> Zeno r ()
 registerOnNewPeer cb = do

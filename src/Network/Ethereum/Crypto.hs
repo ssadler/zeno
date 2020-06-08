@@ -10,6 +10,7 @@ module Network.Ethereum.Crypto
   , deriveEthAddress
   , genSecKey
   , sign
+  , recover
   , recoverAddr
   ) where
 
@@ -34,7 +35,7 @@ import           System.Entropy
 
 
 data EthIdent = EthIdent 
-  { ethSecKey :: SecKey
+  { ethSecKey  :: SecKey
   , ethAddress :: Address
   }
   deriving (Show)

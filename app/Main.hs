@@ -12,6 +12,8 @@ import           Zeno.Notariser.Stats
 import           Zeno.Prelude
 import           Zeno.CLI.Utils
 
+import           TestSecp256k1
+
 
 main :: IO ()
 main = join $ customExecParser (prefs showHelpOnEmpty) parseAct
@@ -37,6 +39,7 @@ parseAct = infoH topMethods $ fullDesc <> progDesc "Notariser for Komodo network
         (command "fromWif" $ infoH fromWifMethod $ progDesc "derive from WIF")
      <> (command "fromSec" $ infoH fromSecMethod $ progDesc "derive from secret")
      <> (command "fromPub" $ infoH fromPubMethod $ progDesc "derive from pubkey")
+     <> (command "testsep" $ infoH runTestSecp256k1Method $ progDesc "")
 
    statsMethods = subparser $
         (command "proposerTimeouts" $ infoH runDumpProposerTimeoutsMethod $
@@ -65,3 +68,6 @@ runDumpProposerTimeoutsMethod =
   <*> optGethConfig
   <*> optNumberOfDays
 
+
+runTestSecp256k1Method :: Parser Method
+runTestSecp256k1Method = pure runTestSecp256k1

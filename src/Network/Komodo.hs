@@ -67,10 +67,10 @@ deriveKomodoAddress = RAddress . H.addressHash . exportPubKey True
 -- Ident ----------------------------------------------------------------------
 
 data KomodoIdent = KomodoIdent
-  { kmdSecKey :: SecKey
-  , kmdPubKey :: PubKey
-  , kmdPubKeyI :: H.PubKeyI
-  , kmdAddress :: RAddress
+  { kmdSecKey  :: !SecKey
+  , kmdPubKey  :: !PubKey
+  , kmdPubKeyI :: !H.PubKeyI
+  , kmdAddress :: !RAddress
   } deriving (Show)
 
 deriveKomodoIdent :: SecKey -> KomodoIdent
