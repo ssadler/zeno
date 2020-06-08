@@ -30,6 +30,7 @@ import Zeno.Prelude hiding (finally)
 sendRemote :: (Serialize a, Has Node r) => NodeId -> ProcessId -> a -> Zeno r ()
 sendRemote nodeId pid msg = do
   withRemoteForwarder nodeId \(chan, _) -> do
+    -- traceShowM $ encodeLazy msg
     writeTQueue chan $ encodeLazy (pid, msg)
 
 

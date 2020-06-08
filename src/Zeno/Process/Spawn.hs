@@ -48,6 +48,7 @@ spawn threadName forked = do
 
 logDiedSync :: String -> Zeno r a -> Zeno r a
 logDiedSync threadName act = do
+  traceM "logDiedSync"
   catchAny act $ \e -> do
     logError $ "Thread \"%s\" died with: %s" % (threadName, show e)
     throwIO (e :: SomeException)
