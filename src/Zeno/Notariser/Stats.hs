@@ -8,6 +8,7 @@ import Data.List ((\\), nub)
 import Data.Serialize
 import Data.Time.Clock
 import Data.Time.Calendar
+import Data.Either (rights)
 
 import qualified Haskoin as H
 
@@ -53,35 +54,35 @@ forkRecordProposerTimeout nc proposerTimeout = do
   spawnNoHandle label do
     localZeno (console . writeStatusEvents .~ False) do
 
-      utxo <- waitForUtxo
-      KomodoIdent{..} <- asks has
-      t <- liftIO getCurrentTime
+      withKomodoUtxo \utxo -> do
+        KomodoIdent{..} <- asks has
+        t <- liftIO getCurrentTime
 
-      let
-        markerAddr = H.PayPKHash $ proposerTimeoutAddress $ utctDay t
-        payload = encode proposerTimeout
-        outputsToSign = kmdDataOutputs outputAmount markerAddr payload
-        collect = collectWith \t inv -> do
-          guard $ length inv >= t
-          let sigs = [s | (s, _) <- toList inv]
-          let signedPayload = encode (sigs, proposerTimeout)
-          let outputs' = kmdDataOutputs outputAmount markerAddr signedPayload
-          let outpoint = getOutPoint utxo
-          let tx = saplingTx [outpoint] outputs'
-          let sigIn = H.SigInput (H.PayPK kmdPubKeyI) kmdInputAmount outpoint H.sigHashAll Nothing
-          let signed = either murphy id $ signTxSapling komodo tx [sigIn] [kmdSecKey]
-          Just signed
+        let
+          markerAddr = H.PayPKHash $ proposerTimeoutAddress $ utctDay t
+          payload = encode proposerTimeout
+          outputsToSign = kmdDataOutputs outputAmount markerAddr payload
+          collect = collectWith \t inv -> do
+            guard $ length inv >= t
+            let sigs = [s | (s, _) <- toList inv]
+            let signedPayload = encode (sigs, proposerTimeout)
+            let outputs' = kmdDataOutputs outputAmount markerAddr signedPayload
+            let outpoint = getOutPoint utxo
+            let tx = saplingTx [outpoint] outputs'
+            let sigIn = H.SigInput (H.PayPK kmdPubKeyI) kmdInputAmount outpoint H.sigHashAll Nothing
+            let signed = either murphy id $ signTxSapling komodo tx [sigIn] [kmdSecKey]
+            Just signed
 
-      cparams <- getConsensusParams nc StatsToKmd
+        cparams <- getConsensusParams nc StatsToKmd
 
-      (Ballot _ _ chosenTx) <- 
+        (Ballot _ _ chosenTx) <- 
 
-        runConsensus label cparams proposerTimeout do
-          tx <- step "tx sigs" collect (sha256b $ encode outputsToSign)
-          propose "tx sender" Nothing $ pure tx
+          runConsensus label cparams proposerTimeout do
+            tx <- step "tx sigs" collect (sha256b $ encode outputsToSign)
+            propose "tx sender" Nothing $ pure tx
 
-      txid <- bitcoinSubmitTxSync 0 chosenTx
-      logInfo $ "Posted stats: \"%s\" (%s)" % (label, show txid)
+        txid <- bitcoinSubmitTxSync 0 chosenTx
+        logInfo $ "Posted stats: \"%s\" (%s)" % (label, show txid)
 
 
 proposerTimeoutAddress :: Day -> H.Hash160
@@ -140,7 +141,7 @@ runDumpProposerTimeouts kmdConfPath gateway gethConfig numDays = do
         let markerAddress = H.PayPKHash $ getAddrHash address
         let outputsToSign = kmdDataOutputs outputAmount markerAddress $ encode payload
         let message = sha256b $ encode outputsToSign
-        let addrs = catMaybes $ recoverAddr message <$> sigs
+        addrs <- liftIO $ rights <$> forM sigs (recoverAddr message)
 
         when (length sigs < threshold) do
           throwError "Not enough signers"

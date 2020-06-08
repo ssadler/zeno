@@ -1,5 +1,9 @@
 
-module Zeno.Notariser.UTXO where
+module Zeno.Notariser.UTXO
+  ( withKomodoUtxo
+  , forkMonitorUTXOs
+  , kmdInputAmount
+  ) where
 
 import Control.Monad.Reader
 
@@ -94,6 +98,16 @@ makeSplits amount nsplits = do
 type HasUtxos r = (Has BitcoinConfig r, Has KomodoIdent r)
 
 
+allocatedUtxos :: MVar (Set KomodoUtxo)
+allocatedUtxos = unsafePerformIO $ newMVar mempty
+
+withKomodoUtxo :: HasUtxos r => (KomodoUtxo -> Zeno r a) -> Zeno r a
+withKomodoUtxo act = do
+  bracket
+    waitForUtxo
+    (\u -> modifyMVar_ allocatedUtxos $ pure . delete u)
+    act
+
 waitForUtxo :: HasUtxos r => Zeno r KomodoUtxo
 waitForUtxo = do
   getKomodoUtxo >>= \case
@@ -105,34 +119,19 @@ waitForUtxo = do
           threadDelay $ 10 * 1000000
           getKomodoUtxo >>= maybe f pure
 
-
-allocatedUtxos :: TVar (Set KomodoUtxo)
-allocatedUtxos = unsafePerformIO $ newTVarIO mempty
-
-
 getKomodoUtxo :: HasUtxos r => Zeno r (Maybe KomodoUtxo)
 getKomodoUtxo = do
   kmdAddress <- asks $ kmdAddress . has
   unspent <- filter viableUtxo <$> komodoUtxos [kmdAddress]
 
-  mask_ do
-    mutxo <- atomically do
-      allocated <- readTVar allocatedUtxos
-      let available = toList $ fromList unspent \\ allocated
-      case prioritise available of
-        [] -> pure Nothing
-        (u:_) -> do
-          writeTVar allocatedUtxos $ insert u allocated
-          pure $ Just u
-
-    case mutxo of
-      Nothing -> pure Nothing
-      Just u -> do
-        allocate (pure u) deallocateUtxo
-        pure $ Just u
+  modifyMVar allocatedUtxos \allocated -> do
+    let available = toList $ fromList unspent \\ allocated
+    case prioritise available of
+      [] -> pure (allocated, Nothing)
+      (u:_) -> do
+        pure (insert u allocated, Just u)
   
   where
-  deallocateUtxo u = atomically $ modifyTVar allocatedUtxos (delete u)
   prioritise = reverse . sortOn (\c -> (utxoConfirmations c, utxoTxid c))
 
 

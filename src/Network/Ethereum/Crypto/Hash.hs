@@ -21,7 +21,7 @@ import           Data.Serialize
 
 import           Network.Ethereum.Data
 import           Zeno.Prelude
-import           Zeno.Data.FixedBytes
+import           Data.FixedBytes
 
 
 newtype Sha3 = Sha3 { unSha3 :: ByteString }

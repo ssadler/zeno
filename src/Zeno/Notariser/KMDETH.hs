@@ -26,12 +26,14 @@ runNotariseKmdToEth pk gateway networkConfig gethConfig kmdConfPath useui = do
     withUI do
       threadDelay 1000000
       bitcoinConf <- loadBitcoinConfig kmdConfPath
-      let kmdAddress = deriveKomodoAddress pk
+      kmdAddress <- deriveKomodoAddress pk
       wif <- withContext (const bitcoinConf) $ queryBitcoin "dumpprivkey" [kmdAddress]
       sk <- either error pure $ parseWif komodo wif
+      ethIdent <- deriveEthIdent sk
+      kmdIdent <- deriveKomodoIdent sk
 
       withConsensusNode networkConfig do
-        let toNotariser node = EthNotariser bitcoinConf node gethConfig gateway sk
+        let toNotariser node = EthNotariser bitcoinConf node gethConfig gateway sk ethIdent kmdIdent
         withContext toNotariser do
           KomodoIdent{..} <- asks has
           EthIdent{..} <- asks has
@@ -182,7 +184,7 @@ ethMakeNotarisationTx NotariserConfig{..} callData = do
   U256 gasPriceRec <- queryEthereum "eth_gasPrice" ()
   let gasPrice = gasPriceRec + quot gasPriceRec 2
       tx = Tx nonce 0 (Just gateway) Nothing gasPrice ethNotariseGas callData ethChainId
-  pure $ signTx sk tx
+  signTx sk tx
 
 
 getLastNotarisationOnEth :: NotariserConfig
@@ -212,7 +214,8 @@ getBackNotarisation NotariserConfig{..} NOE{..} = do
 
 checkTxProposed :: Ballot Transaction -> Zeno EthNotariser ()
 checkTxProposed (Ballot sender _ tx) = do
-  case recoverFrom tx of
-    Nothing -> throwIO $ ConsensusMischief sender "Can't recover sender from tx"
-    Just s | s /= sender -> throwIO $ ConsensusMischief sender "Sender wrong"
-    _ -> pure ()
+  recoverFrom tx >>=
+    \case
+      Nothing -> throwIO $ ConsensusMischief sender "Can't recover sender from tx"
+      Just s | s /= sender -> throwIO $ ConsensusMischief sender "Sender wrong"
+      _ -> pure ()

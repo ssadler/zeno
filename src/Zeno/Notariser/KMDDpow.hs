@@ -22,33 +22,33 @@ import Zeno.Prelude
 
 notariseKmdDpow :: NotariserConfig -> ProposerSequence -> NotarisationData -> Zeno EthNotariser ()
 notariseKmdDpow nc@NotariserConfig{..} seq ndata = do
-  utxo <- waitForUtxo
-  KomodoIdent{..} <- asks has
-  cparams <- getConsensusParamsWithStats nc EthToKmd
-  let label = "eth ⇒  kmd"
+  withKomodoUtxo \utxo -> do
+    KomodoIdent{..} <- asks has
+    cparams <- getConsensusParamsWithStats nc EthToKmd
+    let label = "eth ⇒  kmd"
 
-  r <- ask :: Zeno EthNotariser EthNotariser
-  let run = withContext (const r)
+    r <- ask :: Zeno EthNotariser EthNotariser
+    let run = withContext (const r)
 
-  txhash <- runConsensus label cparams outputs $ do
-  
-    proposal <- step "inputs" (collectWith $ proposeInputs kmdNotarySigs)
-                              (kmdPubKeyI, getOutPoint utxo)
+    txhash <- runConsensus label cparams outputs $ do
+    
+      proposal <- step "inputs" (collectWith $ proposeInputs kmdNotarySigs)
+                                (kmdPubKeyI, getOutPoint utxo)
 
-    Ballot _ _ utxos <- propose "inputs" (Just seq) $ pure proposal
-  
-    -- Sign tx and collect signed inputs
-    let partlySignedTx = signMyInput nc kmdSecKey utxos outputs
-        myInput = getMyInput utxo partlySignedTx
-        waitCompileTx = collectWith $ collectTx partlySignedTx utxos
-    finalTx <- step "sigs" waitCompileTx myInput
+      Ballot _ _ utxos <- propose "inputs" (Just seq) $ pure proposal
+    
+      -- Sign tx and collect signed inputs
+      let partlySignedTx = signMyInput nc kmdSecKey utxos outputs
+          myInput = getMyInput utxo partlySignedTx
+          waitCompileTx = collectWith $ collectTx partlySignedTx utxos
+      finalTx <- step "sigs" waitCompileTx myInput
 
-    _ <- step "confirm" collectMajority ()
-  
-    incStep "wait for tx confirm ..."
-    run $ submitNotarisation nc finalTx
+      _ <- step "confirm" collectMajority ()
+    
+      incStep "wait for tx confirm ..."
+      run $ submitNotarisation nc finalTx
 
-  dpowCheck nc txhash ndata
+    dpowCheck nc txhash ndata
 
   where
   outputs = kmdDataOutputs outputAmount dpowRecip $ encode ndata

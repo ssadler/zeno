@@ -8,7 +8,7 @@
 -- the size specified in the type, unless the `unsafeBytes` constructor
 -- is used incorrectly. String functions use hexidecimal representation.
 
-module Zeno.Data.FixedBytes
+module Data.FixedBytes
   ( module Out
   , FixedBytes
   , bytesReverse

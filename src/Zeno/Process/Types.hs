@@ -18,7 +18,7 @@ import qualified StmContainers.Map as STM
 import Network.Simple.TCP
 import Network.Socket (HostAddress)
 import UnliftIO
-import Zeno.Data.FixedBytes
+import Data.FixedBytes
 import Zeno.Process.Node.InboundRateLimit
 
 newtype ProcessId = ProcessId { unProcessId :: Bytes16 }

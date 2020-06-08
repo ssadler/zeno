@@ -4,7 +4,7 @@
 
 module Network.Komodo where
 
-import           Crypto.Secp256k1 as EC
+import           Crypto.Secp256k1Wrapped
 import           Data.Serialize as S
 
 import           Network.Bitcoin
@@ -15,6 +15,7 @@ import           Zeno.Prelude
 import           Zeno.Data.Aeson
 import           Zeno.Data.Hex
 
+import           UnliftIO
 
 -- Komodo network constants --------------------------------------------------
 
@@ -59,8 +60,8 @@ stringToRAddress s =
     Just (H.PubKeyAddress h160) -> Just (RAddress h160)
     _ -> Nothing
 
-deriveKomodoAddress :: PubKey -> RAddress
-deriveKomodoAddress = RAddress . H.addressHash . exportPubKey True
+deriveKomodoAddress :: MonadUnliftIO m => PubKey -> m RAddress
+deriveKomodoAddress pk = RAddress . H.addressHash <$> exportPubKey True pk
 
 
 
@@ -73,12 +74,12 @@ data KomodoIdent = KomodoIdent
   , kmdAddress :: RAddress
   } deriving (Show)
 
-deriveKomodoIdent :: SecKey -> KomodoIdent
-deriveKomodoIdent kmdSecKey =
-  let kmdPubKey = EC.derivePubKey kmdSecKey
-      kmdPubKeyI = H.wrapPubKey True kmdPubKey
-      kmdAddress = deriveKomodoAddress kmdPubKey
-   in KomodoIdent{..}
+deriveKomodoIdent :: MonadUnliftIO m => SecKey -> m KomodoIdent
+deriveKomodoIdent kmdSecKey = do
+  kmdPubKey <- derivePubKey kmdSecKey
+  kmdAddress <- deriveKomodoAddress kmdPubKey
+  let kmdPubKeyI = H.wrapPubKey True kmdPubKey
+  pure $ KomodoIdent{..}
 
 
 -- UTXOs ----------------------------------------------------------------------

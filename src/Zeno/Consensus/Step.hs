@@ -1,4 +1,3 @@
-{-# LANGUAGE Strict #-}
 
 module Zeno.Consensus.Step
   ( Ballot(..)
@@ -145,7 +144,7 @@ sendAuthenticated Step{..} peers obj = do
   EthIdent{..} <- asks has
   stepNum <- Just <$> getStepNum
   let sighash = getMessageToSign Step{..} (stepNum, obj)
-  let sig = sign ethSecKey sighash
+  sig <- sign ethSecKey sighash
   forM_ peers $ \peer -> do
     let act = sendRemote peer processId (sig, stepNum, obj)
     act
@@ -166,13 +165,14 @@ authenticate :: Serialize i
 authenticate step@Step{..} act (RemoteMessage nodeId wsm) = do
   let WrappedStepMessage theirSig sn obj = wsm
   let sighash = getMessageToSign step (sn, obj)
-  case recoverAddr sighash theirSig of
-       Just addr ->
+  recoverAddr sighash theirSig >>=
+    \case
+       Right addr ->
          if elem addr members
             then act nodeId obj
             else logWarn $ "Not member or wrong step: " ++ show addr
-       Nothing -> do
-         logWarn "Signature recovery failed"
+       Left s -> do
+         logWarn $ "Signature recovery failed: " ++ s
 
 --------------------------------------------------------------------------------
 -- | Pure functions for inventory building

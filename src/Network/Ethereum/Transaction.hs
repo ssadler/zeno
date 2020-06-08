@@ -13,6 +13,7 @@ import Network.Ethereum.Crypto
 import Network.Ethereum.Transaction.Types as ALL
 
 import Zeno.Prelude
+import UnliftIO
 
 
 withoutSig :: Transaction -> Transaction
@@ -27,11 +28,17 @@ decodeTx = rlpDeserialize
 hashTx :: Transaction -> EthTxHash
 hashTx = PrefixedHex . sha3b . encodeTx
 
-signTx :: SecKey -> Transaction -> Transaction
-signTx sk tx = tx { _sig = Just (sign sk $ unPrefixedHex $ sighashTx tx) }
+signTx :: MonadUnliftIO m => SecKey -> Transaction -> m Transaction
+signTx sk tx = do
+  sig <- sign sk $ unPrefixedHex $ sighashTx tx
+  pure $ tx { _sig = Just sig }
 
-recoverFrom :: Transaction -> Maybe Address
-recoverFrom tx = _sig tx >>= recoverAddr (unPrefixedHex $ sighashTx tx)
+recoverFrom :: MonadUnliftIO m => Transaction -> m (Maybe Address)
+recoverFrom tx =
+  case _sig tx of
+    Nothing -> pure Nothing
+    Just sig -> do
+      recoverAddr (unPrefixedHex $ sighashTx tx) sig >>= either (const (pure Nothing)) (pure . Just)
 
 sighashTx :: Transaction -> EthTxHash
 sighashTx tx = hashTx $ tx { _sig = Nothing }

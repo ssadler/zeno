@@ -2,12 +2,13 @@
 module Zeno.Process.Remote where
 
 import Control.Concurrent.STM (throwSTM)
+import Control.DeepSeq
 import Control.Monad.Catch (MonadThrow, MonadCatch)
 import Control.Monad.Reader
 
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BSL
-import Zeno.Data.FixedBytes
+import Data.FixedBytes
 import Data.Hashable
 import Data.Serialize
 import Data.Typeable
@@ -29,8 +30,9 @@ import Zeno.Prelude hiding (finally)
 
 sendRemote :: (Serialize a, Has Node r) => NodeId -> ProcessId -> a -> Zeno r ()
 sendRemote nodeId pid msg = do
+  let payload = encodeLazy (pid, msg)
   withRemoteForwarder nodeId \(chan, _) -> do
-    writeTQueue chan $ encodeLazy (pid, msg)
+    writeTQueue chan payload
 
 
 monitorRemote :: Has Node r => NodeId -> Zeno r () -> Zeno r ()

@@ -9,7 +9,7 @@ import Lens.Micro.Platform
 import System.IO
 import UnliftIO
 
-import Zeno.Data.FixedBytes
+import Data.FixedBytes
 
 
 data ConsoleCtrl

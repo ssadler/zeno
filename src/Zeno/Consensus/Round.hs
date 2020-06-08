@@ -111,8 +111,8 @@ step name collect obj = do
 step' :: forall a b. BallotData a => String -> Collect a b -> a -> Consensus b
 step' name collect obj = do
   ConsensusParams{ident' = EthIdent sk myAddr, ..} <- asks ccParams
-  let sig = sign sk message
-      ballot = Ballot myAddr sig obj
+  sig <- sign sk message
+  let ballot = Ballot myAddr sig obj
       errTimeout = ConsensusTimeout ("Timeout after %i seconds" % quot timeout' 1000000)
 
   recv <- spawnStep ballot
