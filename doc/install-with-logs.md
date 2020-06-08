@@ -42,6 +42,13 @@ Chain params:
 
 #### 1.4 Start zeno with output redirecting to file, e.g. :
 
+change:
+
+```json
+--pubkey param to your notary pubkey
+--bind param to your node white IP
+```
+
 ```
 zeno notarise kmdeth --geth http://127.0.0.1:8545 --port 7766 --gateway 0x0E27bd633C31AaE55079ee41e01579e2333e3cb2 --pubkey 02b61089cfab5f3db62d78d8de8189dc591d7a4688d0b69204df9572dfeed780c9 --kmd ~/.komodo/TXSCLZ/TXSCLZ.conf --seed 195.201.20.230:40440 --bind 95.216.204.220 >> zeno.log
 ```
@@ -67,7 +74,7 @@ paths:
 
 (path to your log file might be different)
 
-##### 2.2.2 Specify cloud.id and cloud.auth for auth - cloud.id is the same for everyone, for cloud.auth use username/password I've sent you
+##### 2.2.2 Specify cloud.id and cloud.auth for auth - cloud.id is the same for everyone, for cloud.auth use special username/password you've received in DM
 
 ```
 cloud.id: "Test_Kibana:dXMtZWFzdC0xLmF3cy5mb3VuZC5pbyRmMGQwN2E4MjU0ZjU0MjY4YjgwYjcwNzYxZGJjYWMzYyQ2YzA0ZmNjM2QzYjY0N2NlOWI3ZTY1ZjBiYjlmNzdlMg=="
