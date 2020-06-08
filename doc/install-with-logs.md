@@ -51,7 +51,7 @@ change:
 `--pubkey param to your notary KMD pubkey`
 
 ```
-zeno notarise kmdeth --geth http://127.0.0.1:8545 --port 7766 --gateway 0x0E27bd633C31AaE55079ee41e01579e2333e3cb2 --pubkey 02b61089cfab5f3db62d78d8de8189dc591d7a4688d0b69204df9572dfeed780c9 --kmd ~/.komodo/TXSCLZ/TXSCLZ.conf --seed 195.201.20.230:40440 >> zeno.log
+zeno notarise kmdeth --geth http://127.0.0.1:8545 --gateway 0x0E27bd633C31AaE55079ee41e01579e2333e3cb2 --pubkey {pubkey} --kmd ~/.komodo/TXSCLZ/TXSCLZ.conf --seed 195.201.20.230:40440 >> zeno.log
 ```
 
 ## 2. Filebeat logging system install and configuring
