@@ -9,6 +9,7 @@ module Zeno.Logging
   , logWarn
   , logMurphy
   , logMessage
+  , whenSlow
   , AsString
   , asString
   , getLogMessage
@@ -26,6 +27,7 @@ import Control.Monad.Logger as LOG hiding (logDebug, logInfo, logError, logWarn)
 import UnliftIO
 import qualified Language.Haskell.Printf as Printf
 import Language.Haskell.TH.Quote
+import Text.Printf
 
 import Zeno.Console.Types as LOG
 
@@ -68,6 +70,19 @@ logMessage (Console lvlFilter mstatus _ h) loc source level msg = do
     case mstatus of
       Just queue -> atomically $ writeTBQueue queue $ UILog line
       Nothing -> BS8.hPutStr h line *> hFlush stdout
+
+
+whenSlow :: MonadIO m => Int -> m a -> (Int -> m ()) -> m a
+whenSlow threshold act log = do
+  startTime <- liftIO $ getCurrentTime
+  r <- act
+  endTime <- liftIO $ getCurrentTime
+  let t = diffUTCTime endTime startTime
+  let ms = round $ realToFrac t * 1000
+  when (ms >= threshold) do log ms
+  pure r
+
+
 
 
 pf :: QuasiQuoter

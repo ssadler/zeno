@@ -32,12 +32,13 @@ forkMonitorUTXOs :: (Has KomodoIdent r, Has BitcoinConfig r)
                  => Int -> Int -> Zeno r ()
 forkMonitorUTXOs minimum nsplit = do
   KomodoIdent{..} <- asks has
-  run $ do
-    available <- filter viableUtxo <$> komodoUtxos [kmdAddress]
+  run do
+    available <- filter viableUtxo <$> komodoListUnspent [kmdAddress]
+    nallocated <- length <$> readMVar allocatedUtxos
 
-    when (length available < minimum) do
+    when (length available - nallocated < minimum) do
       logInfo $ printf "Creating %i UTXOs of %i" nsplit amount
-      makeSplits amount nsplit
+      makeSplits available amount nsplit
       threadDelay $ 5 * 60 * 1000000
 
     threadDelay $ 30 * 1000000
@@ -48,13 +49,13 @@ forkMonitorUTXOs minimum nsplit = do
       logError $ show e
       threadDelay $ 30 * 1000000
     run act = do
-      _ <- spawn "monitor UTXOs" $ \_ -> do
+      spawnNoHandle "monitor UTXOs" do
         forever $ act `catchAny` onError
       pure ()
 
 
-makeSplits :: (Has BitcoinConfig r, Has KomodoIdent r) => Word64 -> Int -> Zeno r ()
-makeSplits amount nsplits = do
+makeSplits :: (Has BitcoinConfig r, Has KomodoIdent r) => [KomodoUtxo] -> Word64 -> Int -> Zeno r ()
+makeSplits available amount nsplits = do
   KomodoIdent{..} <- asks has
 
   let outs = replicate nsplits (H.PayPK kmdPubKeyI, amount)
@@ -77,7 +78,7 @@ makeSplits amount nsplits = do
       fromSats :: Word64 -> String
       fromSats sats = printf "%f" $ (fromIntegral sats :: Double) / (10e7)
    in do
-     utxos <- viableIns <$> komodoUtxos []
+     utxos <- viableIns <$> komodoListUnspent []
      case utxos of
           [] -> do
             logWarn $ "No funds! Need a spendable input of at least " ++ fromSats total ++ " KMD"
@@ -122,7 +123,7 @@ waitForUtxo = do
 getKomodoUtxo :: HasUtxos r => Zeno r (Maybe KomodoUtxo)
 getKomodoUtxo = do
   kmdAddress <- asks $ kmdAddress . has
-  unspent <- filter viableUtxo <$> komodoUtxos [kmdAddress]
+  unspent <- filter viableUtxo <$> komodoListUnspent [kmdAddress]
 
   modifyMVar allocatedUtxos \allocated -> do
     let available = toList $ fromList unspent \\ allocated

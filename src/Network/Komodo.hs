@@ -84,8 +84,19 @@ deriveKomodoIdent kmdSecKey = do
 
 -- UTXOs ----------------------------------------------------------------------
 
-komodoUtxos :: Has BitcoinConfig r => [RAddress] -> Zeno r [KomodoUtxo]
-komodoUtxos addrs = queryBitcoin "listunspent" (1::Int, 99999999::Int, addrs)
+listUnspentLogThresholdMs :: Int
+listUnspentLogThresholdMs = 200
+
+komodoListUnspent :: Has BitcoinConfig r => [RAddress] -> Zeno r [KomodoUtxo]
+komodoListUnspent addrs = do
+  whenSlow listUnspentLogThresholdMs
+    do queryBitcoin "listunspent" (lo, hi, addrs)
+    \ms -> logWarn $ "Komodo RPC call \"listunspent %i %i\" took %i ms" % (lo, hi, ms)
+  where
+  lo, hi :: Int
+  lo = 1
+  hi = 99999999
+
 
 data KomodoUtxo = Utxo
   { utxoAmount :: Word64
