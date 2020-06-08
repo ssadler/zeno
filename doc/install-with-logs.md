@@ -28,6 +28,8 @@ When you get zeno installed and geth node synced, run:
 
 and get your eth address, then get some ropsten ether from https://faucet.ropsten.be/
 
+Faucet might be unreliable sometimes, if you have trouble with it please provide your address to https://keybase.io/alrighttt/ for manual funding.
+
 #### 1.3 Run and sync TXSCLZ chain:
 
 Use https://github.com/KomodoPlatform/komodo master branch
@@ -40,17 +42,16 @@ Chain params:
 
 **Do not forget to import privkey for your notary pubkey**
 
+You need some TXSCLZ coins. You can try to mine a few blocks or contact https://keybase.io/alrighttt/ if your pubkey wasn't funded yet. 
+
 #### 1.4 Start zeno with output redirecting to file, e.g. :
 
 change:
 
-```json
---pubkey param to your notary pubkey
---bind param to your node white IP
-```
+`--pubkey param to your notary KMD pubkey`
 
 ```
-zeno notarise kmdeth --geth http://127.0.0.1:8545 --port 7766 --gateway 0x0E27bd633C31AaE55079ee41e01579e2333e3cb2 --pubkey 02b61089cfab5f3db62d78d8de8189dc591d7a4688d0b69204df9572dfeed780c9 --kmd ~/.komodo/TXSCLZ/TXSCLZ.conf --seed 195.201.20.230:40440 --bind 95.216.204.220 >> zeno.log
+zeno notarise kmdeth --geth http://127.0.0.1:8545 --port 7766 --gateway 0x0E27bd633C31AaE55079ee41e01579e2333e3cb2 --pubkey 02b61089cfab5f3db62d78d8de8189dc591d7a4688d0b69204df9572dfeed780c9 --kmd ~/.komodo/TXSCLZ/TXSCLZ.conf --seed 195.201.20.230:40440 >> zeno.log
 ```
 
 ## 2. Filebeat logging system install and configuring
