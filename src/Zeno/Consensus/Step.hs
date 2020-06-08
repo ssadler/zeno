@@ -146,14 +146,7 @@ sendAuthenticated Step{..} peers obj = do
   let sighash = getMessageToSign Step{..} (stepNum, obj)
   sig <- sign ethSecKey sighash
   forM_ peers $ \peer -> do
-    let act = sendRemote peer processId (sig, stepNum, obj)
-    act
-    -- If there are errors from secp256k1 try:
-    -- catchAny
-    --   do deepseq sig act
-    --   \e -> do
-    --     traceShowM sighash
-    --     throwIO e
+    sendRemote peer processId (sig, stepNum, obj)
 
 
 -- TODO: Track who sends bad data
