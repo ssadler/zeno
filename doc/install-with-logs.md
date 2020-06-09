@@ -37,7 +37,7 @@ Use https://github.com/KomodoPlatform/komodo master branch
 Chain params:
 
 ```
-./komodod -ac_name=TXSCLZ3 -ac_supply=999999 -ac_reward=100000000 -ac_sapling=375 -addnode=195.201.137.5 
+src/komodod -ac_name=TXSCLZ3 -ac_supply=999999 -ac_reward=100000000 -ac_sapling=375 -addnode=195.201.20.230 -addnode=195.201.137.5 -addnode=95.217.223.96
 ```
 
 **Do not forget to import privkey for your notary pubkey**
