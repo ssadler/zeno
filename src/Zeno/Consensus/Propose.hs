@@ -46,7 +46,7 @@ determineProposers (Just (ProposerSequence seq)) = do
   ((primary, True):) . take 2 <$> determineProposers Nothing
 determineProposers Nothing = do
   ConsensusParams{members'}  <- asks has
-  entropy <- getStepEntropy
+  seed <- getStepSeed
   {- This gives fairly good distribution:
   import hashlib
   dist = [0] * 64
@@ -57,7 +57,7 @@ determineProposers Nothing = do
   print dist
   -}
   let msg2sum = sum . map fromIntegral . BS.unpack . sha3' . encode
-      i = mod (msg2sum entropy) (length members')
+      i = mod (msg2sum seed) (length members')
   pure $ drop i $ (,False) <$> cycle members'
 
 dispatchProposerTimeout :: Address -> Consensus ()

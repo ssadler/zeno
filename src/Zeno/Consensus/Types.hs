@@ -55,7 +55,7 @@ instance Has PeerState ConsensusNode where has = cpPeers
 data ConsensusContext = ConsensusContext
   { ccNode     :: ConsensusNode
   , ccParams   :: ConsensusParams
-  , ccEntropy  :: Bytes32
+  , ccSeed  :: Bytes32
   , ccStepNum  :: TVar StepNum
   }
 instance Has ConsensusNode ConsensusContext where has = ccNode
@@ -64,12 +64,12 @@ instance Has PeerState ConsensusContext where has = has . ccNode
 instance Has ConsensusParams ConsensusContext where has = ccParams
 instance Has EthIdent ConsensusContext where has = has . ccParams
 
-getRoundEntropy :: Consensus Bytes32
-getRoundEntropy = asks ccEntropy
+getRoundSeed :: Consensus Bytes32
+getRoundSeed = asks ccSeed
 
-getStepEntropy :: Consensus Bytes32
-getStepEntropy = do
-  (,) <$> getRoundEntropy <*> getStepNum <&> sha3b . encode
+getStepSeed :: Consensus Bytes32
+getStepSeed = do
+  (,) <$> getRoundSeed <*> getStepNum <&> sha3b . encode
 
 getStepNum :: Consensus StepNum
 getStepNum = asks ccStepNum >>= readTVarIO
@@ -90,8 +90,8 @@ type RoundId = Bytes6
 
 getRoundId :: Consensus RoundId
 getRoundId = do
-  entropy <- asks ccEntropy
-  pure $ toFixedR $ unFixed entropy
+  seed <- asks ccSeed
+  pure $ toFixedR $ unFixed seed
 
 getMyAddress :: Consensus Address
 getMyAddress = asks $ ethAddress . ident' . ccParams

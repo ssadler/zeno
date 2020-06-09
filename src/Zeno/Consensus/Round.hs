@@ -58,11 +58,11 @@ import           UnliftIO.Async (waitCatchSTM, waitSTM)
 
 runConsensus :: (Serialize a, Has ConsensusNode r)
              => String -> ConsensusParams -> a -> Consensus b -> Zeno r b
-runConsensus label ccParams@ConsensusParams{..} entropy act = do
+runConsensus label ccParams@ConsensusParams{..} seed act = do
 
   ccStepNum <- newTVarIO $ StepNum roundTypeId 0 0
   ccChildren <- newTVarIO []
-  let ccEntropy = sha3b $ encode (entropy, members')
+  let ccSeed = sha3b $ encode (seed, members')
       toCC r = let ccNode = has r in ConsensusContext{..}
 
   withContext toCC do

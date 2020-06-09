@@ -55,7 +55,7 @@ spawnStep obj collect = do
 
   ConsensusContext{ccParams = ConsensusParams{..},..} <- ask
   roundId <- getRoundId
-  processId <- ProcessId . bappend roundId . reFixed <$> getStepEntropy
+  processId <- ProcessId . bappend roundId . reFixed <$> getStepSeed
 
   let stepName = "step: " ++ show processId
 
