@@ -80,7 +80,7 @@ filterInboundConnections Node{..} sockAddr asnc act = do
       -- to test locally? Need to get the integrate script using a local docker network.
       -- Ah, it could map port ranges to local IPs,
       -- eg any port between 10k and 11k is .1, etc, and replace the incoming IP.
-      -- Except we don't have the server listen port here, for good reasons.
+      -- Except we don't have the remote listen port here, for good reasons
       act ip
 
     SockAddrInet _ ip -> do
