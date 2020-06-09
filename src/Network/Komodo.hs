@@ -4,7 +4,7 @@
 
 module Network.Komodo where
 
-import           Crypto.Secp256k1 as EC
+import           Crypto.Secp256k1Wrapped
 import           Data.Serialize as S
 
 import           Network.Bitcoin
@@ -15,6 +15,7 @@ import           Zeno.Prelude
 import           Zeno.Data.Aeson
 import           Zeno.Data.Hex
 
+import           UnliftIO
 
 -- Komodo network constants --------------------------------------------------
 
@@ -59,8 +60,8 @@ stringToRAddress s =
     Just (H.PubKeyAddress h160) -> Just (RAddress h160)
     _ -> Nothing
 
-deriveKomodoAddress :: PubKey -> RAddress
-deriveKomodoAddress = RAddress . H.addressHash . exportPubKey True
+deriveKomodoAddress :: MonadUnliftIO m => PubKey -> m RAddress
+deriveKomodoAddress pk = RAddress . H.addressHash <$> exportPubKey True pk
 
 
 
@@ -73,18 +74,29 @@ data KomodoIdent = KomodoIdent
   , kmdAddress :: RAddress
   } deriving (Show)
 
-deriveKomodoIdent :: SecKey -> KomodoIdent
-deriveKomodoIdent kmdSecKey =
-  let kmdPubKey = EC.derivePubKey kmdSecKey
-      kmdPubKeyI = H.wrapPubKey True kmdPubKey
-      kmdAddress = deriveKomodoAddress kmdPubKey
-   in KomodoIdent{..}
+deriveKomodoIdent :: MonadUnliftIO m => SecKey -> m KomodoIdent
+deriveKomodoIdent kmdSecKey = do
+  kmdPubKey <- derivePubKey kmdSecKey
+  kmdAddress <- deriveKomodoAddress kmdPubKey
+  let kmdPubKeyI = H.wrapPubKey True kmdPubKey
+  pure $ KomodoIdent{..}
 
 
 -- UTXOs ----------------------------------------------------------------------
 
-komodoUtxos :: Has BitcoinConfig r => [RAddress] -> Zeno r [KomodoUtxo]
-komodoUtxos addrs = queryBitcoin "listunspent" (1::Int, 99999999::Int, addrs)
+listUnspentLogThresholdMs :: Int
+listUnspentLogThresholdMs = 200
+
+komodoListUnspent :: Has BitcoinConfig r => [RAddress] -> Zeno r [KomodoUtxo]
+komodoListUnspent addrs = do
+  whenSlow listUnspentLogThresholdMs
+    do queryBitcoin "listunspent" (lo, hi, addrs)
+    \ms -> logWarn $ "Komodo RPC call \"listunspent %i %i\" took %i ms" % (lo, hi, ms)
+  where
+  lo, hi :: Int
+  lo = 1
+  hi = 99999999
+
 
 data KomodoUtxo = Utxo
   { utxoAmount :: Word64
@@ -94,6 +106,12 @@ data KomodoUtxo = Utxo
   , utxoAddress :: RAddress
   , utxoSpendable :: Bool
   } deriving (Show)
+
+instance Eq KomodoUtxo where
+  a == b = getOutPoint a == getOutPoint b
+
+instance Ord KomodoUtxo where
+  compare a b = compare (getOutPoint a) (getOutPoint b)
 
 instance FromJSON KomodoUtxo where
   parseJSON val = do

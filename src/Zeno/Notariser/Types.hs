@@ -4,6 +4,8 @@ module Zeno.Notariser.Types where
 
 import Zeno.Data.Aeson
 
+import qualified Haskoin as H
+
 import Network.Ethereum.Crypto.Address
 import Network.Komodo
 import Network.Bitcoin
@@ -16,19 +18,28 @@ import Zeno.Prelude
 import UnliftIO
 
 
+data RoundType              -- Don't go changing this willy nilly
+  = KmdToEth                -- Things will break
+  | EthToKmd
+  | StatsToKmd
+  deriving (Enum)
+
+
 data EthNotariser = EthNotariser
   { getKomodoConfig :: BitcoinConfig
   , getNode :: ConsensusNode
   , gethConfig :: GethConfig
   , getEthGateway :: Address
   , getSecret :: SecKey
+  , getEthIdent :: EthIdent
+  , getKomodoIdent :: KomodoIdent
   }
 
-instance Has GethConfig    EthNotariser where has = gethConfig
 instance Has BitcoinConfig EthNotariser where has = getKomodoConfig
 instance Has ConsensusNode EthNotariser where has = getNode
-instance Has KomodoIdent   EthNotariser where has = deriveKomodoIdent . getSecret
-instance Has EthIdent      EthNotariser where has = deriveEthIdent . getSecret
+instance Has GethConfig    EthNotariser where has = gethConfig
+instance Has EthIdent      EthNotariser where has = getEthIdent
+instance Has KomodoIdent   EthNotariser where has = getKomodoIdent
 
 
 data NotariserConfig = NotariserConfig
@@ -62,11 +73,6 @@ instance FromJSON NotariserConfig where
       threshold = uninit
       uninit = error "NotariserConfig not fully initialized"
       defaultTimeout = 10 * 1000000
-
-getConsensusParams :: NotariserConfig -> Zeno EthNotariser ConsensusParams
-getConsensusParams NotariserConfig{..} = do
-  ident <- asks has
-  pure $ ConsensusParams members ident consensusTimeout
 
 
 instance Exception ConfigException

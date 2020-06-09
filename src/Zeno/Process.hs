@@ -11,6 +11,7 @@ module Zeno.Process
   , NodeId(..)
   , Node(myNodeId)
   , monitorRemote
+  , receiveDuring
   , receiveDuringS
   , receiveMaybe
   , receiveTimeout
@@ -20,6 +21,7 @@ module Zeno.Process
   , sendRemote
   , hashServiceId
   , spawn
+  , spawnNoHandle
   , subscribe
   , withNode
   , withRemoteMessage

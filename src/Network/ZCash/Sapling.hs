@@ -3,6 +3,7 @@
 module Network.ZCash.Sapling
   ( SaplingTx(..)
   , nullTx
+  , saplingTx
   , signTxSapling
   , txHashSapling
   , saplingFromLegacy

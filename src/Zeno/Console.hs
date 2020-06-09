@@ -37,17 +37,17 @@ import System.Exit
 sendUI :: ConsoleEvent -> Zeno r ()
 sendUI evt = do
   getConsole >>=
-    \c' ->
-      fix1 c' \f ->
-        \case
-          FilteredLog _ console -> f console
-          Fancy chan -> atomically (writeTBQueue chan $ UIEvent evt)
-          _ -> mempty
+    \case
+      Console _ (Just chan) True _ ->
+        atomically (writeTBQueue chan $ UIEvent evt)
+      _ -> pure ()
 
 withUIProc :: UIProcess -> Zeno r a -> Zeno r a
 withUIProc proc act = do
-  sendUI $ UI_Process $ Just proc
-  finally act $ sendUI $ UI_Process Nothing
+  mask $ \unmask -> do
+    sendUI $ UI_Process $ Just proc
+    finally (unmask act)
+            (sendUI $ UI_Process Nothing)
 
 
 data UI = UI
@@ -105,11 +105,12 @@ runConsoleUI proc = do
   go UITick = do
     tick
 
-  go (UIEvent evt) =
+  go (UIEvent evt) = do
     case evt of
       UI_Peers n -> numPeers .= n
       UI_Process r -> cProc .= r
       UI_Step r  -> cStep .= r
+    --tick
 
   log line = do
     liftIO do
@@ -130,14 +131,13 @@ runConsoleUI proc = do
 withConsoleUI :: LogLevel -> Zeno r a -> Zeno r a
 withConsoleUI level act = do
   proc <- spawn "UI" runConsoleUI
-  let wrap = if level == LevelDebug then id else FilteredLog level
-  let console = wrap $ Fancy $ procMbox proc
-  localZeno (\app -> app { appConsole = console }) act
+  let c = Console level (Just $ procMbox proc) True stderr
+  localZeno (console .~ c) act
 
 
 testConsole :: IO ()
 testConsole = do
-  runZeno PlainLog () do
+  runZeno defaultLog () do
     withConsoleUI LevelDebug do
       forM_ [0..] \i -> do
         sendUI $ UI_Peers i

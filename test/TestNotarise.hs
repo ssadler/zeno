@@ -1,7 +1,7 @@
 
 module TestNotarise where
 
-import Zeno.Notariser.KMD
+import Zeno.Notariser.KMDDpow
 
 import TestUtils
 

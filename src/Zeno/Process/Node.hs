@@ -17,10 +17,11 @@ import UnliftIO
 import UnliftIO.Concurrent
 
 import Zeno.Prelude hiding (finally)
+import Zeno.Process.Spawn
 import Zeno.Process.Types
 import Zeno.Process.Node.ReceiveMissCache
+import Zeno.Process.Node.InboundRateLimit
 import Zeno.Process.Remote
-import Zeno.Process.Spawn
 
 
 withNode :: NetworkConfig -> Zeno Node a -> Zeno () a
@@ -43,25 +44,27 @@ withNode (NetworkConfig host port) act = do
   mkNode serverSock = do
     myNodeId <- fromString . show <$> getSocketName serverSock -- flimsy?
     mforwarders <- STM.newIO
-    mreceivers <- STM.newIO
+    mreceivers <- newReceiverMap
     topics <- STM.newIO
     missCache <- newTVarIO mempty
     pure Node{..}
 
-  acceptForkAsync :: MonadUnliftIO m => Socket -> ((Socket, SockAddr) -> Async () -> m ()) -> m ()
+  acceptForkAsync :: MonadUnliftIO m => Socket -> ((Socket, SockAddr) -> ClassyAsync () -> m ()) -> m ()
   acceptForkAsync server act = do
     withRunInIO \rio -> do
       accept server \client -> do
         handoff <- newEmptyTMVarIO
         atomically . putTMVar handoff =<<
-          async do
-            atomically (takeTMVar handoff) >>= rio . act client
+          classyAsync do
+            finally
+              do atomically (takeTMVar handoff) >>= rio . act client
+              do closeSock $ fst client
 
   wrapRunConn node s@(sock, sockAddr) asnc = do
     -- TODO: logDebug new connections
     -- Is it logging connection errors here?
-    logDiedSync (show sockAddr) do
-      limitInboundConnections node sockAddr asnc $
+    logDiedSync ("IN:" ++ show sockAddr) do
+      filterInboundConnections node sockAddr asnc $
         runConnection node sock
 
   setupSignals = do
@@ -69,33 +72,20 @@ withNode (NetworkConfig host port) act = do
     installHandler sigPIPE Ignore Nothing 
 
 
-limitInboundConnections :: Node -> SockAddr -> Async () -> (HostAddress -> Zeno () a) -> Zeno () a
-limitInboundConnections Node{..} sockAddr asnc act = do
+filterInboundConnections :: Node -> SockAddr -> ClassyAsync () -> (HostAddress -> Zeno () a) -> Zeno () a
+filterInboundConnections Node{..} sockAddr asnc act = do
   case sockAddr of
     SockAddrInet _ ip@16777343 -> do
       -- 127.0.0.1 is special. TODO: Nice way not have to do this, and also be able
-      -- to test locally?
+      -- to test locally? Need to get the integrate script using a local docker network.
       -- Ah, it could map port ranges to local IPs,
       -- eg any port between 10k and 11k is .1, etc, and replace the incoming IP.
-      -- Except we don't have the server listen port here, for good reasons.
+      -- Except we don't have the remote listen port here, for good reasons
       act ip
 
     SockAddrInet _ ip -> do
-      let
-        run = do
-          mapM_ cancel =<< atomically do
-            STM.lookup ip mreceivers
-              <* STM.insert asnc ip mreceivers
-          act ip
-
-      finally run do
-          join do
-            atomically do
-              STM.lookup ip mreceivers >>= \case
-                Nothing -> pure $ logMurphy "no value in mreceivers for ip"
-                Just oasnc -> do
-                  when (asnc == oasnc) (STM.delete ip mreceivers)
-                  pure mempty
+      actIO <- toIO $ act ip
+      liftIO $ inboundConnectionLimit mreceivers ip asnc actIO
 
     other -> throwIO $ UnsupportedForeignHost other
 
@@ -147,10 +137,17 @@ runConnection node@Node{..} conn ip = do
     header <- receiveLen 3
     case decode header of
       Right ('\0', port) -> pure $ NodeId (renderIp ip) port
-      Right (p, _) -> do
-        throwIO $ NetworkUnsupported $ [pf|Unsupported protocol (%?) from %?|] p ip
-      Left s -> do
-        murphy s
+      Left s -> murphy s -- How can we fail to decode exactly 3 bytes into a (Word8, Word32)
+      Right (_, _) -> do
+        -- Someone is port scanning, or running incorrect version
+        more <- recv conn 20 >>= maybe mempty pure
+        let (line: _) = lines $ toS $ header <> more
+        if take 4 line == "GET" || take 4 line == "POST"
+           then logInfo $ "%s :eyes: %s" % (renderIp ip, show line)
+           else logDebug $ [pf|Unsupported protocol (%s)|] (show line)
+        throwIO ConnectionClosed
+
+
 
 renderIp :: HostAddress -> String
 renderIp ip = "%i.%i.%i.%i" % hostAddressToTuple ip

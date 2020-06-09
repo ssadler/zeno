@@ -2,12 +2,13 @@
 module Zeno.Process.Remote where
 
 import Control.Concurrent.STM (throwSTM)
+import Control.DeepSeq
 import Control.Monad.Catch (MonadThrow, MonadCatch)
 import Control.Monad.Reader
 
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BSL
-import Zeno.Data.FixedBytes
+import Data.FixedBytes
 import Data.Hashable
 import Data.Serialize
 import Data.Typeable
@@ -20,7 +21,6 @@ import qualified StmContainers.Map as STM
 import UnliftIO hiding (Chan)
 
 import UnliftIO.Concurrent
-import Unsafe.Coerce
 
 import Zeno.Process.Spawn hiding (send)
 import Zeno.Process.Types
@@ -30,8 +30,11 @@ import Zeno.Prelude hiding (finally)
 
 sendRemote :: (Serialize a, Has Node r) => NodeId -> ProcessId -> a -> Zeno r ()
 sendRemote nodeId pid msg = do
-  withRemoteForwarder nodeId \(chan, _) -> do
-    writeTQueue chan $ encodeLazy (pid, msg)
+  let payload = encodeLazy (pid, msg)
+  -- Don't hold on to thunk longer than neccesary
+  BSL.length payload `seq`
+    withRemoteForwarder nodeId \(chan, _) -> do
+      writeTQueue chan payload
 
 
 monitorRemote :: Has Node r => NodeId -> Zeno r () -> Zeno r ()
@@ -41,6 +44,7 @@ monitorRemote nodeId act = do
     modifyTVar onQuit (>> ioAct)
 
 
+-- TODO: Dejafu test
 withRemoteForwarder :: Has Node r => NodeId -> (Forwarder -> STM a) -> Zeno r a
 withRemoteForwarder nodeId act = do
   node <- asks has
@@ -48,7 +52,9 @@ withRemoteForwarder nodeId act = do
     ((chan, onQuit), created, r) <- atomically $ getCreateChan node
     when created do
       void $ forkIOWithUnmask \unmask -> do
-        unmask (runForwarder nodeId chan) `finally` cleanup node chan onQuit
+        finally
+          do unmask (runForwarder nodeId chan)
+          do cleanup node chan onQuit
     pure r
   where
   getCreateChan Node{..} = do

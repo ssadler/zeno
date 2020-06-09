@@ -8,11 +8,12 @@ import Network.Komodo
 import Network.HTTP.Simple
 import Network.JsonRpc
 
-import Zeno.Notariser.UTXO
-
 import Zeno.EthGateway
-import Zeno.Notariser.KMD
+import Zeno.Notariser.Common
+import Zeno.Notariser.Common.KMD
+import Zeno.Notariser.KMDDpow
 import Zeno.Notariser.Types
+import Zeno.Notariser.Stats
 import Zeno.Consensus
 import Zeno.Console
 import Zeno.Prelude
@@ -20,24 +21,26 @@ import Zeno.Prelude
 
 runNotariseKmdToEth :: PubKey -> Address -> ConsensusNetworkConfig -> GethConfig -> FilePath -> Bool -> IO ()
 runNotariseKmdToEth pk gateway networkConfig gethConfig kmdConfPath useui = do
-  runZeno PlainLog () do
+  runZeno defaultLog () do
     let withUI = if useui then withConsoleUI LevelInfo else id
     withUI do
       threadDelay 1000000
       bitcoinConf <- loadBitcoinConfig kmdConfPath
-      let kmdAddress = deriveKomodoAddress pk
+      kmdAddress <- deriveKomodoAddress pk
       wif <- withContext (const bitcoinConf) $ queryBitcoin "dumpprivkey" [kmdAddress]
       sk <- either error pure $ parseWif komodo wif
+      ethIdent <- deriveEthIdent sk
+      kmdIdent <- deriveKomodoIdent sk
 
       withConsensusNode networkConfig do
-        let toNotariser node = EthNotariser bitcoinConf node gethConfig gateway sk
+        let toNotariser node = EthNotariser bitcoinConf node gethConfig gateway sk ethIdent kmdIdent
         withContext toNotariser do
           KomodoIdent{..} <- asks has
           EthIdent{..} <- asks has
           logInfo $ "KMD address: " ++ show kmdAddress
           logInfo $ "ETH address: " ++ show ethAddress
 
-          forkMonitorUTXOs kmdInputAmount 5 20
+          runKmdThreads
 
           runForever do
             nc <- getNotariserConfig "KMDETH"
@@ -48,7 +51,7 @@ runNotariseKmdToEth pk gateway networkConfig gethConfig kmdConfPath useui = do
   where
     getNotariserConfig configName = do
       gateway <- asks getEthGateway
-      (threshold, members) <- ethCallABI gateway "getMembers()" ()
+      (threshold, members) <- gatewayGetMembers gateway
       JsonInABI nc <- ethCallABI gateway "getConfig(string)" (configName :: Text)
       pure $ nc { members, threshold }
 
@@ -62,8 +65,7 @@ runNotariseKmdToEth pk gateway networkConfig gethConfig kmdConfPath useui = do
     runForever act = forever $ act `catches` handlers
       where
         handlers =
-          [ Handler $ \e -> recover logInfo 1 (e :: ConsensusException)
-          , Handler $ \e -> recover logWarn 20 (fmtHttpException e)
+          [ Handler $ \e -> recover logWarn 20 (fmtHttpException e)
           , Handler $ \e -> recover logWarn 20 (e :: RPCException)
           , Handler $ \e -> recover logError 60 (e :: ConfigException)
           ]
@@ -76,51 +78,56 @@ runNotariseKmdToEth pk gateway networkConfig gethConfig kmdConfPath useui = do
 
 notariserStep :: NotariserConfig -> Zeno EthNotariser ()
 notariserStep nc@NotariserConfig{..} = do
-  getLastNotarisationOnEth nc >>= 
-    \case
-      Nothing -> do
-        logInfo "No prior notarisations found"
-        forward 0
-
-      Just ethnota@NOE{..} -> do
-        logDebug $ "Found notarisation on ETH for %s height %i" % (kmdChainSymbol, foreignHeight)
-
-        getLastNotarisation kmdChainSymbol >>=
-          \case
-            Just (Notarisation _ _ (BND NOR{..}))
-              | blockNumber == foreignHeight -> do
-                logDebug "Found backnotarisation, proceed with next notarisation"
-                forward foreignHeight
-              | blockNumber > foreignHeight -> do
-                logError $ show NOR{..}
-                logError $ show ethnota
-                logError "We have a very bad error, the backnotarised height in KMD is higher\
-                         \ than the notarised height in ETH. Continuing to notarise to ETH again."
-                forward foreignHeight
-
-            _ -> do
-              logDebug "Backnotarisation not found, proceed to backnotarise"
-              opret <- getBackNotarisation nc ethnota
-              notariseToKMD nc opret
-
+  getLastNotarisationOnEth nc >>= handleTimeout . go
   where
-    forward lastNotarisedHeight = do
+  handleTimeout = handle \(ConsensusTimeout _) -> mempty
+
+  go Nothing = do
+    logInfo "No prior notarisations found"
+    forward 0 0
+
+  go (Just (ethnota@NOE{..}, sequence)) = do
+    logDebug $ "Found notarisation on ETH for %s height %i" % (kmdChainSymbol, foreignHeight)
+
+    getLastNotarisation kmdChainSymbol >>=
+      \case
+        Just (Notarisation _ _ (BND NOR{..}))
+          | blockNumber == foreignHeight -> do
+            logDebug "Found backnotarisation, proceed with next notarisation"
+            forward sequence foreignHeight
+          | blockNumber > foreignHeight -> do
+            logError $ show NOR{..}
+            logError $ show ethnota
+            logError "The backnotarised height in KMD is higher than the notarised\
+                     \ height in ETH. Is ETH node is lagging? Proceeding anyway."
+            forward sequence foreignHeight
+
+        _ -> do
+          logDebug "Backnotarisation not found, proceed to backnotarise"
+          opret <- getBackNotarisation nc ethnota
+          let seq = shiftSequence 2 sequence
+          notariseKmdDpow nc seq opret
+
+  forward sequence lastNotarisedHeight = do
       newHeight <- waitKmdNotariseHeight kmdBlockInterval lastNotarisedHeight
-      notariseToETH nc newHeight
+      notariseToETH nc sequence newHeight
+
+  shiftSequence n seq =
+    seq + ProposerSequence (quot (length members) n)
 
 
-notariseToETH :: NotariserConfig -> Word32 -> Zeno EthNotariser ()
-notariseToETH nc@NotariserConfig{..} height32 = do
+notariseToETH :: NotariserConfig -> ProposerSequence -> Word32 -> Zeno EthNotariser ()
+notariseToETH nc@NotariserConfig{..} seq height32 = do
 
   let height = fromIntegral height32
   logDebug $ "Notarising from block %i" % height
 
   ident@(EthIdent _ myAddress) <- asks has
   gateway <- asks getEthGateway
-  cparams <- getConsensusParams nc
+  cparams <- getConsensusParamsWithStats nc KmdToEth
   r <- ask
   let run = withContext (const r)
-      roundLabel = "kmd@%i ⇒  eth" % height
+      roundLabel = "kmd.%i ⇒  eth" % height
 
   -- we already have all the data for the call to set the new block height
   -- in our ethereum contract. so create the call.
@@ -137,9 +144,9 @@ notariseToETH nc@NotariserConfig{..} height32 = do
     sigBallots <- step "tx sigs" (collectThreshold threshold)
                                  (ethMakeProxySigMessage proxyParams)
 
-    let proxyCallData = ethMakeProxyCallData proxyParams (bSig <$> sigBallots)
+    let proxyCallData = ethMakeProxyCallData proxyParams (bSig <$> unInventory sigBallots)
         buildTx = run $ ethMakeNotarisationTx nc proxyCallData
-    ballot@(Ballot proposer _ tx) <- propose "tx sender" buildTx
+    ballot@(Ballot proposer _ tx) <- propose "tx sender" (Just seq) buildTx
     run $ checkTxProposed ballot
 
     -- There's a bit of an open question here: A single node is selected to create the transaction,
@@ -177,16 +184,17 @@ ethMakeNotarisationTx NotariserConfig{..} callData = do
   U256 gasPriceRec <- queryEthereum "eth_gasPrice" ()
   let gasPrice = gasPriceRec + quot gasPriceRec 2
       tx = Tx nonce 0 (Just gateway) Nothing gasPrice ethNotariseGas callData ethChainId
-  pure $ signTx sk tx
+  signTx sk tx
 
 
-getLastNotarisationOnEth :: NotariserConfig -> Zeno EthNotariser (Maybe NotarisationOnEth)
+getLastNotarisationOnEth :: NotariserConfig
+                         -> Zeno EthNotariser (Maybe (NotarisationOnEth, ProposerSequence))
 getLastNotarisationOnEth NotariserConfig{..} = do
-  r <- ethCallABI notarisationsContract "getLastNotarisation()" ()
+  (r, sequence) <- ethCallABI notarisationsContract "getLastNotarisation()" ()
   pure $
     case r of
       NOE 0 _ _ _ -> Nothing
-      noe -> Just noe
+      _ -> Just (r, ProposerSequence sequence)
 
 
 getBackNotarisation :: NotariserConfig -> NotarisationOnEth -> Zeno EthNotariser NotarisationData
@@ -206,7 +214,8 @@ getBackNotarisation NotariserConfig{..} NOE{..} = do
 
 checkTxProposed :: Ballot Transaction -> Zeno EthNotariser ()
 checkTxProposed (Ballot sender _ tx) = do
-  case recoverFrom tx of
-    Nothing -> throwIO $ ConsensusMischief $ "Can't recover sender from tx"
-    Just s | s /= sender -> throwIO $ ConsensusMischief $ "Sender wrong"
-    _ -> pure ()
+  recoverFrom tx >>=
+    \case
+      Nothing -> throwIO $ ConsensusMischief sender "Can't recover sender from tx"
+      Just s | s /= sender -> throwIO $ ConsensusMischief sender "Sender wrong"
+      _ -> pure ()

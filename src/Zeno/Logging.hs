@@ -8,8 +8,8 @@ module Zeno.Logging
   , logError
   , logWarn
   , logMurphy
-  , logTime
   , logMessage
+  , whenSlow
   , AsString
   , asString
   , getLogMessage
@@ -21,21 +21,20 @@ import Data.Aeson
 import qualified Data.ByteString.Char8 as BS8
 import Data.ByteString.Lazy (toStrict)
 import Data.String (fromString)
-import Data.String.Conv
-import Data.Text (Text)
 import Data.Time.Clock
 import Data.Time.Format
-import Data.Time.LocalTime
 import Control.Monad.Logger as LOG hiding (logDebug, logInfo, logError, logWarn)
 import UnliftIO
 import qualified Language.Haskell.Printf as Printf
 import Language.Haskell.TH.Quote
+import Text.Printf
 
 import Zeno.Console.Types as LOG
 
 
 logDebug :: MonadLogger m => String -> m ()
 logDebug = logDebugN . fromString
+
 
 logInfo :: MonadLogger m => String -> m ()
 logInfo = logInfoN . fromString
@@ -58,31 +57,32 @@ instance AsString BS8.ByteString where
 instance AsString Value where
   asString = asString . toStrict . encode
 
+
 getLogMessage :: Loc -> LogSource -> LogLevel -> LogStr -> IO BS8.ByteString
 getLogMessage loc source level str = do
-  t <- formatTime defaultTimeLocale "[%T]" <$> getZonedTime
+  t <- formatTime defaultTimeLocale "[%T]" <$> getCurrentTime
   pure $ fromLogStr $ toLogStr t <> defaultLogStr loc source level str
 
 logMessage :: ToLogStr msg => Console -> Loc -> LogSource -> LogLevel -> msg -> IO ()
-logMessage console loc source level msg = do
+logMessage (Console lvlFilter mstatus _ h) loc source level msg = do
   line <- getLogMessage loc source level (toLogStr msg)
-  runLog console line
-  where
-  runLog (Fancy queue) line = atomically $ writeTBQueue queue $ UILog line
-  runLog (FilteredLog minLevel console) line = do
-    when (level >= minLevel) (runLog console line)
-  runLog PlainLog line = do
-    BS8.putStr line
-    hFlush stdout
+  when (level >= lvlFilter) do
+    case mstatus of
+      Just queue -> atomically $ writeTBQueue queue $ UILog line
+      Nothing -> BS8.hPutStr h line *> hFlush stdout
 
-logTime :: (MonadIO m, MonadLogger m) => String -> m a -> m a
-logTime s act = do
+
+whenSlow :: MonadIO m => Int -> m a -> (Int -> m ()) -> m a
+whenSlow threshold act log = do
   startTime <- liftIO $ getCurrentTime
   r <- act
   endTime <- liftIO $ getCurrentTime
   let t = diffUTCTime endTime startTime
-  logDebug $ s ++ " took: " ++ (show $ round $ (realToFrac t) * 1000) ++ "ms"
+  let ms = round $ realToFrac t * 1000
+  when (ms >= threshold) do log ms
   pure r
+
+
 
 
 pf :: QuasiQuoter

@@ -15,28 +15,22 @@ import           Network.Ethereum.Data
 import           Zeno.Prelude
 
 
-newtype Address = Address { unAddress :: PrefixedHex 20 }
-  deriving (Eq, Ord, Serialize, ToJSON, FromJSON, IsString, RLPEncodable)
+-- | It would be neat if this held a plain bytestring and the module didn't import
+--   the Address constructor
+newtype Address = Address { unAddress :: Bytes20 }
+  deriving (Eq, Ord, RLPEncodable, Read, Show, Serialize, ToJSON, FromJSON, IsString, Bounded)
+       via (PrefixedHex 20)
 
-instance Show Address where
-  show = show . unAddress
-
-instance Read Address where
-  readsPrec _ s = [(fromString s, "")]
-
+-- There could be a FixedBytesR for this
 instance GetABI Address where
   getABI = do
     fixed <- getABI
-    pure $ Address $ PrefixedHex $ toFixedR (unFixed (fixed :: Bytes32))
+    pure $ Address $ toFixedR (unFixed (fixed :: Bytes32))
 
 instance PutABI Address where
   putABI (Address bs) = do
-    let bn = toFixedR $ unFixed $ unPrefixedHex bs
+    let bn = toFixedR $ unFixed bs
     putABI (bn :: Bytes32)
 
 instance StringConv Address ByteString where
-  strConv _ = unFixed . unPrefixedHex . unAddress
-
-nullAddress, maxAddress :: Address
-nullAddress = "0x0000000000000000000000000000000000000000"
-maxAddress  = "0xFFfFfFffFFfffFFfFFfFFFFFffFFFffffFfFFFfF"
+  strConv _ = unFixed . unAddress

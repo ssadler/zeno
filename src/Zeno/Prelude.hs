@@ -8,7 +8,6 @@ module Zeno.Prelude
   ( module ALL
   , LazyByteString
   , PercentFormat(..)
-  , (<&>)
   , traceE
   , fromHex
   , toHex
@@ -18,13 +17,15 @@ module Zeno.Prelude
   , timeDelta
   , timeoutSTM
   , timeoutSTMS
+  , threadDelayS
+  , murphy
   ) where
 
 import Control.Applicative as ALL
 import Control.Monad as ALL (forM, forM_, join, when, replicateM, foldM, forever, unless, void)
+import Control.Monad.Except as ALL
 import Control.Monad.IO.Class as ALL (MonadIO, liftIO)
 import Control.Monad.Reader as ALL (ask, asks)
-import Control.Monad.Trans.Class as ALL
 import Control.Monad.Trans.Resource as ALL (MonadResource, allocate)
 import GHC.Generics as ALL (Generic)
 import GHC.Stack (HasCallStack)
@@ -37,13 +38,15 @@ import qualified Data.ByteString.Base16 as B16
 import Data.ByteString.Lazy as ALL (toStrict, fromStrict)
 import qualified Data.ByteString.Lazy as BSL (ByteString)
 import Data.ByteString.Short as ALL (ShortByteString, toShort, fromShort)
-import Data.Either as ALL (fromRight)
+import Data.Either as ALL (fromRight, partitionEithers)
 import Data.Function as ALL (fix)
+import Data.Foldable as ALL (toList)
 import Data.List as ALL (elemIndex, find, findIndex, sort, sortOn)
 import Data.Map as ALL (Map)
 import Data.Maybe as ALL
 import Data.Monoid as ALL
 import Data.Set as ALL (Set)
+import Data.Serialize as ALL (Serialize)
 import Data.String.Conv as ALL
 import Data.String as ALL (IsString, fromString)
 import Data.Text as ALL (Text, unpack)
@@ -51,15 +54,19 @@ import Data.Text.Encoding as ALL (encodeUtf8, decodeUtf8)
 import Data.Time.Clock as ALL (UTCTime, getCurrentTime, diffUTCTime)
 import Data.Word as ALL (Word8, Word16, Word32, Word64)
 
+import Lens.Micro.Platform as ALL hiding ((.=), has)
+
 import UnliftIO
 import UnliftIO.Concurrent as ALL (threadDelay, forkIO)
 import UnliftIO.Exception as ALL
   (Exception, Handler(..), catchAny, finally, throwIO
   , withException, onException, handle, bracket, impureThrow
-  , catches
+  , catches, catch
   )
 
-import Zeno.Data.FixedBytes as ALL
+import Zeno.Data.Aeson as ALL (ToJSON(..), FromJSON(..), SerializeAeson(..))
+import Zeno.Data.VarInt as ALL
+import Data.FixedBytes as ALL
 import Zeno.Monad as ALL
 import Zeno.Logging as ALL
 
@@ -71,10 +78,6 @@ import System.IO.Unsafe as ALL (unsafePerformIO)
 import Debug.Trace as ALL (traceShowId, traceM, traceShowM)
 
 type LazyByteString = BSL.ByteString
-
-(<&>) :: Functor f => f a -> (a -> b) -> f b
-(<&>) = flip fmap
-infixl 1 <&>
 
 traceE :: String -> Zeno r a -> Zeno r a
 traceE prefix act = do
@@ -128,8 +131,10 @@ fix2 a b f = fix f a b
 
 timeDelta :: MonadIO m => UTCTime -> m Int
 timeDelta t = f <$> liftIO getCurrentTime where
-  f now = round . (* 1000000) . realToFrac $ diffUTCTime now t
+  f now = round . (* 1000000) . toDouble $ diffUTCTime now t
 
+toDouble :: Real i => i -> Double
+toDouble = realToFrac
 
 timeoutSTM :: MonadIO m => Int -> STM a -> m (Maybe a)
 timeoutSTM us act = do
@@ -140,3 +145,10 @@ timeoutSTM us act = do
 
 timeoutSTMS :: MonadIO m => Int -> STM a -> m (Maybe a)
 timeoutSTMS sec = timeoutSTM (sec*1000000)
+
+
+murphy :: HasCallStack => String -> a
+murphy s = error $ "Invariant violation: " ++ show s
+
+threadDelayS :: MonadIO m => Int -> m ()
+threadDelayS = threadDelay . (*1000000)

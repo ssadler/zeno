@@ -3,6 +3,7 @@ module TestTx where
 
 import Network.Ethereum
 import Network.Ethereum.Transaction
+import Zeno.Prelude
 
 import TestUtils
 
@@ -24,8 +25,8 @@ unit_large_tx_id = do
 
 unit_large_tx_recover :: IO ()
 unit_large_tx_recover = do
-  let signed = signTx sk $ largeTx { _sig = Nothing }
-  recoverFrom signed @?= Just addr
+  signed <- signTx sk $ largeTx { _sig = Nothing }
+  recoverFrom signed >>= (@?= Just addr)
 
 
 
@@ -33,7 +34,7 @@ sk :: SecKey
 sk = "afdf0310c3feab2378267034604525c6adbca360630e187ae79eb534698145cd"
 
 addr :: Address
-EthIdent _ addr = deriveEthIdent sk
+EthIdent _ addr = unsafePerformIO $ deriveEthIdent sk
 -- addr = "0x118088550C93Fc08B5ac1E196e0E97BAD3962c63"
 
 

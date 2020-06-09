@@ -2,11 +2,14 @@
 module Zeno.Console.Types where
 
 import qualified Data.ByteString.Char8 as BS8
-import Lens.Micro.Platform
-import UnliftIO
 import Control.Monad.Logger (LogLevel(..))
 
-import Zeno.Data.FixedBytes
+import Lens.Micro.Platform
+
+import System.IO
+import UnliftIO
+
+import Data.FixedBytes
 
 
 data ConsoleCtrl
@@ -26,10 +29,21 @@ data UIProcess
   | UIOther String
   deriving (Show)
 
--- A bit mental, why not data with level, handle and maybe statusbar
-data Console
-  = PlainLog
-  | Fancy (TBQueue ConsoleCtrl)
-  | FilteredLog LogLevel Console
+data Console = Console
+  { _logLevel :: LogLevel
+  , _statusBar :: Maybe (TBQueue ConsoleCtrl)
+  , _writeStatusEvents :: Bool
+  , _fileHandle :: Handle
+  }
 
+makeLenses ''Console
+
+consoleWarn :: Console
+consoleWarn = Console LevelWarn Nothing False stdout
+
+defaultLog :: Console
+defaultLog = Console LevelDebug Nothing False stdout
+
+stderrLog :: Console
+stderrLog = Console LevelDebug Nothing False stderr
 

@@ -1,10 +1,3 @@
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE DataKinds #-}
-{-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE MonoLocalBinds #-}
-{-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
 module Zeno.EthGateway where
 
@@ -37,9 +30,6 @@ instance GetABI NotarisationOnEth where
 
 
 
-
-
-
 gatewayGetConfig :: (GetABI a, Has GethConfig r)
                  => Address -> ByteString -> Zeno r a
 gatewayGetConfig gateway key = do
@@ -50,8 +40,7 @@ gatewayGetConfigJson :: (FromJSON a, Has GethConfig r)
 gatewayGetConfigJson gateway key = unJsonInABI <$> gatewayGetConfig gateway key
 
 gatewayGetMembers :: Has GethConfig r => Address -> Zeno r (Int, [Address])
-gatewayGetMembers gateway = do
-  ethCallABI gateway "getMembers()" ()
+gatewayGetMembers gateway = ethCallABI gateway "getMembers()" ()
 
 
 type ProxyParams = (Address, Integer, ByteString)

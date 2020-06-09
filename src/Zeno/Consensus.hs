@@ -1,6 +1,7 @@
 
 module Zeno.Consensus
   ( module Zeno.Consensus.Types
+  , Address
   , startSeedNode
   , withConsensusNode
   , runConsensus
@@ -10,6 +11,7 @@ module Zeno.Consensus
   , collectMajority
   , collectThreshold
   , collectMembers
+  , collectWith
   , majorityThreshold
   ) where
 
@@ -19,7 +21,9 @@ import Zeno.Process
 
 import Zeno.Consensus.Types
 import Zeno.Consensus.Round
+import Zeno.Consensus.Propose
 import Zeno.Consensus.P2P
+import Network.Ethereum.Crypto.Address (Address)
 
 import Zeno.Prelude
 import Zeno.Console
@@ -37,7 +41,7 @@ withConsensusNode CNC{..} act = do
 startSeedNode :: NetworkConfig -> Bool -> IO ()
 startSeedNode nc useui = do
   let cnc = CNC [] nc
-  runZeno PlainLog () do
+  runZeno defaultLog () do
     withUI do
       withConsensusNode cnc $ threadDelay $ 2^62
   where

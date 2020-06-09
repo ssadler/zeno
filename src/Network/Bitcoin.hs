@@ -2,8 +2,9 @@
 
 module Network.Bitcoin where
 
+import           Crypto.Hash
 import qualified Data.Serialize as Ser
-
+import qualified Data.ByteArray as BA
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BS8
 import           Data.Attoparsec.ByteString.Char8 as A
@@ -81,3 +82,6 @@ parseWif net wif = do
   case H.fromWif net wif of
     Just (H.SecKeyI seckey True) -> pure seckey
     _ -> Left $ "Couldn't parse WIF from daemon using network " ++ H.getNetworkName net
+
+sha256b :: BS.ByteString -> Bytes32
+sha256b bs = unsafeToFixed $ BS.pack (BA.unpack (hash bs :: Digest SHA256))

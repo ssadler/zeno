@@ -1,16 +1,12 @@
-{-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE MonoLocalBinds #-}
-{-# LANGUAGE ScopedTypeVariables #-}
 
 module Zeno.Consensus.Round
-  ( ConsensusException(..)
-  , step
-  , propose
+  ( step
+  , step'
   , incStep
   , collectMembers
   , collectMajority
   , collectThreshold
+  , collectWith
   , runConsensus
   , inventoryIndex
   , prioritiseRemoteInventory
@@ -39,177 +35,118 @@ import           Zeno.Console
 
 import           UnliftIO.STM
 import           Control.Monad.STM (orElse, throwSTM)
-import           UnliftIO.Async (waitCatchSTM)
+import           UnliftIO.Async (waitCatchSTM, waitSTM)
 
 
 -- Run round ------------------------------------------------------------------
 
+
+-- TODO: Get label from thread? Or get rid of threads?
+-- Getting rid of the threads for each step would be a good thing. Some of the
+-- program state is implicitly encoded in threads, and therefore inaccessible,
+-- and more error prone to boot. Rather than threads, there could be a map
+-- of open rounds, and a map of steps that are currently executing, with
+-- function pointers for them to receive data. The chances are that
+-- this could be achieved without changing the structure of the program
+-- that much, since it's basically the same thing, you could eliminate alot
+-- of locks and queues if there was a main thread doing the work, and a single
+-- CPU core should be enough for hundreds of concurrent steps. And you'll get
+-- an itrospectable data structure which can be dumped out at runtime, easily
+-- paused, resumed etc, without the worry of deadlocks. Could also probably
+-- use less mutable variables, which might be a bonus for testing, but not
+-- sure about performance.
+
 runConsensus :: (Serialize a, Has ConsensusNode r)
              => String -> ConsensusParams -> a -> Consensus b -> Zeno r b
-runConsensus label params@ConsensusParams{..} entropy act = do
-  cn <- asks has
-  tStepNum <- newTVarIO (0, Nothing)
-  let ctx = ConsensusContext cn params (sha3b $ encode entropy) tStepNum
+runConsensus label ccParams@ConsensusParams{..} seed act = do
 
-  -- TODO: mask here?
-  Process{..} <-
-    spawn "Consensus Round" $ \proc -> do
-      withContext (\_ -> ctx) actWrapped >>= send proc
-      -- Keep child steps alive for a while, give the stragglers a chance to catch up.
-      threadDelay $ 10 * 1000000
+  ccStepNum <- newTVarIO $ StepNum roundTypeId 0 0
+  ccChildren <- newTVarIO []
+  let ccSeed = sha3b $ encode (seed, members')
+      toCC r = let ccNode = has r in ConsensusContext{..}
 
-  -- TODO: Something funny (but harmless) could happen here if the parent thread is
-  -- killed, ie, we could re-throw it from here.
-  -- Solution: child thread should post a concensus timeout, not throw it.
-  atomically do
-    orElse
-      (receiveSTM procMbox)
-      (waitCatchSTM procAsync >>=
-        \case Left e -> throwSTM e
-              Right () -> error "Round finished without a result - this should not happen")
+  withContext toCC do
+    roundId <- getRoundId
+    let roundName = "Round %s (%s)" % (roundId, label)
+  
+    Process{..} <-
+      spawn roundName $ \handoff -> do
+
+        withUIProc (UIRound label roundId) do
+
+          handleTimeout roundName do     -- We will re-throw this outside but we
+                                         -- don't want it being logged
+
+            act >>= send handoff         -- Send result into handoff so runConsensus can return
+
+            threadDelay $ 10 * 1000000   -- for stragglers to catch up
+
+            pure murphyNoResult          -- This will not get evaluated unless
+                                         -- nothing is send to the handoff
+
+    r <- atomically $ orElse (receiveSTM procMbox) (waitSTM procAsync >>= throwSTM)
+    logInfo $ "Finished: " ++ roundName
+    pure r
 
   where
-  actWrapped = do
-    roundId <- getRoundId
-    logInfo $ "New round: %s (%s)" % (roundId, label)
-    withUIProc (UIRound label roundId) act
+  murphyNoResult = murphy "Round finished without a result - this should not happen"
+  handleTimeout roundName = do
+    handle \c@(ConsensusTimeout _) -> do
+      logInfo $ "Timeout: " ++ roundName
+      sendUI (UI_Step "Timeout")
+      threadDelayS 4
+      pure c
 
 
--- Coordinate Round -----------------------------------------------------------
+-- Round Steps ----------------------------------------------------------------
 
-type BallotData a = (Typeable a, Serialize a)
-
--- | Step initiates the procedure of exchanging signed messages.
--- | The step is run in a separate thread, and this thread will wait
--- | until the collect condition has been fulfilled.
-step :: BallotData a => String -> Collect a -> a -> Consensus [Ballot a]
+step :: BallotData a => String -> Collect a b -> a -> Consensus b
 step name collect obj = do
   incStep $ "collect " ++ name
-  unInventory <$> step' name collect obj
+  step' name collect obj
 
-step' :: forall a. BallotData a => String -> Collect a -> a -> Consensus (Inventory a)
+step' :: forall a b. BallotData a => String -> Collect a b -> a -> Consensus b
 step' name collect obj = do
-  ConsensusParams{ident' = EthIdent sk myAddr, ..} <- asks ccParams
-  let sig = sign sk $ toMessage obj
-  let ballot = Ballot myAddr sig obj
+  -- The step itself is run in a separate thread, and left running even
+  -- when it's produced a result
+  recv <- spawnStep obj collect
 
-  recv <- spawnStep ballot
-
-  -- TODO: it would be nice if this was merged with receiveDuring
-  startTime <- liftIO getCurrentTime
-  fix $ \f -> do
-    d <- timeDelta startTime
-    let us = timeout' - min timeout' d
-    minv <- receiveTimeout recv us
-    case minv of
-      Nothing -> throwIO $ errTimeout timeout'
-      Just inv -> do
-        pass <- collect inv
-        if pass then pure inv else f
-  where
-  errTimeout t = ConsensusTimeout ("Timeout after %i seconds" % quot t 1000000)
-
-  toMessage =
-    if typeRep (Proxy :: Proxy a) == typeRep (Proxy :: Proxy Bytes32)
-       then unsafeCoerce
-       else sha3b . encode
+  ConsensusParams{timeout'} <- asks ccParams
+  receiveTimeout recv timeout' >>=
+    maybe (throwIO $ ConsensusTimeout "") pure
 
 incStep :: String -> Consensus ()
 incStep label = do
-  major <- incStepNum
+  major <- incMajorStepNum
   sendUI $ UI_Step $ "%i: %s" % (major, label)
 
 
--- 1. Determine a starting proposer
--- 2. Try to get a proposal from them
--- 3. If there's a timeout, move to the next proposer
--- TODO: Non proposers should not send any message until timeout.
--- That way, a node playing catchup can detect a timeout by listening
--- for a majority of timeout votes.
-propose :: forall a. BallotData a => String -> Consensus a -> Consensus (Ballot a)
-propose name mObj = do
-  determineProposers >>= go
-    where
-      go :: [(Address, Bool)] -> Consensus (Ballot a)
-      go [] = throwIO $ ConsensusTimeout "Ran out of proposers"
-      go ((pAddr, isMe):xs) = do
-
-        major <- incStepNum
-        minor <- incMinorStepNum
-
-        let nextProposer (ConsensusTimeout _) = do
-              logInfo $ "Timeout collecting for proposer: " ++ show pAddr
-              go xs
-            nextProposer e = throwIO e
-
-        obj <-
-          if isMe
-             then logDebug ("Proposer is: %s (me)" % show pAddr) >> (Just <$> mObj)
-             else logDebug ("Proposer is: %s" % show pAddr) >> pure Nothing
-
-        handle nextProposer $ do
-          withTimeout (5 * 1000000) do
-            let name' = printf "propose %s" name
-            results <- step' name' (collectMembers [pAddr]) obj
-            case Map.lookup pAddr results of
-                 Just (s, Just obj2) -> do
-                   pure $ Ballot pAddr s obj2
-                 Just (_, Nothing)   -> do
-                   throwIO (ConsensusMischief $ printf "Missing proposal from %s" $ show pAddr)
-                 Nothing -> error "Missing proposal; should not happen"
-
-determineProposers :: Consensus [(Address, Bool)]
-determineProposers = do
-  {- This gives fairly good distribution:
-  import hashlib
-  dist = [0] * 64
-  for i in xrange(100000):
-      m = hashlib.sha256(str(i))
-      d = sum(map(ord, m.digest()))
-      dist[d%64] += 1
-  print dist
-  -}
-  ConsensusContext{ccParams = ConsensusParams{..}, ..} <- ask
-  n <- getStepNum
-  roundId <- getRoundId
-  let msg2sum = sum . map fromIntegral . BS.unpack . sha3' . encode
-  let i = mod (msg2sum (roundId, n)) (length members')
-      proposers = take 3 $ drop i $ cycle members'
-  pure $ [(p, p == ethAddress ident') | p <- proposers]
-
 -- Check Majority -------------------------------------------------------------
 
-debugCollect :: Bool
-debugCollect = False
-
-collectMajority :: Serialize a => Collect a
-collectMajority inv = do
-  ConsensusParams{..} <- asks has
-  let have = length inv
-      majority = majorityThreshold $ length members'
-      pass = have >= majority
-  when debugCollect do
-    logDebug $ "collect majority: %i >= %i == %s" % (have, majority, show pass)
-  pure pass
+collectMajority :: Serialize a => Collect a (Inventory a)
+collectMajority = collectWith \majority inv -> do
+  guard $ length inv >= majority
+  pure inv
 
 -- | collectThreshold collects at least n ballots.
 --   At least, because it collects the greater of the given n and
 --   the majority threshold.
-collectThreshold :: Serialize a => Int -> Collect a
-collectThreshold n inv = do
-  ConsensusParams{..} <- asks has
-  let t = max n $ majorityThreshold $ length members'
-  let pass = length inv >= t
-  when debugCollect do
-    logDebug $ "collect threshold: %i >= %i == %s" % (length inv, t, show pass)
-  pure pass
+collectThreshold :: Serialize a => Int -> Collect a (Inventory a)
+collectThreshold n = collectWith \t inv -> do
+  guard $ length inv >= max n t
+  pure inv
 
-collectMembers :: Serialize a => [Address] -> Collect a
-collectMembers addrs inv = do
-  let pass = all (flip Map.member inv) addrs
-  when debugCollect do
-    logDebug $ "collect members: %s ⊆  %s == %s" % (show addrs, show $ Map.keys inv, show pass)
-  pure pass
+collectMembers :: Serialize a => [Address] -> Collect a (Inventory a)
+collectMembers addrs = collectWith \_ inv -> do
+  guard $ all (`Map.member` inv) addrs
+  pure inv
+
+collectWith :: Serialize a => (Int -> Inventory a -> Maybe b) -> Collect a b
+collectWith f inv = do
+  ConsensusParams{..} <- asks has
+  let majority = majorityThreshold $ length members'
+  pure $ f majority inv
+
 
 majorityThreshold :: Int -> Int
 majorityThreshold m = floor $ (fromIntegral m) / 2 + 1

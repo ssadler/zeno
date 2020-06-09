@@ -4,8 +4,6 @@ module TestUtils
   ) where
 
 
-import           Zeno.Prelude as Out hiding (assert)
-
 -- import           Test.Tasty as Out hiding (after)
 import           Test.Tasty.HUnit as Out
 import           Test.Hspec as Out

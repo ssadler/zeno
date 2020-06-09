@@ -1,11 +1,14 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE ConstraintKinds #-}
+{-# LANGUAGE Strict #-}
 
 module Zeno.Consensus.Types where
 
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 import           Data.Serialize
+
+import qualified Haskoin as H
 
 import           Control.Exception
 import           Control.Monad.Reader
@@ -14,10 +17,32 @@ import           Network.Ethereum.Crypto
 import           GHC.Generics (Generic)
 import           UnliftIO
 
-import           Zeno.Data.FixedBytes
 import           Zeno.Prelude
 import           Zeno.Process
 import           Zeno.Consensus.P2P
+
+
+-- TODO: Clean all this up and organise into sections.
+
+
+data StepNum = StepNum
+  { stRound  :: VarInt
+  , stMajor  :: VarInt
+  , stMinor  :: VarInt
+  } deriving (Show, Generic)
+
+instance Serialize StepNum
+
+instance ToJSON StepNum where
+  toJSON (StepNum a b c) = toJSON (a, b, c)
+
+instance FromJSON StepNum where
+  parseJSON val = do
+    (a, b, c) <- parseJSON val
+    pure $ StepNum a b c
+
+makeLensesWith abbreviatedFields ''StepNum
+
 
 
 data ConsensusNode = ConsensusNode
@@ -28,44 +53,48 @@ instance Has Node ConsensusNode where has = cpNode
 instance Has PeerState ConsensusNode where has = cpPeers
 
 data ConsensusContext = ConsensusContext
-  { ccNode    :: ConsensusNode
-  , ccParams  :: ConsensusParams
-  , ccEntropy :: Bytes32
-  , ccStepNum :: TVar StepNum
+  { ccNode     :: ConsensusNode
+  , ccParams   :: ConsensusParams
+  , ccSeed  :: Bytes32
+  , ccStepNum  :: TVar StepNum
   }
+instance Has ConsensusNode ConsensusContext where has = ccNode
 instance Has Node ConsensusContext where has = has . ccNode
 instance Has PeerState ConsensusContext where has = has . ccNode
 instance Has ConsensusParams ConsensusContext where has = ccParams
 instance Has EthIdent ConsensusContext where has = has . ccParams
 
-type StepNum = (Int, (Maybe Int))
+getRoundSeed :: Consensus Bytes32
+getRoundSeed = asks ccSeed
+
+getStepSeed :: Consensus Bytes32
+getStepSeed = do
+  (,) <$> getRoundSeed <*> getStepNum <&> sha3b . encode
 
 getStepNum :: Consensus StepNum
 getStepNum = asks ccStepNum >>= readTVarIO
 
-incStepNum :: Consensus Int
-incStepNum = do
+incMajorStepNum :: Consensus VarInt
+incMajorStepNum = do
   t <- asks ccStepNum
-  (major, _) <- readTVarIO t
-  let next = major + 1
-  atomically $ writeTVar t (next, Nothing)
-  pure next
+  atomically $ modifyTVar t $ (major +~ 1) . (minor .~ 0)
+  readTVarIO t <&> view major
 
-incMinorStepNum :: Consensus Int
+incMinorStepNum :: Consensus ()
 incMinorStepNum = do
   t <- asks ccStepNum
-  (major, minor) <- readTVarIO t
-  let next = maybe 1 (+1) minor
-  atomically $ writeTVar t (major, Just next)
-  pure next
+  atomically $ modifyTVar t $ minor +~ 0
 
 
 type RoundId = Bytes6
 
 getRoundId :: Consensus RoundId
 getRoundId = do
-  entropy <- asks ccEntropy
-  pure $ toFixedR $ unFixed entropy
+  seed <- asks ccSeed
+  pure $ toFixedR $ unFixed seed
+
+getMyAddress :: Consensus Address
+getMyAddress = asks $ ethAddress . ident' . ccParams
 
 
 data Ballot a = Ballot
@@ -74,33 +103,40 @@ data Ballot a = Ballot
   , bData :: a
   } deriving (Show, Generic)
 
+type BallotData a = (Typeable a, Serialize a)
+
 instance Serialize a => Serialize (Ballot a)
 
 type Authenticated a = (CompactRecSig, a)
 type Inventory a = Map Address (CompactRecSig, a)
-type Collect a = Inventory a -> Consensus Bool
+type Collect i o = Inventory i -> Consensus (Maybe o)
 
 unInventory :: Inventory a -> [Ballot a]
 unInventory inv = [Ballot a s o | (a, (s, o)) <- Map.toAscList inv]
 
-data StepMessage a =
-    InventoryIndex Integer
-  | GetInventory Integer
-  | InventoryData (Inventory a)
-  deriving (Generic, Show)
+data StepMessage a = StepMessage
+  { msgIndex   :: Integer
+  , msgRequest :: Integer
+  , msgInvData :: Inventory a
+  } deriving (Generic, Show)
 
 instance Serialize a => Serialize (StepMessage a)
+data WrappedStepMessage i = WrappedStepMessage CompactRecSig (Maybe StepNum) (StepMessage i)
+  deriving (Generic)
+instance Serialize i => Serialize (WrappedStepMessage i)
 
-type AuthenticatedStepMessage i = RemoteMessage (CompactRecSig, StepMessage i)
+type AuthenticatedStepMessage i = RemoteMessage (WrappedStepMessage i)
 
 -- Params ---------------------------------------------------------------------
 
 type Timeout = Int
 
 data ConsensusParams = ConsensusParams
-  { members' :: [Address]
-  , ident' :: EthIdent
-  , timeout' :: Timeout
+  { members'           :: [Address]
+  , ident'             :: EthIdent
+  , timeout'           :: Timeout
+  , onProposerTimeout' :: Maybe (ProposerTimeout -> IO ())
+  , roundTypeId        :: VarInt
   }
 
 instance Has EthIdent ConsensusParams where has = ident'
@@ -111,17 +147,37 @@ data ConsensusNetworkConfig = CNC
   } deriving (Show)
 
 
+newtype RoundProtocol = RoundProtocol Word64
+  deriving Serialize via H.VarInt
+
 -- Monad ----------------------------------------------------------------------
 
 type Consensus = Zeno ConsensusContext
 
-data ConsensusException = ConsensusTimeout String
-                        | ConsensusMischief String
-  deriving (Show)
-instance Exception ConsensusException
+data ConsensusTimeout = ConsensusTimeout String deriving (Show)
+instance Exception ConsensusTimeout
+data ConsensusMischief = ConsensusMischief Address String deriving (Show)
+instance Exception ConsensusMischief
 
-
+-- Do we need this?
 withTimeout :: Int -> Consensus a -> Consensus a
 withTimeout t =
   local $
     \c -> c { ccParams = (ccParams c) { timeout' = t } }
+
+--------------------------------------------------------------------------------
+-- Stats types
+--------------------------------------------------------------------------------
+
+data ProposerTimeout = ProposerTimeout
+  { proposer :: Address
+  , roundId  :: RoundId
+  , stepNum  :: StepNum
+  } deriving (Show, Generic)
+    deriving Serialize via (SerializeAeson ProposerTimeout)
+ 
+instance ToJSON ProposerTimeout
+instance FromJSON ProposerTimeout
+
+newtype ProposerSequence = ProposerSequence Int
+  deriving (Show, Eq, Ord, Num)
