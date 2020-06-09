@@ -104,7 +104,7 @@ propose name mseq mobj = do
           \(ConsensusTimeout _) -> do
             logInfo $ "Timeout collecting for proposer: " ++ show pAddr
             when isPrimary do
-              dispatchProposerTimeout pAddr 
+              dispatchProposerTimeout pAddr
             incMinorStepNum
             go xs
 

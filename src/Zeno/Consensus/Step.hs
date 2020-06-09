@@ -125,39 +125,39 @@ onInventoryData step@Step{..} forwardInv theirInv = do
   unless (0 == theirIdx .&. complement oldIdx) do
 
     case mergeInventory membersSet oldInv theirInv of
-        Left s -> logWarn s
+      Left s -> logWarn s
 
-        Right newInv -> do
-          let newIdx = inventoryIndex members newInv
-          writeIORef ioInv (newIdx, newInv)
+      Right newInv -> do
+        let newIdx = theirIdx .|. oldIdx
+        writeIORef ioInv (newIdx, newInv)
 
-          yield newInv
-          peers <- getPeers
-          let fwdInv = if forwardInv then newInv else mempty
-          sendAuthenticated step peers $ StepMessage newIdx 0 fwdInv
+        yield newInv
+        peers <- getPeers
+        let fwdInv = if forwardInv then newInv else mempty
+        sendAuthenticated step peers $ StepMessage newIdx 0 fwdInv
 
 
 mergeInventory :: BallotData i => Set Address -> Inventory i -> Inventory i -> Either String (Inventory i)
 mergeInventory membersSet ours theirs = do
-  let
-    validateNew addr (sig, val) = do
-      let sighash = getBallotSighash val
-      when (Set.notMember addr membersSet) do
-        throwError "Got ballot data for non member"
-      r <- unsafePerformIO $ recoverAddr sighash sig
-      when (r /= addr) do
-        throwError "Got ballot data with invalid signature"
-      pure (sig, val)
-      
-    -- We shouldn't be receiving data that we already have for a key, ever, ideally.
-    -- If anything, maybe we should flag the sender.
-    validateExisting _ ours _ = pure ours
-
   mergeA preserveMissing
          (traverseMissing validateNew)
          (zipWithAMatched validateExisting)
-         ours
-         theirs
+         ours theirs
+  where
+  validateNew addr (sig, val) = do
+    let sighash = getBallotSighash val
+    when (Set.notMember addr membersSet) do
+      throwError "Got ballot data for non member"
+    r <- unsafePerformIO $ recoverAddr sighash sig
+    when (r /= addr) do
+      throwError "Got ballot data with invalid signature"
+    pure (sig, val)
+    
+  -- We shouldn't be receiving data that we already have for a key, ever, ideally.
+  -- If anything, maybe we should flag the sender.
+  -- Currently, this will no be called since we compare the calculated indexes
+  -- before called mergeInventory
+  validateExisting _ ours _ = pure ours
 
 
 sendInventoryQueries :: BallotData i => Step i -> [(NodeId, Integer)] -> Consensus ()
