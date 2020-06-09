@@ -30,19 +30,19 @@ and get your eth address, then get some ropsten ether from https://faucet.ropste
 
 Faucet might be unreliable sometimes, if you have trouble with it please provide your address to https://keybase.io/alrighttt/ for manual funding.
 
-#### 1.3 Run and sync TXSCLZ chain:
+#### 1.3 Run and sync TXSCLZ3 chain:
 
 Use https://github.com/KomodoPlatform/komodo master branch
 
 Chain params:
 
 ```
-./komodod -ac_name=TXSCLZ -ac_supply=999999 -ac_reward=100000000 -ac_sapling=375 -addnode=195.201.137.5 
+./komodod -ac_name=TXSCLZ3 -ac_supply=999999 -ac_reward=100000000 -ac_sapling=375 -addnode=195.201.137.5 
 ```
 
 **Do not forget to import privkey for your notary pubkey**
 
-You need some TXSCLZ coins. You can try to mine a few blocks or contact https://keybase.io/alrighttt/ if your pubkey wasn't funded yet. 
+You need some TXSCLZ3 coins. You can try to mine a few blocks or contact https://keybase.io/alrighttt/ if your pubkey wasn't funded yet. 
 
 #### 1.4 Start zeno with output redirecting to file, e.g. :
 
@@ -51,7 +51,7 @@ change:
 `--pubkey param to your notary KMD pubkey`
 
 ```
-zeno notarise kmdeth --geth http://127.0.0.1:8545 --gateway 0x0E27bd633C31AaE55079ee41e01579e2333e3cb2 --pubkey {pubkey} --kmd ~/.komodo/TXSCLZ/TXSCLZ.conf --seed 195.201.20.230:40440 >> zeno.log
+zeno notarise kmdeth --geth http://127.0.0.1:8545 --gateway 0xAf9a376fC6410515a345998655dd1Ca751b445b7 --pubkey {pubkey} --kmd ~/.komodo/TXSCLZ3/TXSCLZ3.conf --seed 195.201.20.230:40440 >> zeno.log
 ```
 
 ## 2. Filebeat logging system install and configuring
