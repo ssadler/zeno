@@ -5,8 +5,8 @@ function dev () {
   ghcid -c 'stack repl zeno:lib'
 }
 
-function dev-test () {
-  ghcid -c 'stack repl zeno --test --main-is :zeno-test' --test ":main $@ --color always"
+function devtest () {
+  ghcid -c 'stack repl zeno --test --main-is :zeno-test' --test ':main --color always'
 }
 
 PATH="../komodo/src/:$PATH"

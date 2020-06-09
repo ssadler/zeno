@@ -109,7 +109,7 @@ instance Serialize a => Serialize (Ballot a)
 
 type Authenticated a = (CompactRecSig, a)
 type Inventory a = Map Address (CompactRecSig, a)
-type Collect a b = Inventory a -> Consensus (Maybe b)
+type Collect i o = Inventory i -> Consensus (Maybe o)
 
 unInventory :: Inventory a -> [Ballot a]
 unInventory inv = [Ballot a s o | (a, (s, o)) <- Map.toAscList inv]

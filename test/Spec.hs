@@ -18,8 +18,8 @@ test_recSigTests = testGroup "RecSig tests"
 
   [ 
     testCase "CompactRecSig" $ do
-      let CompactRecSig r s v = sign sk txid_a
-          d = B16.encode . fromShort
+      CompactRecSig r s v <- sign sk txid_a
+      let d = B16.encode . fromShort
       (d r, d s, v) @?= txsig_a
 
   , testCase "Get txid" $ do
@@ -29,15 +29,15 @@ test_recSigTests = testGroup "RecSig tests"
       encodeTx tx_a @?= txbin_a
 
   , testCase "RecoverFrom" $ do
-      let signed = signTx sk tx_a
+      signed <- signTx sk tx_a
       let Just sig = _sig signed
       let m = hashTx $ signed { _sig = Nothing }
-      recoverAddr m sig @?= Just address
+      recoverAddr m sig >>= (@?= Right address)
 
   , testCase "Recover" $ do
       let txid = hashTx tx_a
-      let sig = sign sk txid
-      let Just a = recoverAddr txid sig
+      sig <- sign sk txid
+      Right a <- recoverAddr txid sig
       a @?= address
 
   , testCase "encodeSpecialV" $ do
@@ -54,7 +54,7 @@ sk :: SecKey
 (Just sk) = secKey "11111111111111111111111111111111"
 
 address :: Address
-EthIdent _ address = deriveEthIdent sk
+EthIdent _ address = unsafePerformIO $ deriveEthIdent sk
 
 txid_a :: PrefixedHex 32
 txid_a = "d018f1502a71f61a00b77546b99f2a647dda07ecb4cf94bd14cd4dbf4337be3d"

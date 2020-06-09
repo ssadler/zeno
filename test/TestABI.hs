@@ -71,7 +71,7 @@ test_randoms = testGroup "randomers"
           )
 
   , testCase "Address" $
-      iso (nullAddress)
+      iso (minBound :: Address)
           ("0000000000000000000000000000000000000000000000000000000000000000")
   ]
 

@@ -62,7 +62,7 @@ runConsensus label ccParams@ConsensusParams{..} entropy act = do
 
   ccStepNum <- newTVarIO $ StepNum roundTypeId 0 0
   ccChildren <- newTVarIO []
-  let ccEntropy = sha3b $ encode entropy
+  let ccEntropy = sha3b $ encode (entropy, members')
       toCC r = let ccNode = has r in ConsensusContext{..}
 
   withContext toCC do
@@ -98,11 +98,8 @@ runConsensus label ccParams@ConsensusParams{..} entropy act = do
       pure c
 
 
--- Coordinate Round -----------------------------------------------------------
+-- Round Steps ----------------------------------------------------------------
 
--- | Step initiates the procedure of exchanging signed messages.
--- | The step is run in a separate thread, and this thread will wait
--- | until the collect condition has been fulfilled.
 step :: BallotData a => String -> Collect a b -> a -> Consensus b
 step name collect obj = do
   incStep $ "collect " ++ name
@@ -110,29 +107,13 @@ step name collect obj = do
 
 step' :: forall a b. BallotData a => String -> Collect a b -> a -> Consensus b
 step' name collect obj = do
-  ConsensusParams{ident' = EthIdent sk myAddr, ..} <- asks ccParams
-  sig <- sign sk message
-  let ballot = Ballot myAddr sig obj
-      errTimeout = ConsensusTimeout ("Timeout after %i seconds" % quot timeout' 1000000)
+  -- The step itself is run in a separate thread, and left running even
+  -- when it's produced a result
+  recv <- spawnStep obj collect
 
-  recv <- spawnStep ballot
-
-  -- The flow is inverted here, we use Left to jump out early
-  r <- runExceptT do
-    receiveDuring recv timeout' \inv -> do
-      pass <- lift $ collect inv
-      maybe (pure ()) throwError pass
-
-  case r of
-    Left inv -> pure inv
-    Right () -> throwIO errTimeout 
-  where
-
-  -- This thing is a bit terrible. It would be easy to make a mistake using it.
-  message =
-    case cast obj of
-      Just b -> b
-      Nothing -> sha3b $ encode obj
+  ConsensusParams{timeout'} <- asks ccParams
+  receiveTimeout recv timeout' >>=
+    maybe (throwIO $ ConsensusTimeout "") pure
 
 incStep :: String -> Consensus ()
 incStep label = do

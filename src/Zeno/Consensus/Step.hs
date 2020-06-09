@@ -1,12 +1,5 @@
 
-module Zeno.Consensus.Step
-  ( Ballot(..)
-  , Inventory
-  , inventoryIndex
-  , prioritiseRemoteInventory
-  , dedupeInventoryQueries
-  , spawnStep
-  ) where
+module Zeno.Consensus.Step where
 
 -- This module deals with exchanging messages and building inventory.
 -- The entry point is `runStep`. Each step has a topic, and each member
@@ -19,7 +12,10 @@ import           Control.Monad.STM (orElse)
 
 import           Data.Bits
 import           Data.Serialize
-import qualified Data.Map as Map
+import qualified Data.Map.Strict as Map
+import           Data.Map.Merge.Strict
+import qualified Data.Set as Set
+import           Data.Typeable
 
 import           GHC.Generics (Generic)
 
@@ -38,34 +34,54 @@ import           UnliftIO.Concurrent
 inventoryQueryInterval :: Int
 inventoryQueryInterval = 200 * 1000
 
+type InventoryMask = Integer
+
 data Step i = Step
-  { processId :: ProcessId
-  , tInv      :: TVar (Integer, Inventory i)
-  , members   :: [Address]
-  , yieldTo   :: Process (Inventory i)
+  { processId  :: ProcessId
+  , ioInv      :: IORef (InventoryMask, Inventory i)
+  , members    :: [Address]
+  , membersSet :: Set Address
+  , yield      :: Inventory i -> Consensus ()
   }
 
 
-spawnStep :: Serialize i => Ballot i -> Consensus (Process (Inventory i))
-spawnStep myBallot = do
+spawnStep :: BallotData i => i -> Collect i o -> Consensus (Process o)
+spawnStep obj collect = do
+
+  ConsensusParams{ident' = EthIdent sk myAddr, ..} <- asks ccParams
+  let sighash = getBallotSighash obj
+  mySig <- sign sk sighash
+  let ballot = Ballot myAddr mySig obj
 
   ConsensusContext{ccParams = ConsensusParams{..},..} <- ask
   roundId <- getRoundId
   processId <- ProcessId . bappend roundId . reFixed <$> getStepEntropy
 
-  let (Ballot myAddr mySig myData) = myBallot
-      stepName = "step: " ++ show processId
+  let stepName = "step: " ++ show processId
 
-  tInv <- newTVarIO (0, mempty)
+  ioInv <- newIORef (0, mempty)
   
   spawn stepName \process -> do
-    let step = Step processId tInv members' process
+    yield <- makeYieldUntilDone collect process
+    let step = Step processId ioInv members' (Set.fromList members') yield
     registerOnNewPeer $ onNewPeer step
-    onInventoryData step True $ Map.singleton myAddr (mySig, myData)
+    onInventoryData step True $ Map.singleton myAddr (mySig, obj)
     buildInventoryLoop step
 
 
-buildInventoryLoop :: Serialize i => Step i -> Consensus ()
+makeYieldUntilDone :: Collect i o -> Process o -> Consensus (Inventory i -> Consensus ())
+makeYieldUntilDone collect proc = do
+  ref <- newIORef False
+  pure \inv -> do
+    done <- readIORef ref
+    unless done do
+      collect inv >>= 
+        maybe (pure ()) \r -> do
+          writeIORef ref True
+          send proc r
+
+
+buildInventoryLoop :: BallotData i => Step i -> Consensus ()
 buildInventoryLoop step@Step{..} = do
   recv <- subscribe processId
   forever do
@@ -85,47 +101,68 @@ buildInventoryLoop step@Step{..} = do
                      go $ Map.insert peer theirIdx idxs
 
 
-onNewPeer :: Serialize i => Step i -> NodeId -> Consensus ()
+onNewPeer :: BallotData i => Step i -> NodeId -> Consensus ()
 onNewPeer Step{..} peer = do
-  (idx, inv) <- readTVarIO tInv
+  (idx, inv) <- readIORef ioInv
   let msg = StepMessage idx 0 mempty
   sendAuthenticated Step{..} [peer] msg
 
-onInventoryRequest :: Serialize i => Step i -> NodeId -> Integer -> Consensus ()
+onInventoryRequest :: BallotData i => Step i -> NodeId -> Integer -> Consensus ()
 onInventoryRequest _ _ 0 = mempty
 onInventoryRequest step@Step{..} peer theirReq = do
-  (myIdx, inv) <- readTVarIO tInv
+  (myIdx, inv) <- readIORef ioInv
   let subset = getInventorySubset theirReq members inv
   sendAuthenticated step [peer] $ StepMessage myIdx 0 subset
 
-onInventoryData :: Serialize i => Step i -> Bool -> Inventory i -> Consensus ()
+
+onInventoryData :: BallotData i => Step i -> Bool -> Inventory i -> Consensus ()
 onInventoryData _ _ theirInv | Map.null theirInv = mempty
 onInventoryData step@Step{..} forwardInv theirInv = do
 
-  -- TODO: Authenticate all the inventory we don't have.
-  
-  mr <-
-    atomically do
-      let theirIdx = inventoryIndex members theirInv
-      (oldIdx, oldInv) <- readTVar tInv
-      if 0 == theirIdx .&. complement oldIdx
-        then pure Nothing
-        else do
-          let newInv = Map.union oldInv theirInv
-              newIdx = inventoryIndex members newInv
-          writeTVar tInv (newIdx, newInv)
-          pure $ Just (newIdx, newInv)
+  let theirIdx = inventoryIndex members theirInv
+  (oldIdx, oldInv) <- readIORef ioInv
 
-  forM_ mr \(idx, inv) -> do
-    send yieldTo inv
-    peers <- getPeers
-    let fwdInv = if forwardInv then inv else mempty
-    sendAuthenticated step peers $ StepMessage idx 0 fwdInv
+  unless (0 == theirIdx .&. complement oldIdx) do
+
+    case mergeInventory membersSet oldInv theirInv of
+        Left s -> logWarn s
+
+        Right newInv -> do
+          let newIdx = inventoryIndex members newInv
+          writeIORef ioInv (newIdx, newInv)
+
+          yield newInv
+          peers <- getPeers
+          let fwdInv = if forwardInv then newInv else mempty
+          sendAuthenticated step peers $ StepMessage newIdx 0 fwdInv
 
 
-sendInventoryQueries :: Serialize i => Step i -> [(NodeId, Integer)] -> Consensus ()
+mergeInventory :: BallotData i => Set Address -> Inventory i -> Inventory i -> Either String (Inventory i)
+mergeInventory membersSet ours theirs = do
+  let
+    validateNew addr (sig, val) = do
+      let sighash = getBallotSighash val
+      when (Set.notMember addr membersSet) do
+        throwError "Got ballot data for non member"
+      r <- unsafePerformIO $ recoverAddr sighash sig
+      when (r /= addr) do
+        throwError "Got ballot data with invalid signature"
+      pure (sig, val)
+      
+    -- We shouldn't be receiving data that we already have for a key, ever, ideally.
+    -- If anything, maybe we should flag the sender.
+    validateExisting _ ours _ = pure ours
+
+  mergeA preserveMissing
+         (traverseMissing validateNew)
+         (zipWithAMatched validateExisting)
+         ours
+         theirs
+
+
+sendInventoryQueries :: BallotData i => Step i -> [(NodeId, Integer)] -> Consensus ()
 sendInventoryQueries step@Step{..} idxs = do
-  (myIdx, inv) <- readTVarIO tInv
+  (myIdx, inv) <- readIORef ioInv
   let ordered = prioritiseRemoteInventory members inv idxs
       queries = dedupeInventoryQueries ordered
   forM_ queries \(peer, wanted) ->
@@ -135,29 +172,36 @@ sendInventoryQueries step@Step{..} idxs = do
 -- | Message authentication
 --------------------------------------------------------------------------------
 
-getMessageToSign :: Serialize i => Step i -> (Maybe StepNum, StepMessage i) -> Bytes32
-getMessageToSign Step{..} obj = sha3b $ encode (processId, obj)
+-- This thing is a bit terrible. It would be easy to make a mistake using it.
+getBallotSighash :: (BallotData a, Typeable a) => a -> Bytes32
+getBallotSighash obj = do
+  case cast obj of
+    Just b -> b
+    Nothing -> sha3b $ encode obj
 
-sendAuthenticated :: Serialize o
-                  => Step o -> [NodeId] -> StepMessage o -> Consensus ()
+getMessageSigHash :: BallotData i => Step i -> (Maybe StepNum, StepMessage i) -> Bytes32
+getMessageSigHash Step{..} obj = sha3b $ encode (processId, obj)
+
+sendAuthenticated :: BallotData i
+                  => Step i -> [NodeId] -> StepMessage i -> Consensus ()
 sendAuthenticated Step{..} peers obj = do
   EthIdent{..} <- asks has
   stepNum <- Just <$> getStepNum
-  let sighash = getMessageToSign Step{..} (stepNum, obj)
+  let sighash = getMessageSigHash Step{..} (stepNum, obj)
   sig <- sign ethSecKey sighash
   forM_ peers $ \peer -> do
     sendRemote peer processId (sig, stepNum, obj)
 
 
 -- TODO: Track who sends bad data
-authenticate :: Serialize i
+authenticate :: BallotData i
              => Step i
              -> (NodeId -> StepMessage i -> Consensus ())
              -> AuthenticatedStepMessage i
              -> Consensus ()
 authenticate step@Step{..} act (RemoteMessage nodeId wsm) = do
   let WrappedStepMessage theirSig sn obj = wsm
-  let sighash = getMessageToSign step (sn, obj)
+  let sighash = getMessageSigHash step (sn, obj)
   recoverAddr sighash theirSig >>=
     \case
        Right addr ->

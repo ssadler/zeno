@@ -92,6 +92,10 @@ instance forall n. KnownNat n => RLP.RLPEncodable (FixedBytes n) where
   rlpDecode r = do
     RLP.rlpDecode r >>= eitherFixed
 
+instance forall n. KnownNat n => Bounded (FixedBytes n) where
+  minBound = newFixed 0
+  maxBound = newFixed 255
+
 bappend :: forall n m. (KnownNat n, KnownNat m)
         => FixedBytes n -> FixedBytes m -> FixedBytes (n + m)
 bappend (Bytes b) (Bytes b') = Bytes (b <> b')
@@ -195,7 +199,7 @@ prefixedFromHex bs =
 
 
 newtype PrefixedHex n = PrefixedHex { unPrefixedHex :: FixedBytes n }
-  deriving (Eq, Ord, Serialize, RLP.RLPEncodable)
+  deriving (Eq, Ord, Serialize, Bounded, RLP.RLPEncodable)
 
 instance Show (PrefixedHex n) where
   show (PrefixedHex a) = "0x" ++ show a
