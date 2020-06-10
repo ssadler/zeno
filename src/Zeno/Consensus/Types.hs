@@ -158,7 +158,7 @@ newtype RoundProtocol = RoundProtocol Word64
 
 type Consensus = Zeno ConsensusContext
 
-data ConsensusTimeout = ConsensusTimeout String deriving (Show)
+data ConsensusTimeout = ConsensusTimeout deriving (Show)
 instance Exception ConsensusTimeout
 data ConsensusMischief = ConsensusMischief Address String deriving (Show)
 instance Exception ConsensusMischief

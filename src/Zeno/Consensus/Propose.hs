@@ -79,7 +79,7 @@ propose name mseq mobj = do
   determineProposers mseq >>= go
     where
       go :: [(Address, Bool)] -> Consensus (Ballot a)
-      go [] = throwIO $ ConsensusTimeout "Ran out of proposers"
+      go [] = throwIO ConsensusTimeout
       go ((pAddr, isPrimary):xs) = do
 
         obj <- do
@@ -94,13 +94,13 @@ propose name mseq mobj = do
               Just (s, Just obj2) -> pure $ Just $ Ballot pAddr s obj2
               Just (s, Nothing) -> do
                 -- TODO: handle mischief
-                throwIO $ ConsensusTimeout ""
+                throwIO ConsensusTimeout
               Nothing -> pure Nothing
         
         catch
           do step' (printf "propose %s" name) collect obj
 
-          \(ConsensusTimeout _) -> do
+          \ConsensusTimeout -> do
             logInfo $ "Timeout collecting for proposer: " ++ show pAddr
             when isPrimary do
               dispatchProposerTimeout pAddr

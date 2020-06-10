@@ -46,7 +46,7 @@ runNotariseKmdToEth pk gateway networkConfig gethConfig kmdConfPath useui = do
             nc <- getNotariserConfig "KMDETH"
             asks has >>= checkConfig nc
             -- Config will be refeshed if there is an exception
-            forever $ notariserStep nc
+            forever $ runNotariserStep nc $ notariserStepFree nc
 
   where
     getNotariserConfig configName = do
@@ -76,12 +76,11 @@ runNotariseKmdToEth pk gateway networkConfig gethConfig kmdConfPath useui = do
         fmtHttpException e = error ("Configuration error: " ++ show e)
 
 
-notariserStep :: NotariserConfig -> Zeno EthNotariser ()
-notariserStep nc@NotariserConfig{..} = do
-  getLastNotarisationOnEth nc >>= handleTimeout . go
+notariserStepFree :: forall m. MonadLogger m => NotariserConfig -> NotariserStep m ()
+notariserStepFree nc@NotariserConfig{..} = do
+  getLastNotarisationFree >>= handleTimeoutFree . go
   where
-  handleTimeout = handle \(ConsensusTimeout _) -> mempty
-
+  go :: Maybe (NotarisationOnEth, ProposerSequence) -> NotariserStep m ()
   go Nothing = do
     logInfo "No prior notarisations found"
     forward 0 0
@@ -89,7 +88,7 @@ notariserStep nc@NotariserConfig{..} = do
   go (Just (ethnota@NOE{..}, sequence)) = do
     logDebug $ "Found notarisation on ETH for %s height %i" % (kmdChainSymbol, foreignHeight)
 
-    getLastNotarisation kmdChainSymbol >>=
+    getLastNotarisationReceipt >>=
       \case
         Just (Notarisation _ _ (BND NOR{..}))
           | blockNumber == foreignHeight -> do
@@ -101,19 +100,49 @@ notariserStep nc@NotariserConfig{..} = do
             logError "The backnotarised height in KMD is higher than the notarised\
                      \ height in ETH. Is ETH node is lagging? Proceeding anyway."
             forward sequence foreignHeight
-
+ 
         _ -> do
           logDebug "Backnotarisation not found, proceed to backnotarise"
-          opret <- getBackNotarisation nc ethnota
+          opret <- makeNotarisationReceipt ethnota
           let seq = shiftSequence 2 sequence
-          notariseKmdDpow nc seq opret
+          runNotariseReceipt seq opret
 
+  forward :: ProposerSequence -> Word32 -> NotariserStep m ()
   forward sequence lastNotarisedHeight = do
-      newHeight <- waitKmdNotariseHeight kmdBlockInterval lastNotarisedHeight
-      notariseToETH nc sequence newHeight
+      newHeight <- waitSourceHeightFree lastNotarisedHeight
+      runNotarise sequence newHeight
 
   shiftSequence n seq =
     seq + ProposerSequence (quot (length members) n)
+
+
+runNotariserStep :: NotariserConfig -> NotariserStep (Zeno EthNotariser) a -> Zeno EthNotariser a
+runNotariserStep nc@NotariserConfig{..} = iterT
+  \case
+    RunNotarise seq height f       -> notariseToETH nc seq height >>= f
+    RunNotariseReceipt seq opret f -> notariseKmdDpow nc seq opret >>= f
+    WaitSourceHeightFree height f  -> waitKmdNotariseHeight kmdBlockInterval height >>= f
+    GetLastNotarisationReceipt f   -> kmdGetLastNotarisation kmdChainSymbol >>= f
+    HandleTimeoutFree act f        -> handle (\ConsensusTimeout -> pure ()) (runNotariserStep nc act) >>= f
+
+    GetLastNotarisationFree f -> do
+      (r, sequence) <- ethCallABI notarisationsContract "getLastNotarisation()" ()
+      f $ case r of
+        NOE 0 _ _ _ -> Nothing
+        _           -> Just (r, ProposerSequence sequence)
+
+    MakeNotarisationReceipt NOE{..} f  -> do
+      f $ NOR
+        { blockHash = (sha3AsBytes32 foreignHash)
+        , blockNumber = foreignHeight
+        , txHash = newFixed 0xFF
+        , symbol = kmdChainSymbol
+        , mom = nullBytes
+        , momDepth = 0
+        , ccId = 0
+        , momom = nullBytes
+        , momomDepth = 0
+        }
 
 
 notariseToETH :: NotariserConfig -> ProposerSequence -> Word32 -> Zeno EthNotariser ()
@@ -186,15 +215,6 @@ ethMakeNotarisationTx NotariserConfig{..} callData = do
       tx = Tx nonce 0 (Just gateway) Nothing gasPrice ethNotariseGas callData ethChainId
   signTx sk tx
 
-
-getLastNotarisationOnEth :: NotariserConfig
-                         -> Zeno EthNotariser (Maybe (NotarisationOnEth, ProposerSequence))
-getLastNotarisationOnEth NotariserConfig{..} = do
-  (r, sequence) <- ethCallABI notarisationsContract "getLastNotarisation()" ()
-  pure $
-    case r of
-      NOE 0 _ _ _ -> Nothing
-      _ -> Just (r, ProposerSequence sequence)
 
 
 getBackNotarisation :: NotariserConfig -> NotarisationOnEth -> Zeno EthNotariser NotarisationData

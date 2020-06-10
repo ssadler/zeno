@@ -2,7 +2,8 @@
 
 module Zeno.Notariser.Types where
 
-import Zeno.Data.Aeson
+import Control.Monad.Trans.Free
+import Control.Monad.Free.TH
 
 import qualified Haskoin as H
 
@@ -13,9 +14,16 @@ import Network.Ethereum
 import Network.Ethereum.Transaction
 
 import Zeno.Consensus
+import Zeno.Data.Aeson
 import Zeno.Prelude
+import Zeno.EthGateway
 
 import UnliftIO
+
+
+--------------------------------------------------------------------------------
+-- 
+--------------------------------------------------------------------------------
 
 
 data RoundType              -- Don't go changing this willy nilly
@@ -83,3 +91,31 @@ data ConfigException = ConfigException String
 instance Exception NotariserException
 data NotariserException = Inconsistent String
   deriving (Show)
+
+--------------------------------------------------------------------------------
+-- Notariser Free monad interface
+--------------------------------------------------------------------------------
+
+type NotariserStep m = FreeT (NotariserStepF m) m
+
+instance MonadLogger m => MonadLogger (NotariserStep m)
+
+data NotariserStepF m next
+  = GetLastNotarisationFree     (Maybe (NotarisationOnEth, ProposerSequence) -> next)
+  | GetLastNotarisationReceipt  (Maybe (Notarisation BackNotarisationData) -> next)
+  | HandleTimeoutFree           (NotariserStep m ()) (() -> next)
+  | MakeNotarisationReceipt     NotarisationOnEth (NotarisationData -> next)
+  | RunNotarise                 ProposerSequence Word32 (() -> next)
+  | RunNotariseReceipt          ProposerSequence NotarisationData (() -> next)
+  | WaitSourceHeightFree        Word32 (Word32 -> next)
+
+instance Functor (NotariserStepF r) where
+  fmap f (GetLastNotarisationFree next)      = GetLastNotarisationFree      $ f . next
+  fmap f (GetLastNotarisationReceipt next)   = GetLastNotarisationReceipt   $ f . next
+  fmap f (HandleTimeoutFree act next)        = HandleTimeoutFree act        $ f . next
+  fmap f (MakeNotarisationReceipt noe next)  = MakeNotarisationReceipt noe  $ f . next
+  fmap f (RunNotarise seq height next)       = RunNotarise seq height       $ f . next
+  fmap f (RunNotariseReceipt seq ndata next) = RunNotariseReceipt seq ndata $ f . next
+  fmap f (WaitSourceHeightFree last next)    = WaitSourceHeightFree last    $ f . next
+
+makeFree ''NotariserStepF

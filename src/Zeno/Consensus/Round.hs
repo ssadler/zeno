@@ -91,11 +91,11 @@ runConsensus label ccParams@ConsensusParams{..} seed act = do
   where
   murphyNoResult = murphy "Round finished without a result - this should not happen"
   handleTimeout roundName = do
-    handle \c@(ConsensusTimeout _) -> do
+    handle \ConsensusTimeout -> do
       logInfo $ "Timeout: " ++ roundName
       sendUI (UI_Step "Timeout")
       threadDelayS 4
-      pure c
+      pure ConsensusTimeout
 
 
 -- Round Steps ----------------------------------------------------------------
@@ -111,8 +111,7 @@ step' name collect obj = do
   -- when it's produced a result
   recv <- spawnStep obj collect
   ConsensusParams{timeout'} <- asks ccParams
-  receiveTimeout recv timeout' >>=
-    maybe (throwIO $ ConsensusTimeout "") pure
+  receiveTimeout recv timeout' >>= maybe (throwIO ConsensusTimeout) pure
 
 incStep :: String -> Consensus ()
 incStep label = do

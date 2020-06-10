@@ -220,8 +220,8 @@ scanNotarisationsDB height symbol limit = do
               then Nothing
               else Just $ val .! "."
 
-getLastNotarisation :: (FromJSON n, Has BitcoinConfig r) => String -> Zeno r (Maybe (Notarisation n))
-getLastNotarisation s = scanNotarisationsDB 0 s 100000
+kmdGetLastNotarisation :: (FromJSON n, Has BitcoinConfig r) => String -> Zeno r (Maybe (Notarisation n))
+kmdGetLastNotarisation s = scanNotarisationsDB 0 s 100000
 
 -- | Utils
 
