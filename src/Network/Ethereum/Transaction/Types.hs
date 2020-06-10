@@ -27,8 +27,12 @@ data Transaction = Tx
   , _chainId  :: ChainId
   } deriving (Eq, Show, Generic)
 
-instance Serialize Transaction
-
+instance Serialize Transaction where
+  put Tx{..} = do
+    putPacked _nonce >> putPacked _value >> put _to >> put _sig >> putPacked _gasPrice
+    putPacked _gas >> put _data >> put _chainId
+  get = do
+    Tx <$> getPacked <*> getPacked <*> get <*> get <*> getPacked <*> getPacked <*> get <*> get
 
 instance RLPEncodable Transaction where
   rlpEncode tx = RLP.Array (c <> e) where

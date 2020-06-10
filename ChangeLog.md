@@ -1,5 +1,9 @@
 # Changelog for Zeno
 
+## 0.2.1.1
+
+* Protocol changes to make it easier to parse with PyZeno
+
 ## 0.2.1.0
 
 * All incoming messages as well as incoming inventory is now signed and authenticated

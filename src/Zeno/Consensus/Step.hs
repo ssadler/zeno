@@ -34,14 +34,13 @@ import           UnliftIO.Concurrent
 inventoryQueryInterval :: Int
 inventoryQueryInterval = 200 * 1000
 
-type InventoryMask = Integer
-
 data Step i = Step
   { processId  :: ProcessId
-  , ioInv      :: IORef (InventoryMask, Inventory i)
+  , ioInv      :: IORef (PackedInteger, Inventory i)
   , members    :: [Address]
   , membersSet :: Set Address
   , yield      :: Inventory i -> Consensus ()
+  , stepNum    :: StepNum
   }
 
 
@@ -60,10 +59,12 @@ spawnStep obj collect = do
   let stepName = "step: " ++ show processId
 
   ioInv <- newIORef (0, mempty)
+
+  stepNum <- getStepNum
   
   spawn stepName \process -> do
     yield <- makeYieldUntilDone collect process
-    let step = Step processId ioInv members' (Set.fromList members') yield
+    let step = Step processId ioInv members' (Set.fromList members') yield stepNum
     registerOnNewPeer $ onNewPeer step
     onInventoryData step True $ Map.singleton myAddr (mySig, obj)
     buildInventoryLoop step
@@ -107,7 +108,7 @@ onNewPeer Step{..} peer = do
   let msg = StepMessage idx 0 mempty
   sendAuthenticated Step{..} [peer] msg
 
-onInventoryRequest :: BallotData i => Step i -> NodeId -> Integer -> Consensus ()
+onInventoryRequest :: BallotData i => Step i -> NodeId -> PackedInteger -> Consensus ()
 onInventoryRequest _ _ 0 = mempty
 onInventoryRequest step@Step{..} peer theirReq = do
   (myIdx, inv) <- readIORef ioInv
@@ -160,7 +161,7 @@ mergeInventory membersSet ours theirs = do
   validateExisting _ ours _ = pure ours
 
 
-sendInventoryQueries :: BallotData i => Step i -> [(NodeId, Integer)] -> Consensus ()
+sendInventoryQueries :: BallotData i => Step i -> [(NodeId, PackedInteger)] -> Consensus ()
 sendInventoryQueries step@Step{..} idxs = do
   (myIdx, inv) <- readIORef ioInv
   let ordered = prioritiseRemoteInventory members inv idxs
@@ -186,11 +187,11 @@ sendAuthenticated :: BallotData i
                   => Step i -> [NodeId] -> StepMessage i -> Consensus ()
 sendAuthenticated Step{..} peers obj = do
   EthIdent{..} <- asks has
-  stepNum <- Just <$> getStepNum
-  let sighash = getMessageSigHash Step{..} (stepNum, obj)
+  let payload = (Just stepNum, obj)
+  let sighash = getMessageSigHash Step{..} payload
   sig <- sign ethSecKey sighash
   forM_ peers $ \peer -> do
-    sendRemote peer processId (sig, stepNum, obj)
+    sendRemote peer processId (sig, payload)
 
 
 -- TODO: Track who sends bad data
@@ -216,21 +217,21 @@ authenticate step@Step{..} act (RemoteMessage nodeId wsm) = do
 --------------------------------------------------------------------------------
 
 -- | Get a bit array of what inventory we have
-inventoryIndex :: [Address] -> Map Address a -> Integer
+inventoryIndex :: [Address] -> Map Address a -> PackedInteger
 inventoryIndex members inv =
   let have addr = if Map.member addr inv then 1 else 0
       shiftHave n (i, addr) = n .|. shift (have addr) i
    in foldl shiftHave 0 $ zip [0..] members
 
 -- | Sort remote inventories by how interesting they are and remote inventory we already have
-prioritiseRemoteInventory :: [Address] -> Map Address a -> [(b, Integer)] -> [(b, Integer)]
+prioritiseRemoteInventory :: [Address] -> Map Address a -> [(b, PackedInteger)] -> [(b, PackedInteger)]
 prioritiseRemoteInventory members inv idxs =
   let myIdx = inventoryIndex members inv
       interesting = [(p, i .&. complement myIdx) | (p, i) <- idxs]
    in sortOn (\(_,i) -> popCount i * (-1)) interesting
 
 -- Get queries for remote inventory filtering duplicates
-dedupeInventoryQueries :: [(a, Integer)] -> [(a, Integer)]
+dedupeInventoryQueries :: [(a, PackedInteger)] -> [(a, PackedInteger)]
 dedupeInventoryQueries = f 0 where
   f _ [] = []
   f seen ((peer, idx):xs) =
@@ -241,7 +242,7 @@ dedupeInventoryQueries = f 0 where
            else []
 
 -- Get part of the inventory according to an index
-getInventorySubset :: Integer -> [Address] -> Inventory a -> Inventory a
+getInventorySubset :: PackedInteger -> [Address] -> Inventory a -> Inventory a
 getInventorySubset idx members =
   Map.filterWithKey $
     \k _ -> let Just i = elemIndex k members

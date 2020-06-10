@@ -29,7 +29,6 @@ instance GetABI NotarisationOnEth where
 
 
 
-
 gatewayGetConfig :: (GetABI a, Has GethConfig r)
                  => Address -> ByteString -> Zeno r a
 gatewayGetConfig gateway key = do

@@ -137,7 +137,7 @@ runConnection node@Node{..} conn ip = do
     header <- receiveLen 3
     case decode header of
       Right ('\0', port) -> pure $ NodeId (renderIp ip) port
-      Left s -> murphy s -- How can we fail to decode exactly 3 bytes into a (Word8, Word32)
+      Left s -> murphy s -- How can we fail to decode exactly 3 bytes into a (Word8, Word16)
       Right (_, _) -> do
         -- Someone is port scanning, or running incorrect version
         more <- recv conn 20 >>= maybe mempty pure

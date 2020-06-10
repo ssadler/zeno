@@ -81,8 +81,6 @@ propose name mseq mobj = do
       go [] = throwIO $ ConsensusTimeout "Ran out of proposers"
       go ((pAddr, isPrimary):xs) = do
 
-        incMajorStepNum
-
         obj <- do
           myAddress <- getMyAddress
           if pAddr == myAddress
@@ -99,7 +97,7 @@ propose name mseq mobj = do
               Nothing -> pure Nothing
         
         catch
-          do step' (printf "propose %s" name) collect obj
+          do step (printf "propose %s" name) collect obj
 
           \(ConsensusTimeout _) -> do
             logInfo $ "Timeout collecting for proposer: " ++ show pAddr

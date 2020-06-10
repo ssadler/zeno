@@ -1,7 +1,6 @@
 
 module Zeno.Consensus.Round
   ( step
-  , step'
   , incStep
   , collectMembers
   , collectMajority
@@ -100,13 +99,9 @@ runConsensus label ccParams@ConsensusParams{..} seed act = do
 
 -- Round Steps ----------------------------------------------------------------
 
-step :: BallotData a => String -> Collect a b -> a -> Consensus b
+step :: forall a b. BallotData a => String -> Collect a b -> a -> Consensus b
 step name collect obj = do
   incStep $ "collect " ++ name
-  step' name collect obj
-
-step' :: forall a b. BallotData a => String -> Collect a b -> a -> Consensus b
-step' name collect obj = do
   -- The step itself is run in a separate thread, and left running even
   -- when it's produced a result
   recv <- spawnStep obj collect

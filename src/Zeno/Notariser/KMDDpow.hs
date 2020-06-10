@@ -58,6 +58,8 @@ notariseKmdDpow nc@NotariserConfig{..} seq ndata = do
 type UTXO = (H.PubKeyI, H.OutPoint)
 
 proposeInputs :: Int -> Int -> Inventory UTXO -> Maybe (Map Address UTXO)
+                                                      -- I think maybe the addresses are redundant
+                                                      -- in this map
 proposeInputs kmdNotaryInputs _threshold ballots =
   if length ballots < kmdNotaryInputs
      then Nothing

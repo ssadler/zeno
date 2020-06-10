@@ -54,6 +54,7 @@ data NotariserConfig = NotariserConfig
   , ethNotariseGas :: Integer
   } deriving (Show, Eq)
 
+
 instance FromJSON NotariserConfig where
   parseJSON =
     --- This is not a strict object because we want config additions

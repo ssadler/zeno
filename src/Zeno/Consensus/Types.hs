@@ -4,6 +4,8 @@
 
 module Zeno.Consensus.Types where
 
+import           Data.Bits
+import qualified Data.ByteString as BS
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 import           Data.Serialize
@@ -11,9 +13,8 @@ import           Data.Serialize
 import qualified Haskoin as H
 
 import           Control.Exception
-import           Control.Monad.Reader
-import           Control.Monad.State
 import           Network.Ethereum.Crypto
+import           Network.Ethereum.Data.Utils
 import           GHC.Generics (Generic)
 import           UnliftIO
 
@@ -55,8 +56,9 @@ instance Has PeerState ConsensusNode where has = cpPeers
 data ConsensusContext = ConsensusContext
   { ccNode     :: ConsensusNode
   , ccParams   :: ConsensusParams
-  , ccSeed  :: Bytes32
-  , ccStepNum  :: TVar StepNum
+  , ccSeed     :: Bytes32
+  , ccStepNum  :: TVar StepNum        -- TODO: Not so sure it's smart for the step
+                                      -- to have access to this
   }
 instance Has ConsensusNode ConsensusContext where has = ccNode
 instance Has Node ConsensusContext where has = has . ccNode
@@ -114,9 +116,10 @@ type Collect i o = Inventory i -> Consensus (Maybe o)
 unInventory :: Inventory a -> [Ballot a]
 unInventory inv = [Ballot a s o | (a, (s, o)) <- Map.toAscList inv]
 
+
 data StepMessage a = StepMessage
-  { msgIndex   :: Integer
-  , msgRequest :: Integer
+  { msgIndex   :: PackedInteger
+  , msgRequest :: PackedInteger
   , msgInvData :: Inventory a
   } deriving (Generic, Show)
 

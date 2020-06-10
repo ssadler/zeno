@@ -75,7 +75,7 @@ forkRecordProposerTimeout nc proposerTimeout = do
 
         cparams <- getConsensusParams nc StatsToKmd
 
-        (Ballot _ _ chosenTx) <- 
+        (Ballot _ _ chosenTx) <-
 
           runConsensus label cparams proposerTimeout do
             tx <- step "tx sigs" collect (sha256b $ encode outputsToSign)
