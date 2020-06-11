@@ -131,13 +131,13 @@ runDumpProposerTimeouts kmdConfPath gateway gethConfig numDays = do
       runExceptT do
         when (length outs /= 2) $ throwError $ "Wrong number of outputs (%i)" % length outs
         let [marker, H.TxOut _ script] = outs
-        script <- liftEither $ H.decodeOutputBS script
+        script <- liftEither $ H.decodeOutputBS script & over _Left ("decodeOutputBS: " ++)
         opret <-
           case script of
             H.DataCarrier bs -> pure bs
             other -> throwError "Output 1 not a data carrier"
 
-        (sigs, payload) <- liftEither $ decode opret
+        (sigs, payload) <- liftEither $ decode opret & over _Left ("opret: " ++)
         let markerAddress = H.PayPKHash $ getAddrHash address
         let outputsToSign = kmdDataOutputs outputAmount markerAddress $ encode payload
         let message = sha256b $ encode outputsToSign

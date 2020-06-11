@@ -1,6 +1,10 @@
 # Changelog for Zeno
 
-# 0.2.1.2
+## Unreleased
+
+* More detail in dumpProposerTimeouts error messages
+
+## 0.2.1.2
 
 * Fix bugs in step numbers
 
