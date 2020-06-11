@@ -164,7 +164,7 @@ runDumpProposerTimeouts kmdConfPath gateway gethConfig numDays = do
     let recs' = nub (EqOnSnd <$> recs)
         ndupes = length recs - length recs'
     when (ndupes /= 0) do
-      logWarn $ "Duplicates encountered! %i" % ndupes
+      logWarn $ "Duplicates encountered: %i" % ndupes
     pure $ unEqOnSnd <$> recs'
 
 newtype EqOnSnd a b = EqOnSnd { unEqOnSnd :: (a, b) }
