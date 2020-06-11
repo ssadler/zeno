@@ -48,7 +48,7 @@ spec_sapling_sign = do
       let Right signed = signTxSapling komodo tx [sigin] [key]
       let Right decoded = decode $ unHex "0400008085202f890143ec7a579f5561a42a7e9637ad4156672735a658be2752181801f723ba3316d2000000006a4730440220502507cbbdaa870ca7d75a1b0ccb370d9ebd4e13137e926891637655a027c0ef02201bda31cb065593fb9cbf5ee06b20bcdb0a73936371e8caf69717e396c4e938ca0121038c3d482cd29f75ce997737705fb5287f022ded66093ee7d929aea100c5ef8a63ffffffff0000000000000000000000000000000000000000"
       decoded { txIn = [] } @?= signed { txIn = [] }
-      txIn decoded @?= txIn signed
+      txIn decoded @?= txIn signed :: IO ()
       --toHex (encode signed) @?= 
 
 

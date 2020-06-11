@@ -1,4 +1,5 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE DeriveFunctor #-}
 
 module Zeno.Notariser.Types where
 
@@ -96,26 +97,20 @@ data NotariserException = Inconsistent String
 -- Notariser Free monad interface
 --------------------------------------------------------------------------------
 
-type NotariserStep m = FreeT (NotariserStepF m) m
+type NotariserStep m = FreeT NotariserStepF m
 
 instance MonadLogger m => MonadLogger (NotariserStep m)
 
-data NotariserStepF m next
+data NotariserStepF next
   = GetLastNotarisationFree     (Maybe (NotarisationOnEth, ProposerSequence) -> next)
   | GetLastNotarisationReceipt  (Maybe (Notarisation BackNotarisationData) -> next)
-  | HandleTimeoutFree           (NotariserStep m ()) (() -> next)
   | MakeNotarisationReceipt     NotarisationOnEth (NotarisationData -> next)
   | RunNotarise                 ProposerSequence Word32 (() -> next)
   | RunNotariseReceipt          ProposerSequence NotarisationData (() -> next)
   | WaitSourceHeightFree        Word32 (Word32 -> next)
-
-instance Functor (NotariserStepF r) where
-  fmap f (GetLastNotarisationFree next)      = GetLastNotarisationFree      $ f . next
-  fmap f (GetLastNotarisationReceipt next)   = GetLastNotarisationReceipt   $ f . next
-  fmap f (HandleTimeoutFree act next)        = HandleTimeoutFree act        $ f . next
-  fmap f (MakeNotarisationReceipt noe next)  = MakeNotarisationReceipt noe  $ f . next
-  fmap f (RunNotarise seq height next)       = RunNotarise seq height       $ f . next
-  fmap f (RunNotariseReceipt seq ndata next) = RunNotariseReceipt seq ndata $ f . next
-  fmap f (WaitSourceHeightFree last next)    = WaitSourceHeightFree last    $ f . next
+  deriving (Generic, Functor)
 
 makeFree ''NotariserStepF
+
+data Done = Done
+  deriving (Eq, Show)

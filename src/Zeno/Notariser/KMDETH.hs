@@ -46,7 +46,9 @@ runNotariseKmdToEth pk gateway networkConfig gethConfig kmdConfPath useui = do
             nc <- getNotariserConfig "KMDETH"
             asks has >>= checkConfig nc
             -- Config will be refeshed if there is an exception
-            forever $ runNotariserStep nc $ notariserStepFree nc
+            forever $ do
+              handle (\ConsensusTimeout -> pure ()) do
+                void $ runNotariserStep nc $ notariserStepFree nc
 
   where
     getNotariserConfig configName = do
@@ -76,9 +78,9 @@ runNotariseKmdToEth pk gateway networkConfig gethConfig kmdConfPath useui = do
         fmtHttpException e = error ("Configuration error: " ++ show e)
 
 
-notariserStepFree :: forall m. MonadLogger m => NotariserConfig -> NotariserStep m ()
+notariserStepFree :: forall m. MonadLogger m => NotariserConfig -> NotariserStep m Done
 notariserStepFree nc@NotariserConfig{..} = do
-  getLastNotarisationFree >>= handleTimeoutFree . go
+  getLastNotarisationFree >>= go >> pure Done
   where
   go :: Maybe (NotarisationOnEth, ProposerSequence) -> NotariserStep m ()
   go Nothing = do
@@ -123,7 +125,6 @@ runNotariserStep nc@NotariserConfig{..} = iterT
     RunNotariseReceipt seq opret f -> notariseKmdDpow nc seq opret >>= f
     WaitSourceHeightFree height f  -> waitKmdNotariseHeight kmdBlockInterval height >>= f
     GetLastNotarisationReceipt f   -> kmdGetLastNotarisation kmdChainSymbol >>= f
-    HandleTimeoutFree act f        -> handle (\ConsensusTimeout -> pure ()) (runNotariserStep nc act) >>= f
 
     GetLastNotarisationFree f -> do
       (r, sequence) <- ethCallABI notarisationsContract "getLastNotarisation()" ()

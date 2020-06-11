@@ -22,7 +22,7 @@ data NotarisationOnEth = NOE
   , foreignHash :: Sha3
   , ethHeight :: Word32
   , extraData :: ByteString
-  } deriving (Show)
+  } deriving (Eq, Show)
   
 instance GetABI NotarisationOnEth where
   getABI = NOE <$> getABI <*> getABI <*> getABI <*> getABI

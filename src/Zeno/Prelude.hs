@@ -24,6 +24,7 @@ module Zeno.Prelude
 import Control.Applicative as ALL
 import Control.Monad as ALL (forM, forM_, join, when, replicateM, foldM, forever, unless, void)
 import Control.Monad.Trans.Free as ALL (iterT)
+import Control.Monad.Free as ALL (iterM)
 import Control.Monad.Except as ALL
 import Control.Monad.IO.Class as ALL (MonadIO, liftIO)
 import Control.Monad.Reader as ALL (ask, asks, local)
@@ -41,6 +42,7 @@ import qualified Data.ByteString.Lazy as BSL (ByteString)
 import Data.ByteString.Short as ALL (ShortByteString, toShort, fromShort)
 import Data.Either as ALL (fromRight, partitionEithers)
 import Data.Function as ALL (fix)
+import Data.Functor as ALL ((<$), ($>))
 import Data.Foldable as ALL (toList)
 import Data.List as ALL (elemIndex, find, findIndex, sort, sortOn)
 import Data.Map as ALL (Map)

@@ -4,8 +4,10 @@ module TestBlake2 where
 import TestUtils
 import qualified Data.ByteString.Base16 as B16
 import Crypto.Blake2
+import Data.ByteString
 
 
+runTestBlake2Personalized :: ByteString -> ByteString -> ByteString -> IO ()
 runTestBlake2Personalized p b e = do
   let r = B16.encode $ blake2bPersonalized p b
   r @?= e
