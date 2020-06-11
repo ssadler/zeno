@@ -5,7 +5,7 @@ import TestUtils
 
 import Control.Monad.Except
 import Control.Monad.Identity
-import Control.Monad.Trans.Free
+import Control.Monad.Trans.Free.Church
 import Control.Monad.Logger
 
 import Data.FixedBytes

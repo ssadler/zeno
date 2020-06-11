@@ -3,7 +3,7 @@
 
 module Zeno.Notariser.Types where
 
-import Control.Monad.Trans.Free
+import Control.Monad.Trans.Free.Church
 import Control.Monad.Free.TH
 
 import qualified Haskoin as H
@@ -97,7 +97,7 @@ data NotariserException = Inconsistent String
 -- Notariser Free monad interface
 --------------------------------------------------------------------------------
 
-type NotariserStep m = FreeT NotariserStepF m
+type NotariserStep m = FT NotariserStepF m
 
 instance MonadLogger m => MonadLogger (NotariserStep m)
 
