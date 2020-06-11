@@ -20,7 +20,7 @@ import Zeno.Notariser.UTXO
 import Zeno.Prelude
 
 
-notariseKmdDpow :: NotariserConfig -> ProposerSequence -> NotarisationData -> Zeno EthNotariser ()
+notariseKmdDpow :: NotariserConfig -> ProposerSequence -> BackNotarisationData -> Zeno EthNotariser ()
 notariseKmdDpow nc@NotariserConfig{..} seq ndata = do
   withKomodoUtxo \utxo -> do
     KomodoIdent{..} <- asks has
@@ -124,8 +124,8 @@ submitNotarisation NotariserConfig{..} tx = do
 
  
 -- | Validate assumptions
-dpowCheck :: NotariserConfig -> H.TxHash -> NotarisationData -> Zeno EthNotariser ()
-dpowCheck NotariserConfig{..} txHash ndata = do
+dpowCheck :: NotariserConfig -> H.TxHash -> BackNotarisationData -> Zeno EthNotariser ()
+dpowCheck NotariserConfig{..} txHash (BND ndata) = do
   threadDelayS 1 -- We hope this isnt' neccesary
   height <- bitcoinGetTxHeight txHash >>=
     maybe (throwIO $ Inconsistent "Notarisation tx confirmed but could not get height") pure

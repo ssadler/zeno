@@ -14,6 +14,7 @@ import Zeno.Notariser.Common.KMD
 import Zeno.Notariser.KMDDpow
 import Zeno.Notariser.Types
 import Zeno.Notariser.Stats
+import Zeno.Notariser.Step
 import Zeno.Consensus
 import Zeno.Console
 import Zeno.Prelude
@@ -78,45 +79,6 @@ runNotariseKmdToEth pk gateway networkConfig gethConfig kmdConfPath useui = do
         fmtHttpException e = error ("Configuration error: " ++ show e)
 
 
-notariserStepFree :: forall m. MonadLogger m => NotariserConfig -> NotariserStep m Done
-notariserStepFree nc@NotariserConfig{..} = do
-  getLastNotarisationFree >>= go >> pure Done
-  where
-  go :: Maybe (NotarisationOnEth, ProposerSequence) -> NotariserStep m ()
-  go Nothing = do
-    logInfo "No prior notarisations found"
-    forward 0 0
-
-  go (Just (ethnota@NOE{..}, sequence)) = do
-    logDebug $ "Found notarisation on ETH for %s height %i" % (kmdChainSymbol, foreignHeight)
-
-    getLastNotarisationReceipt >>=
-      \case
-        Just (Notarisation _ _ (BND NOR{..}))
-          | blockNumber == foreignHeight -> do
-            logDebug "Found backnotarisation, proceed with next notarisation"
-            forward sequence foreignHeight
-          | blockNumber > foreignHeight -> do
-            logError $ show NOR{..}
-            logError $ show ethnota
-            logError "The backnotarised height in KMD is higher than the notarised\
-                     \ height in ETH. Is ETH node is lagging? Proceeding anyway."
-            forward sequence foreignHeight
- 
-        _ -> do
-          logDebug "Backnotarisation not found, proceed to backnotarise"
-          opret <- makeNotarisationReceipt ethnota
-          let seq = shiftSequence 2 sequence
-          runNotariseReceipt seq opret
-
-  forward :: ProposerSequence -> Word32 -> NotariserStep m ()
-  forward sequence lastNotarisedHeight = do
-      newHeight <- waitSourceHeightFree lastNotarisedHeight
-      runNotarise sequence newHeight
-
-  shiftSequence n seq =
-    seq + ProposerSequence (quot (length members) n)
-
 
 runNotariserStep :: NotariserConfig -> NotariserStep (Zeno EthNotariser) a -> Zeno EthNotariser a
 runNotariserStep nc@NotariserConfig{..} = iterT
@@ -124,7 +86,7 @@ runNotariserStep nc@NotariserConfig{..} = iterT
     RunNotarise seq height f       -> notariseToETH nc seq height >>= f
     RunNotariseReceipt seq opret f -> notariseKmdDpow nc seq opret >>= f
     WaitSourceHeightFree height f  -> waitKmdNotariseHeight kmdBlockInterval height >>= f
-    GetLastNotarisationReceipt f   -> kmdGetLastNotarisation kmdChainSymbol >>= f
+    GetLastNotarisationReceipt f   -> kmdGetLastNotarisation kmdChainSymbol >>= f . fmap opret
 
     GetLastNotarisationFree f -> do
       (r, sequence) <- ethCallABI notarisationsContract "getLastNotarisation()" ()
@@ -133,7 +95,7 @@ runNotariserStep nc@NotariserConfig{..} = iterT
         _           -> Just (r, ProposerSequence sequence)
 
     MakeNotarisationReceipt NOE{..} f  -> do
-      f $ NOR
+      f $ BND $ NOR
         { blockHash = (sha3AsBytes32 foreignHash)
         , blockNumber = foreignHeight
         , txHash = newFixed 0xFF
@@ -144,6 +106,8 @@ runNotariserStep nc@NotariserConfig{..} = iterT
         , momom = nullBytes
         , momomDepth = 0
         }
+
+
 
 
 notariseToETH :: NotariserConfig -> ProposerSequence -> Word32 -> Zeno EthNotariser ()

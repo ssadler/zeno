@@ -16,7 +16,7 @@ import Network.Komodo
 
 import Zeno.Consensus.Types
 import Zeno.Notariser.Types
-import Zeno.Notariser.KMDETH
+import Zeno.Notariser.Step
 import Zeno.EthGateway
 import Debug.Trace
 
@@ -33,6 +33,8 @@ instance MonadLogger IO where
 
 noe h = NOE h (error "ethSha3") (error "ethHeight") (error "ethData")
 
+bnd = BND nor
+
 nor = NOR
     { blockHash = newFixed 0
     , blockNumber = 75
@@ -46,18 +48,15 @@ nor = NOR
     }
 
 
-toBack = Notarisation 0 (error "ethTxid") . BND
-
-
 -- TODO: arbitrary
-runStep mlastNota mnoe nor =
+runStep mlastNota mnoe bnd =
   \case
     GetLastNotarisationFree f         -> f mlastNota
     WaitSourceHeightFree lastHeight f -> f undefined
     GetLastNotarisationReceipt f      -> f mnoe
-    MakeNotarisationReceipt noe f     -> f nor
+    MakeNotarisationReceipt noe f     -> f bnd
     RunNotarise last current f        -> error "exited"
-    RunNotariseReceipt seq nor f      -> error "exited"
+    RunNotariseReceipt seq bnd f      -> error "exited"
 
 
 spec_notariser_step :: Spec
@@ -88,20 +87,20 @@ spec_notariser_step = do
     it "backward when there is no backnotarisation" do
       go \case
         RunNotariseReceipt _ ndata f -> do
-          ndata `shouldBe` nor
+          ndata `shouldBe` bnd
           f ()
-        o -> runStep (Just (noe 1, 98)) Nothing nor o
+        o -> runStep (Just (noe 1, 98)) Nothing bnd o
 
-    it "backward when there is a previous backnotarisation" do
-      let back = toBack $ nor { blockNumber = 74 }
+    it "backward when there is a lower backnotarisation" do
+      let back = BND $ nor { blockNumber = 74 }
       go \case
         RunNotariseReceipt _ ndata f -> do
-          ndata `shouldBe` nor
+          ndata `shouldBe` bnd
           f ()
-        o -> runStep (Just (noe 75, 98)) (Just back) nor o
+        o -> runStep (Just (noe 75, 98)) (Just back) bnd o
         
-    it "forward when there is a backnotarisation" do
-      let back = toBack $ nor { blockNumber = 75 }
+    it "forward when there is an equal backnotarisation" do
+      let back = BND $ nor { blockNumber = 75 }
       go \case
         WaitSourceHeightFree lastHeight f -> do
           lastHeight `shouldBe` 75
@@ -109,7 +108,7 @@ spec_notariser_step = do
         RunNotarise seq h f -> do
           h `shouldBe` 80
           f ()
-        o -> runStep (Just (noe 75, 98)) (Just back) nor o
+        o -> runStep (Just (noe 75, 98)) (Just back) bnd o
   
   describe "proposer sequence" do
 
@@ -118,18 +117,18 @@ spec_notariser_step = do
         RunNotarise seq _ f -> do
           seq `shouldBe` 0
           f ()
-        o -> runStep Nothing undefined nor o
+        o -> runStep Nothing undefined bnd o
 
     it "notarise forward" do
       go \case
         RunNotarise seq _ f -> do
           seq `shouldBe` 120
           f ()
-        o -> runStep (Just (noe 0, 120)) (Just $ toBack nor) nor o
+        o -> runStep (Just (noe 0, 120)) (Just bnd) bnd o
 
     it "notarise back" do
       go \case
-        RunNotariseReceipt seq nor' f -> do
+        RunNotariseReceipt seq bnd' f -> do
           seq `shouldBe` 141
           f ()
-        o -> runStep (Just (noe 0, 120)) Nothing nor o
+        o -> runStep (Just (noe 0, 120)) Nothing bnd o

@@ -1,10 +1,6 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE DeriveFunctor #-}
 
 module Zeno.Notariser.Types where
-
-import Control.Monad.Trans.Free.Church
-import Control.Monad.Free.TH
 
 import qualified Haskoin as H
 
@@ -20,11 +16,6 @@ import Zeno.Prelude
 import Zeno.EthGateway
 
 import UnliftIO
-
-
---------------------------------------------------------------------------------
--- 
---------------------------------------------------------------------------------
 
 
 data RoundType              -- Don't go changing this willy nilly
@@ -92,25 +83,3 @@ data ConfigException = ConfigException String
 instance Exception NotariserException
 data NotariserException = Inconsistent String
   deriving (Show)
-
---------------------------------------------------------------------------------
--- Notariser Free monad interface
---------------------------------------------------------------------------------
-
-type NotariserStep m = FT NotariserStepF m
-
-instance MonadLogger m => MonadLogger (NotariserStep m)
-
-data NotariserStepF next
-  = GetLastNotarisationFree     (Maybe (NotarisationOnEth, ProposerSequence) -> next)
-  | GetLastNotarisationReceipt  (Maybe (Notarisation BackNotarisationData) -> next)
-  | MakeNotarisationReceipt     NotarisationOnEth (NotarisationData -> next)
-  | RunNotarise                 ProposerSequence Word32 (() -> next)
-  | RunNotariseReceipt          ProposerSequence NotarisationData (() -> next)
-  | WaitSourceHeightFree        Word32 (Word32 -> next)
-  deriving (Generic, Functor)
-
-makeFree ''NotariserStepF
-
-data Done = Done
-  deriving (Eq, Show)
