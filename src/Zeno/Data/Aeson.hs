@@ -45,7 +45,7 @@ toJsonHex = String . decodeUtf8 . B16.encode
 -- SerializeAeson - A wrapper to provide Serialize via Aeson
 --------------------------------------------------------------------------------
 
-newtype SerializeAeson a = SerializeAeson a
+newtype SerializeAeson a = SerializeAeson { unSerializeAeson :: a }
 
 instance (ToJSON a, FromJSON a) => S.Serialize (SerializeAeson a) where
   put (SerializeAeson a) = S.put $ VarPrefixedLazyByteString $ encodeStable a

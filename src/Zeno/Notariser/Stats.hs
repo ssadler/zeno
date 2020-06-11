@@ -152,9 +152,7 @@ runDumpProposerTimeouts kmdConfPath gateway gethConfig numDays = do
         when (addrs \\ members /= []) do
           throwError "Non member sigs present"
 
-        case eitherDecode' payload of
-          Right p -> pure p
-          Left e -> murphy "Payload is signed but not valid JSON"
+        pure $ unSerializeAeson payload
 
     case r of
       Right o -> pure $ Just (marker, o)

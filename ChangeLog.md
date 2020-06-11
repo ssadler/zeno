@@ -3,6 +3,7 @@
 ## Unreleased
 
 * More detail in dumpProposerTimeouts error messages
+* Bugfix for dumpProposerTimeouts
 
 ## 0.2.1.2
 
