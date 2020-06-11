@@ -11,7 +11,7 @@ function devtest () {
 
 PATH="../komodo/src/:$PATH"
 
-function runKmdTest () {
+function runKmdDev () {
   komodod -ac_name=TXSCLZDEV -ac_supply=999999 -ac_reward=1000000 \
       -ac_blocktime=3 \
       -addressindex=1 \
@@ -20,7 +20,7 @@ function runKmdTest () {
   cpulimit -l 33 -p $!
 }
 
-function queryKmdTest () {
+function queryKmdDev () {
   komodo-cli --ac_name=TXSCLZDEV $@
 }
 
@@ -29,7 +29,16 @@ function dot () {
     graphmod -  # --collapse=Module
 }
 
-function buildProfile () {
+function build-fast() {
+  stack build --fast --ghc-options "-j4 +RTS -A128m -n2m -qg -RTS"
+}
+
+function install-fast() {
+  build-fast
+  stack install
+}
+
+function build-profile () {
   stack build --profile --ghc-options=-fprof-auto-top
 }
  
