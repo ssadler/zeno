@@ -82,10 +82,11 @@ incMajorStepNum = do
   atomically $ modifyTVar t $ (major +~ 1) . (minor .~ 0)
   readTVarIO t <&> view major
 
-incMinorStepNum :: Consensus ()
+incMinorStepNum :: Consensus VarInt
 incMinorStepNum = do
   t <- asks ccStepNum
-  atomically $ modifyTVar t $ minor +~ 0
+  atomically $ modifyTVar t $ minor +~ 1
+  readTVarIO t <&> view minor
 
 
 type RoundId = Bytes6

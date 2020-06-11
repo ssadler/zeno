@@ -1,6 +1,7 @@
 
 module Zeno.Consensus.Round
   ( step
+  , step'
   , incStep
   , collectMembers
   , collectMajority
@@ -102,10 +103,13 @@ runConsensus label ccParams@ConsensusParams{..} seed act = do
 step :: forall a b. BallotData a => String -> Collect a b -> a -> Consensus b
 step name collect obj = do
   incStep $ "collect " ++ name
+  step' name collect obj
+
+step' :: forall a b. BallotData a => String -> Collect a b -> a -> Consensus b
+step' name collect obj = do
   -- The step itself is run in a separate thread, and left running even
   -- when it's produced a result
   recv <- spawnStep obj collect
-
   ConsensusParams{timeout'} <- asks ccParams
   receiveTimeout recv timeout' >>=
     maybe (throwIO $ ConsensusTimeout "") pure

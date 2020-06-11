@@ -1,5 +1,9 @@
 # Changelog for Zeno
 
+# 0.2.1.2
+
+* Fix bugs in step numbers
+
 ## 0.2.1.1
 
 * Protocol changes to make it easier to parse with PyZeno

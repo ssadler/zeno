@@ -75,6 +75,7 @@ propose :: forall a. BallotData a
         -> Consensus a
         -> Consensus (Ballot a)
 propose name mseq mobj = do
+  incMajorStepNum
   determineProposers mseq >>= go
     where
       go :: [(Address, Bool)] -> Consensus (Ballot a)
@@ -97,7 +98,7 @@ propose name mseq mobj = do
               Nothing -> pure Nothing
         
         catch
-          do step (printf "propose %s" name) collect obj
+          do step' (printf "propose %s" name) collect obj
 
           \(ConsensusTimeout _) -> do
             logInfo $ "Timeout collecting for proposer: " ++ show pAddr
