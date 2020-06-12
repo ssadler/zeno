@@ -39,8 +39,8 @@ import Zeno.Consensus.Types
 --   fallback proposers, because the fallback proposers will not be called upon
 --   an equal number of times.
 --
-determineProposers :: Maybe ProposerSequence -> Consensus [(Address, Bool)]
-determineProposers (Just (ProposerSequence seq)) = do
+determineProposers :: Maybe Int -> Consensus [(Address, Bool)]
+determineProposers (Just seq) = do
   ConsensusParams{members'}  <- asks has
   let primary = members' !! mod seq (length members')
   ((primary, True):) . take 2 <$> determineProposers Nothing
@@ -71,7 +71,7 @@ dispatchProposerTimeout proposer = do
 
 propose :: forall a. BallotData a
         => String
-        -> Maybe ProposerSequence
+        -> Maybe Int
         -> Consensus a
         -> Consensus (Ballot a)
 propose name mseq mobj = do

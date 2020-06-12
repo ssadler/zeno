@@ -20,7 +20,7 @@ import Zeno.Notariser.UTXO
 import Zeno.Prelude
 
 
-notariseKmdDpow :: NotariserConfig -> ProposerSequence -> KomodoNotarisationReceipt -> Zeno EthNotariser ()
+notariseKmdDpow :: NotariserConfig -> Int -> KomodoNotarisationReceipt -> Zeno EthNotariser ()
 notariseKmdDpow nc@NotariserConfig{..} seq ndata = do
   withKomodoUtxo \utxo -> do
     KomodoIdent{..} <- asks has

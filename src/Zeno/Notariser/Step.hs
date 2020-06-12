@@ -1,4 +1,7 @@
 {-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE GADTs #-}
+{-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE KindSignatures #-}
 
 -- | Zeno uses a consensus algorithm, but it is stateless, it doesn't write any data
 --   to disk. So, at any point it can pick up the current state from external blockchains
@@ -14,6 +17,7 @@ import Network.Komodo
 
 import Zeno.Prelude
 import Zeno.Notariser.Types
+import Zeno.Notariser.Targets
 import Zeno.Consensus.Types
 
 import Zeno.EthGateway
@@ -23,9 +27,11 @@ import Zeno.EthGateway
 -- Notariser interface
 --------------------------------------------------------------------------------
 
-type NotariserStep m = FT NotariserStepF m
+type NotariserStep m = FT (NotariserStepF) m
 
 instance MonadLogger m => MonadLogger (NotariserStep m)
+
+type ProposerSequence = Int
 
 data NotariserStepF next
   = GetLastNotarisationFree     (Maybe (EthNotarisationData, ProposerSequence) -> next)
@@ -33,14 +39,15 @@ data NotariserStepF next
   | MakeNotarisationReceipt     EthNotarisationData (KomodoNotarisationReceipt -> next)
   | RunNotarise                 ProposerSequence Word32 (() -> next)
   | RunNotariseReceipt          ProposerSequence KomodoNotarisationReceipt (() -> next)
-  | WaitSourceHeightFree        Word32 (Word32 -> next)
-  deriving (Functor)
+  | WaitSourceHeight            Word32 (Word32 -> next)
+  | WaitDestHeight              Word32 (Word32 -> next)
+
+deriving instance (Functor NotariserStepF)
 
 makeFree ''NotariserStepF
 
 data Done = Done                -- This little guy helps disambiguate between
   deriving (Eq, Show)           -- termination and early return when testing
-
 
 --------------------------------------------------------------------------------
 -- Step algorithm
@@ -50,7 +57,7 @@ notariserStepFree :: forall m. MonadLogger m => NotariserConfig -> NotariserStep
 notariserStepFree nc@NotariserConfig{..} = do
   getLastNotarisationFree >>= go >> pure Done
   where
-  go :: Maybe (EthNotarisationData, ProposerSequence) -> NotariserStep m ()
+  --go :: Maybe (EthNotarisationData, ProposerSequence) -> NotariserStep m ()
   go Nothing = do
     logInfo "No prior notarisations found"
     forward 0 0
@@ -66,25 +73,25 @@ notariserStepFree nc@NotariserConfig{..} = do
       \case
         Just receipt
           | sourceHeight == notarisedHeight receipt -> do
-            logDebug "Found backnotarisation, proceed with next notarisation"
+            logDebug "Found receipt, proceed with next notarisation"
             forward sequence sourceHeight
           | sourceHeight == notarisedHeight receipt -> do
             logError $ show notarisation
             logError $ show receipt
-            logError "The backnotarised height in KMD is higher than the notarised\
+            logError "The receipt height in KMD is higher than the notarised\
                      \ height in ETH. Is ETH node is lagging? Proceeding anyway."
             forward sequence sourceHeight
  
         _ -> do
-          logDebug "Backnotarisation not found, proceed to backnotarise"
+          logDebug "Receipt not found, proceed to notarise receipt"
           opret <- makeNotarisationReceipt notarisation
           let seq = shiftSequence 2 sequence
           runNotariseReceipt seq opret
 
-  forward :: ProposerSequence -> Word32 -> NotariserStep m ()
+  --forward :: ProposerSequence -> Word32 -> NotariserStep m ()
   forward sequence sourceHeight = do
-      newHeight <- waitSourceHeightFree sourceHeight
+      newHeight <- waitSourceHeight sourceHeight
       runNotarise sequence newHeight
 
   shiftSequence n seq =
-    seq + ProposerSequence (quot (length members) n)
+    seq + quot (length members) n

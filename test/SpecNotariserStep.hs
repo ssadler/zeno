@@ -5,6 +5,7 @@ import TestUtils
 
 import Control.Monad.Except
 import Control.Monad.Identity
+import Control.Monad.Trans.Free hiding (iterT)
 import Control.Monad.Trans.Free.Church
 import Control.Monad.Logger
 
@@ -21,17 +22,12 @@ import Zeno.EthGateway
 import Debug.Trace
 
 
--- type TestBase = NoLoggingT IO
--- 
--- runTestBase :: TestBase a -> IO a
--- runTestBase = runNoLoggingT
-
-type TestBase = IO
+type TestBase = Identity
 runTestBase = id
-instance MonadLogger IO where
-  monadLoggerLog a b c d = pure ()
+instance MonadLogger Identity where monadLoggerLog a b c d = pure ()
+instance MonadLogger IO where monadLoggerLog a b c d = pure ()
 
-noe h = NOE h (error "ethSha3") (error "ethHeight") (error "ethData")
+noe h = NOE h minBound minBound mempty
 
 bnd = KomodoNotarisationReceipt nor
 
@@ -55,7 +51,7 @@ nor = NOR
 runStep mlastNota mnoe bnd =
   \case
     GetLastNotarisationFree f         -> f mlastNota
-    WaitSourceHeightFree lastHeight f -> f undefined
+    WaitSourceHeight lastHeight f     -> f undefined
     GetLastNotarisationReceipt f      -> f mnoe
     MakeNotarisationReceipt noe f     -> f bnd
     RunNotarise last current f        -> error "exited"
@@ -68,26 +64,29 @@ spec_notariser_step = do
   let
     e = error . show
     members = Address . newFixed <$> [1..42]
-    nc = NotariserConfig members (e 2) (e 3) (e 4) (e 5) (e 6) (e 7) (e 8) (e 9)
+    nc = NotariserConfig members (e 2) (e 3) (e 4) (e 5) (e 6) (e 7) (e 8) (e 9) (e 10) (e 11)
+    next f = runFreeT f >>= \case Pure a -> error "Pure"; Free f -> pure f
+    term f = runFreeT f >>= \case Free _ -> error "Free"; Pure a -> pure a
+    fin f = term (f ()) >>= (@?= Done)
 
-    go :: (NotariserStepF (IO Done) -> IO Done) -> IO ()
+    go :: MonadLogger m => (NotariserStepF (m Done) -> m Done) -> m ()
     go f = do
       Done <- runTestBase $ flip iterT (notariserStepFree nc) f
       pure ()
 
   describe "notarises" do
-    it "forward when there are no notarisations" do
-      go \case
-        WaitSourceHeightFree lastHeight f -> do
-          lastHeight `shouldBe` 0
-          f 20
-        RunNotarise seq h f -> do
-          seq `shouldBe` 0
-          h `shouldBe` 20
-          f ()
-        o -> runStep Nothing Nothing undefined o
+    it "forward when there are no notarisations" $ do
+
+      GetLastNotarisationFree f <- next $ fromFT (notariserStepFree nc)
+      WaitSourceHeight lastHeight f <- next $ f Nothing
+      lastHeight `shouldBe` 0
+      RunNotarise seq h f <- next $ f 20
+      seq `shouldBe` 0
+      h `shouldBe` 20
+      fin f
 
     it "backward when there is no receipt" do
+
       go \case
         RunNotariseReceipt _ ndata f -> do
           ndata `shouldBe` bnd
@@ -105,7 +104,7 @@ spec_notariser_step = do
     it "forward when there is an equal receipt" do
       let back = KomodoNotarisationReceipt $ nor { norBlockNumber = 75 }
       go \case
-        WaitSourceHeightFree lastHeight f -> do
+        WaitSourceHeight lastHeight f -> do
           lastHeight `shouldBe` 75
           f 80
         RunNotarise seq h f -> do

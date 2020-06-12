@@ -86,14 +86,11 @@ runNotariserStep nc@NotariserConfig{..} = iterT
   \case
     RunNotarise seq height f       -> notariseToETH nc seq height >>= f
     RunNotariseReceipt seq opret f -> notariseKmdDpow nc seq opret >>= f
-    WaitSourceHeightFree height f  -> waitKmdNotariseHeight kmdBlockInterval height >>= f
+    WaitSourceHeight height f  -> waitKmdNotariseHeight kmdBlockInterval height >>= f
     GetLastNotarisationReceipt f   -> kmdGetLastNotarisationData kmdChainSymbol >>= f
 
     GetLastNotarisationFree f -> do
-      (r, sequence) <- ethCallABI notarisationsContract "getLastNotarisation()" ()
-      f $ case r of
-        NOE 0 _ _ _ -> Nothing
-        _           -> Just (r, ProposerSequence sequence)
+      ethGetLastNotarisationAndSequence notarisationsContract >>= f
 
     MakeNotarisationReceipt NOE{..} f  -> do
       f $ KomodoNotarisationReceipt $ NOR

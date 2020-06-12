@@ -182,6 +182,3 @@ data ProposerTimeout = ProposerTimeout
  
 instance ToJSON ProposerTimeout
 instance FromJSON ProposerTimeout
-
-newtype ProposerSequence = ProposerSequence Int
-  deriving (Show, Eq, Ord, Num)

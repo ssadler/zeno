@@ -69,5 +69,14 @@ exportMultisigABI sigs =
   getV = (+27) . getCompactRecSigV
 
 
+ethGetLastNotarisationAndSequence :: Has GethConfig r => Address -> Zeno r (Maybe (EthNotarisationData, Int))
+ethGetLastNotarisationAndSequence notarisationsContract = do
+  (r, sequence) <- ethCallABI notarisationsContract "getLastNotarisation()" ()
+  pure $
+    case r of
+      NOE 0 _ _ _ -> Nothing
+      _           -> Just (r, fromIntegral $ unU256 sequence)
+
+
 ethMsg :: ByteString -> Bytes32
 ethMsg a = sha3b $ "\x19\&Ethereum Signed Message:\n32" <> sha3' a

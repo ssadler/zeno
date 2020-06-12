@@ -16,6 +16,7 @@ import Zeno.Consensus
 import Zeno.Data.Aeson
 import Zeno.Prelude
 import Zeno.EthGateway
+import Zeno.Notariser.Targets
 
 import UnliftIO
 
@@ -54,6 +55,8 @@ data NotariserConfig = NotariserConfig
   , consensusTimeout :: Int
   , ethChainId :: ChainId
   , ethNotariseGas :: Integer
+  , sourceChain :: KMDSource
+  , destChain :: ETHDest
   } deriving (Show, Eq)
 
 
@@ -70,6 +73,8 @@ instance FromJSON NotariserConfig where
         ethNotariseGas        <- o .: "ethNotariseGas"
         ethChainId            <- o .: "ethChainId"
         consensusTimeout      <- o .: "consensusTimeout" <|> pure defaultTimeout
+        let sourceChain = KMDSource kmdChainSymbol
+        let destChain = ETHDest ethChainId "ROPSTEN" notarisationsContract
         pure $ NotariserConfig{..}
     where
       members = uninit
