@@ -33,19 +33,22 @@ instance MonadLogger IO where
 
 noe h = NOE h (error "ethSha3") (error "ethHeight") (error "ethData")
 
-bnd = BND nor
+bnd = KomodoNotarisationReceipt nor
 
 nor = NOR
-    { blockHash = newFixed 0
-    , blockNumber = 75
-    , txHash = newFixed 0xFF
-    , symbol = "abc"
-    , mom = nullBytes
-    , momDepth = 0
-    , ccId = 0
-    , momom = nullBytes
-    , momomDepth = 0
+    { norBlockHash = newFixed 0
+    , norBlockNumber = 75
+    , norForeignRef = newFixed 0xFF
+    , norSymbol = "abc"
+    , norMom = minBound
+    , norMomDepth = minBound
+    , norCcId = minBound
+    , norMomom = minBound
+    , norMomomDepth = minBound
     }
+  where
+    e :: HasCallStack => e
+    e = error "nor"
 
 
 -- TODO: arbitrary
@@ -84,23 +87,23 @@ spec_notariser_step = do
           f ()
         o -> runStep Nothing Nothing undefined o
 
-    it "backward when there is no backnotarisation" do
+    it "backward when there is no receipt" do
       go \case
         RunNotariseReceipt _ ndata f -> do
           ndata `shouldBe` bnd
           f ()
         o -> runStep (Just (noe 1, 98)) Nothing bnd o
 
-    it "backward when there is a lower backnotarisation" do
-      let back = BND $ nor { blockNumber = 74 }
+    it "backward when there is a lower receipt" do
+      let back = KomodoNotarisationReceipt $ nor { norBlockNumber = 74 }
       go \case
         RunNotariseReceipt _ ndata f -> do
           ndata `shouldBe` bnd
           f ()
         o -> runStep (Just (noe 75, 98)) (Just back) bnd o
         
-    it "forward when there is an equal backnotarisation" do
-      let back = BND $ nor { blockNumber = 75 }
+    it "forward when there is an equal receipt" do
+      let back = KomodoNotarisationReceipt $ nor { norBlockNumber = 75 }
       go \case
         WaitSourceHeightFree lastHeight f -> do
           lastHeight `shouldBe` 75
@@ -112,21 +115,21 @@ spec_notariser_step = do
   
   describe "proposer sequence" do
 
-    it "notarise first" do
+    it "first" do
       go \case
         RunNotarise seq _ f -> do
           seq `shouldBe` 0
           f ()
         o -> runStep Nothing undefined bnd o
 
-    it "notarise forward" do
+    it "forward" do
       go \case
         RunNotarise seq _ f -> do
           seq `shouldBe` 120
           f ()
-        o -> runStep (Just (noe 0, 120)) (Just bnd) bnd o
+        o -> runStep (Just (noe 75, 120)) (Just bnd) undefined o
 
-    it "notarise back" do
+    it "back" do
       go \case
         RunNotariseReceipt seq bnd' f -> do
           seq `shouldBe` 141

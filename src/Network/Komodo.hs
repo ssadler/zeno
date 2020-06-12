@@ -134,85 +134,71 @@ getOutPoint utxo = H.OutPoint (utxoTxid utxo) (utxoVout utxo)
 -- Notarisation Data ----------------------------------------------------------
 --
 
-data NotarisationData = NOR
-  { blockHash :: Bytes32
-  , blockNumber :: Word32
-  , txHash :: Bytes32 -- for back notarisation
-  , symbol :: String
-  , mom :: Bytes32
-  , momDepth  :: Word16
-  , ccId :: Word16
-  , momom :: Bytes32
-  , momomDepth :: Word32
+data KomodoNotarisation = NOR
+  { norBlockHash :: Bytes32
+  , norBlockNumber :: Word32
+  , norForeignRef :: Bytes32         -- Only present in encoded form in receipt
+  , norSymbol :: String
+  , norMom :: Bytes32
+  , norMomDepth  :: Word16
+  , norCcId :: Word16
+  , norMomom :: Bytes32
+  , norMomomDepth :: Word32
   } deriving (Eq, Show)
 
-momDepth32 :: Integral a => NotarisationData -> a
-momDepth32 = fromIntegral . momDepth
-
-instance Serialize NotarisationData where
+instance Serialize KomodoNotarisation where
   put nor@NOR{..} = encodeNotarisation isBack nor
-    where isBack = txHash /= nullBytes
+    where isBack = norForeignRef /= minBound
   get = parseNotarisation False
 
-encodeNotarisation :: Bool -> NotarisationData -> Put
+encodeNotarisation :: Bool -> KomodoNotarisation -> Put
 encodeNotarisation isBack NOR{..} = do
-  put $ bytesReverse blockHash
-  putWord32le blockNumber
-  when isBack $ put $ bytesReverse txHash
-  mapM put symbol >> put '\0'
-  put $ bytesReverse mom
-  putWord16le momDepth
-  putWord16le ccId
+  put $ bytesReverse norBlockHash
+  putWord32le norBlockNumber
+  when isBack $ put $ bytesReverse norForeignRef
+  mapM put norSymbol >> put '\0'
+  put $ bytesReverse norMom
+  putWord16le norMomDepth
+  putWord16le norCcId
   when isBack do
-    put $ bytesReverse momom
-    putWord32le momomDepth
+    put $ bytesReverse norMomom
+    putWord32le norMomomDepth
 
-parseNotarisation :: Bool -> Get NotarisationData
+parseNotarisation :: Bool -> Get KomodoNotarisation
 parseNotarisation isBack = do
   let getSymbol = get >>= \case '\0' -> pure ""; s -> (s:) <$> getSymbol
       getRev = bytesReverse <$> get
 
-  blockHash <- getRev
-  blockNumber <- getWord32le
-  txHash <- if isBack then getRev else pure nullBytes
-  symbol <- getSymbol
-  mom <- getRev
-  momDepth <- getWord16le
-  ccId <- getWord16le
-  momom <- if isBack then getRev else pure nullBytes
-  momomDepth <- if isBack then getWord32le else pure 0
+  norBlockHash <- getRev
+  norBlockNumber <- getWord32le
+  norForeignRef <- if isBack then getRev else pure nullBytes
+  norSymbol <- getSymbol
+  norMom <- getRev
+  norMomDepth <- getWord16le
+  norCcId <- getWord16le
+  norMomom <- if isBack then getRev else pure nullBytes
+  norMomomDepth <- if isBack then getWord32le else pure 0
   pure NOR{..}
 
-instance FromJSON NotarisationData where
+instance FromJSON KomodoNotarisation where
   parseJSON = parseJsonHexSerialized
 
-newtype BackNotarisationData = BND NotarisationData
+newtype KomodoNotarisationReceipt = KomodoNotarisationReceipt { unKNR :: KomodoNotarisation }
   deriving (Eq, Show)
 
-instance Serialize BackNotarisationData where
-  put (BND n) = encodeNotarisation True n
-  get = BND <$> parseNotarisation True
+instance Serialize KomodoNotarisationReceipt where
+  put (KomodoNotarisationReceipt n) = encodeNotarisation True n
+  get = KomodoNotarisationReceipt <$> parseNotarisation True
 
-instance FromJSON BackNotarisationData where
+instance FromJSON KomodoNotarisationReceipt where
   parseJSON = parseJsonHexSerialized
 
 -- Notarisation RPC
 
-data Notarisation n = Notarisation
-  { kmdHeight :: Word32
-  , nTxHash :: H.TxHash
-  , opret :: n
-  } deriving (Show)
-
-instance FromJSON n => FromJSON (Notarisation n) where
-  parseJSON val = do
-    obj <- parseJSON val
-    Notarisation <$> obj .: "height"
-                 <*> obj .: "hash"
-                 <*> obj .: "opreturn"
+type KmdNotarisation n = (Word32, H.TxHash, n)
 
 scanNotarisationsDB :: (FromJSON n, Has BitcoinConfig r)
-                    => Word32 -> String -> Word32 -> Zeno r (Maybe (Notarisation n))
+                    => Word32 -> String -> Word32 -> Zeno r (Maybe (KmdNotarisation n))
 scanNotarisationsDB height symbol limit = do
   traceE "scanNotarisationsDB" $ do
     val <- queryBitcoin "scanNotarisationsDB" [show height, symbol, show limit]
@@ -220,8 +206,11 @@ scanNotarisationsDB height symbol limit = do
               then Nothing
               else Just $ val .! "."
 
-kmdGetLastNotarisation :: (FromJSON n, Has BitcoinConfig r) => String -> Zeno r (Maybe (Notarisation n))
+kmdGetLastNotarisation :: (FromJSON n, Has BitcoinConfig r) => String -> Zeno r (Maybe (KmdNotarisation n))
 kmdGetLastNotarisation s = scanNotarisationsDB 0 s 100000
+
+kmdGetLastNotarisationData :: (FromJSON n, Has BitcoinConfig r) => String -> Zeno r (Maybe n)
+kmdGetLastNotarisationData s = (fmap (view _3)) <$> kmdGetLastNotarisation s
 
 -- | Utils
 

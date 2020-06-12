@@ -20,7 +20,7 @@ import Zeno.Notariser.UTXO
 import Zeno.Prelude
 
 
-notariseKmdDpow :: NotariserConfig -> ProposerSequence -> BackNotarisationData -> Zeno EthNotariser ()
+notariseKmdDpow :: NotariserConfig -> ProposerSequence -> KomodoNotarisationReceipt -> Zeno EthNotariser ()
 notariseKmdDpow nc@NotariserConfig{..} seq ndata = do
   withKomodoUtxo \utxo -> do
     KomodoIdent{..} <- asks has
@@ -124,16 +124,16 @@ submitNotarisation NotariserConfig{..} tx = do
 
  
 -- | Validate assumptions
-dpowCheck :: NotariserConfig -> H.TxHash -> BackNotarisationData -> Zeno EthNotariser ()
-dpowCheck NotariserConfig{..} txHash (BND ndata) = do
+dpowCheck :: NotariserConfig -> H.TxHash -> KomodoNotarisationReceipt -> Zeno EthNotariser ()
+dpowCheck NotariserConfig{..} txHash (KomodoNotarisationReceipt ndata) = do
   threadDelayS 1 -- We hope this isnt' neccesary
   height <- bitcoinGetTxHeight txHash >>=
     maybe (throwIO $ Inconsistent "Notarisation tx confirmed but could not get height") pure
   scanNotarisationsDB height kmdChainSymbol 1 >>=
     \case
       Nothing -> throwIO $ Inconsistent "Notarisation tx not in notarisations db"
-      Just n | opret n /= BND ndata -> do
-        logError $ show (opret n, BND ndata)
+      Just (_, _, opret) | opret /= KomodoNotarisationReceipt ndata -> do
+        logError $ show (opret, KomodoNotarisationReceipt ndata)
         throwIO $ Inconsistent "Notarisation in db has different opret"
       _ -> do
         logInfo "Transaction Confirmed"

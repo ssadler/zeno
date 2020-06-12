@@ -28,18 +28,18 @@ type NotariserStep m = FT NotariserStepF m
 instance MonadLogger m => MonadLogger (NotariserStep m)
 
 data NotariserStepF next
-  = GetLastNotarisationFree     (Maybe (NotarisationOnEth, ProposerSequence) -> next)
-  | GetLastNotarisationReceipt  (Maybe (BackNotarisationData) -> next)
-  | MakeNotarisationReceipt     NotarisationOnEth (BackNotarisationData -> next)
+  = GetLastNotarisationFree     (Maybe (EthNotarisationData, ProposerSequence) -> next)
+  | GetLastNotarisationReceipt  (Maybe KomodoNotarisationReceipt -> next)
+  | MakeNotarisationReceipt     EthNotarisationData (KomodoNotarisationReceipt -> next)
   | RunNotarise                 ProposerSequence Word32 (() -> next)
-  | RunNotariseReceipt          ProposerSequence BackNotarisationData (() -> next)
+  | RunNotariseReceipt          ProposerSequence KomodoNotarisationReceipt (() -> next)
   | WaitSourceHeightFree        Word32 (Word32 -> next)
   deriving (Functor)
 
 makeFree ''NotariserStepF
 
-data Done = Done
-  deriving (Eq, Show)
+data Done = Done                -- This little guy helps disambiguate between
+  deriving (Eq, Show)           -- termination and early return when testing
 
 
 --------------------------------------------------------------------------------
@@ -50,36 +50,40 @@ notariserStepFree :: forall m. MonadLogger m => NotariserConfig -> NotariserStep
 notariserStepFree nc@NotariserConfig{..} = do
   getLastNotarisationFree >>= go >> pure Done
   where
-  go :: Maybe (NotarisationOnEth, ProposerSequence) -> NotariserStep m ()
+  go :: Maybe (EthNotarisationData, ProposerSequence) -> NotariserStep m ()
   go Nothing = do
     logInfo "No prior notarisations found"
     forward 0 0
 
-  go (Just (ethnota@NOE{..}, sequence)) = do
-    logDebug $ "Found notarisation on ETH for %s height %i" % (kmdChainSymbol, foreignHeight)
+  go (Just (notarisation, sequence)) = do
+
+    let sourceHeight = foreignHeight notarisation
+
+    logDebug $ "Found notarisation on ETH for %s.%i" %
+               (kmdChainSymbol, sourceHeight)
 
     getLastNotarisationReceipt >>=
       \case
-        Just (BND NOR{..})
-          | blockNumber == foreignHeight -> do
+        Just receipt
+          | sourceHeight == notarisedHeight receipt -> do
             logDebug "Found backnotarisation, proceed with next notarisation"
-            forward sequence foreignHeight
-          | blockNumber > foreignHeight -> do
-            logError $ show NOR{..}
-            logError $ show ethnota
+            forward sequence sourceHeight
+          | sourceHeight == notarisedHeight receipt -> do
+            logError $ show notarisation
+            logError $ show receipt
             logError "The backnotarised height in KMD is higher than the notarised\
                      \ height in ETH. Is ETH node is lagging? Proceeding anyway."
-            forward sequence foreignHeight
+            forward sequence sourceHeight
  
         _ -> do
           logDebug "Backnotarisation not found, proceed to backnotarise"
-          opret <- makeNotarisationReceipt ethnota
+          opret <- makeNotarisationReceipt notarisation
           let seq = shiftSequence 2 sequence
           runNotariseReceipt seq opret
 
   forward :: ProposerSequence -> Word32 -> NotariserStep m ()
-  forward sequence lastNotarisedHeight = do
-      newHeight <- waitSourceHeightFree lastNotarisedHeight
+  forward sequence sourceHeight = do
+      newHeight <- waitSourceHeightFree sourceHeight
       runNotarise sequence newHeight
 
   shiftSequence n seq =

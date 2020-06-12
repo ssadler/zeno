@@ -1,6 +1,8 @@
 
 module Zeno.Notariser.KMDETH where
 
+import Data.Serialize
+
 import Network.Bitcoin
 import Network.Ethereum
 import Network.Ethereum.Transaction
@@ -79,14 +81,13 @@ runNotariseKmdToEth pk gateway networkConfig gethConfig kmdConfPath useui = do
         fmtHttpException e = error ("Configuration error: " ++ show e)
 
 
-
 runNotariserStep :: NotariserConfig -> NotariserStep (Zeno EthNotariser) a -> Zeno EthNotariser a
 runNotariserStep nc@NotariserConfig{..} = iterT
   \case
     RunNotarise seq height f       -> notariseToETH nc seq height >>= f
     RunNotariseReceipt seq opret f -> notariseKmdDpow nc seq opret >>= f
     WaitSourceHeightFree height f  -> waitKmdNotariseHeight kmdBlockInterval height >>= f
-    GetLastNotarisationReceipt f   -> kmdGetLastNotarisation kmdChainSymbol >>= f . fmap opret
+    GetLastNotarisationReceipt f   -> kmdGetLastNotarisationData kmdChainSymbol >>= f
 
     GetLastNotarisationFree f -> do
       (r, sequence) <- ethCallABI notarisationsContract "getLastNotarisation()" ()
@@ -95,16 +96,16 @@ runNotariserStep nc@NotariserConfig{..} = iterT
         _           -> Just (r, ProposerSequence sequence)
 
     MakeNotarisationReceipt NOE{..} f  -> do
-      f $ BND $ NOR
-        { blockHash = (sha3AsBytes32 foreignHash)
-        , blockNumber = foreignHeight
-        , txHash = newFixed 0xFF
-        , symbol = kmdChainSymbol
-        , mom = nullBytes
-        , momDepth = 0
-        , ccId = 0
-        , momom = nullBytes
-        , momomDepth = 0
+      f $ KomodoNotarisationReceipt $ NOR
+        { norBlockHash = noeForeignHash
+        , norBlockNumber = noeForeignHeight
+        , norForeignRef = toFixed $ encode noeLocalHeight
+        , norSymbol = kmdChainSymbol
+        , norMom = minBound
+        , norMomDepth = 0
+        , norCcId = 0
+        , norMomom = minBound
+        , norMomomDepth = 0
         }
 
 
@@ -179,22 +180,6 @@ ethMakeNotarisationTx NotariserConfig{..} callData = do
   let gasPrice = gasPriceRec + quot gasPriceRec 2
       tx = Tx nonce 0 (Just gateway) Nothing gasPrice ethNotariseGas callData ethChainId
   signTx sk tx
-
-
-
-getBackNotarisation :: NotariserConfig -> NotarisationOnEth -> Zeno EthNotariser NotarisationData
-getBackNotarisation NotariserConfig{..} NOE{..} = do
-  pure $ NOR
-    { blockHash = (sha3AsBytes32 foreignHash)
-    , blockNumber = foreignHeight
-    , txHash = newFixed 0xFF
-    , symbol = kmdChainSymbol
-    , mom = nullBytes
-    , momDepth = 0
-    , ccId = 0
-    , momom = nullBytes
-    , momomDepth = 0
-    }
 
 
 checkTxProposed :: Ballot Transaction -> Zeno EthNotariser ()

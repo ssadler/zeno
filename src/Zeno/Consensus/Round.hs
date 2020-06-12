@@ -41,6 +41,12 @@ import           UnliftIO.Async (waitCatchSTM, waitSTM)
 -- Run round ------------------------------------------------------------------
 
 
+-- Problem: The round and step are multithreaded. Currently, Zeno will try to repeat
+-- a round when it gets a proposer timeout, and if it's a backnotarisation, it wont
+-- include any new data into the round seed.
+
+
+
 -- TODO: Get label from thread? Or get rid of threads?
 -- Getting rid of the threads for each step would be a good thing. Some of the
 -- program state is implicitly encoded in threads, and therefore inaccessible,

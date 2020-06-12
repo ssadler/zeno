@@ -17,14 +17,14 @@ import           Zeno.Data.Aeson
 
 
 
-data NotarisationOnEth = NOE
-  { foreignHeight :: Word32
-  , foreignHash :: Sha3
-  , ethHeight :: Word32
-  , extraData :: ByteString
+data EthNotarisationData = NOE
+  { noeForeignHeight :: Word32
+  , noeForeignHash :: Bytes32
+  , noeLocalHeight :: Word32
+  , noeExtraData :: ByteString
   } deriving (Eq, Show)
   
-instance GetABI NotarisationOnEth where
+instance GetABI EthNotarisationData where
   getABI = NOE <$> getABI <*> getABI <*> getABI <*> getABI
 
 

@@ -4,6 +4,8 @@ module Zeno.Notariser.Types where
 
 import qualified Haskoin as H
 
+import Data.Serialize
+
 import Network.Ethereum.Crypto.Address
 import Network.Komodo
 import Network.Bitcoin
@@ -83,3 +85,19 @@ data ConfigException = ConfigException String
 instance Exception NotariserException
 data NotariserException = Inconsistent String
   deriving (Show)
+
+
+
+
+class NotarisationData nota where
+  foreignHeight :: nota -> Word32
+  notarisedHeight :: nota -> Word32
+
+instance NotarisationData KomodoNotarisationReceipt where
+  notarisedHeight = norBlockNumber . unKNR
+  foreignHeight = parseForeignHeight . norForeignRef . unKNR
+    where parseForeignHeight = either murphy id . decode . unFixed
+
+instance NotarisationData EthNotarisationData where
+  notarisedHeight = noeLocalHeight
+  foreignHeight = noeForeignHeight
