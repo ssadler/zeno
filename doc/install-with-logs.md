@@ -20,7 +20,7 @@ To start in light mode:
 
 Usually there is not enough light mode ropsten peers so most probably you'll need to start geth in full mode:
 
-`geth --testnet --rpc console`
+`geth --ropsten --rpc console`
 
 When you get zeno installed and geth node synced, run:
 
@@ -51,7 +51,7 @@ change:
 `--pubkey param to your notary KMD pubkey`
 
 ```
-zeno notarise kmdeth --geth http://127.0.0.1:8545 --gateway 0xAf9a376fC6410515a345998655dd1Ca751b445b7 --pubkey {pubkey} --kmd ~/.komodo/TXSCLZ3/TXSCLZ3.conf --seed 195.201.20.230:40440 >> zeno.log
+git log -n 1 >> zeno.log & zeno notarise kmdeth --geth http://127.0.0.1:8545 --gateway 0xAf9a376fC6410515a345998655dd1Ca751b445b7 --pubkey {pubkey} --kmd ~/.komodo/TXSCLZ3/TXSCLZ3.conf --seed 195.201.20.230:40440 >> zeno.log
 ```
 
 ## 2. Filebeat logging system install and configuring
