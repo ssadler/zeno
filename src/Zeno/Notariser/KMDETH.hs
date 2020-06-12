@@ -43,16 +43,18 @@ runNotariseKmdToEth pk gateway networkConfig gethConfig kmdConfPath useui = do
           EthIdent{..} <- asks has
           logInfo $ "KMD address: " ++ show kmdAddress
           logInfo $ "ETH address: " ++ show ethAddress
-
           runKmdThreads
+          runNotariser
 
-          runForever do
-            nc <- getNotariserConfig "KMDETH"
-            asks has >>= checkConfig nc
-            -- Config will be refeshed if there is an exception
-            forever $ do
-              handle (\ConsensusTimeout -> pure ()) do
-                void $ runNotariserStep nc $ notariserStepFree nc
+
+runNotariser :: Zeno EthNotariser ()
+runNotariser = do
+  runForever do                               -- Run and handle variety of exceptions
+    withLocalResources do                     -- All threads killed if there's an exception
+      nc <- getNotariserConfig "KMDETH"       -- Config will be refeshed if there is an exception
+      asks has >>= checkConfig nc
+      runRepeatedly do
+        runNotariserStep nc $ notariserStepFree nc
 
   where
     getNotariserConfig configName = do
@@ -71,15 +73,24 @@ runNotariseKmdToEth pk gateway networkConfig gethConfig kmdConfPath useui = do
     runForever act = forever $ act `catches` handlers
       where
         handlers =
-          [ Handler $ \e -> recover logWarn 20 (fmtHttpException e)
-          , Handler $ \e -> recover logWarn 20 (e :: RPCException)
+          [ Handler $ \e -> recover logWarn  20 (fmtHttpException e)
+          , Handler $ \e -> recover logWarn  20 (e :: RPCException)
           , Handler $ \e -> recover logError 60 (e :: ConfigException)
           ]
         recover f d e = do
           f $ show e
-          liftIO $ threadDelay $ d * 1000000
+          liftIO $ threadDelayS d
         fmtHttpException (HttpExceptionRequest _ e) = e
         fmtHttpException e = error ("Configuration error: " ++ show e)
+
+    runRepeatedly act = do
+      let maxCount = 10
+      fix1 0 \f i -> do
+        when (i < maxCount) do
+          join do
+            catch
+              do act            >> pure (f (i+1))           -- Config reload every n notarisations
+              \ConsensusTimeout -> pure (f (i+3))           -- Faster if there are timeouts
 
 
 runNotariserStep :: NotariserConfig
@@ -107,8 +118,6 @@ runNotariserStep nc@NotariserConfig{sourceChain=KMDSource{..}, destChain=ETHDest
         , norMomom = minBound
         , norMomomDepth = 0
         }
-
-
 
 
 notariseToETH :: NotariserConfig -> ProposerSequence -> Word32 -> Zeno EthNotariser ()
@@ -151,7 +160,7 @@ notariseToETH nc@NotariserConfig{..} seq height32 = do
     -- and many nodes can indeed submit it but they may encounter errors depending on how fast their
     -- ethereum nodes sync, because it'll appear as a double spend to Ethereum. So the question is what
     -- to do, do we trust the proposer to submit the transaction (they could just do so anyway), or
-    -- do all nodes submit the transactions 
+    -- do all nodes submit the transactions? Probably a subset should submit.
 
     let txid = hashTx tx
 
