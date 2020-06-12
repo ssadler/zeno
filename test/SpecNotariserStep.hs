@@ -1,3 +1,4 @@
+{-# LANGUAGE TypeFamilies #-}
 
 module SpecNotariserStep where
 
@@ -9,51 +10,53 @@ import Control.Monad.Trans.Free hiding (iterT)
 import Control.Monad.Trans.Free.Church
 import Control.Monad.Logger
 
+import Data.Word
 import Data.FixedBytes
 import Data.Void
 
-import Network.Ethereum.Crypto
-import Network.Komodo
+import Network.Ethereum (Address(..))
 
 import Zeno.Consensus.Types
 import Zeno.Notariser.Types
+import Zeno.Notariser.Targets
 import Zeno.Notariser.Step
 import Zeno.EthGateway
 import Debug.Trace
 
 
-type TestBase = Identity
+type TestBase = IO
 runTestBase = id
 instance MonadLogger Identity where monadLoggerLog a b c d = pure ()
 instance MonadLogger IO where monadLoggerLog a b c d = pure ()
 
-noe h = NOE h minBound minBound mempty
 
-bnd = KomodoNotarisationReceipt nor
+data TestChain = TestChain { unTestChain :: String }
+instance BlockchainConfig TestChain where
+  getSymbol = unTestChain
+instance Blockchain TestChain TestBase where
+  waitHeight = error "testchainwaitheight"
 
-nor = NOR
-    { norBlockHash = newFixed 0
-    , norBlockNumber = 75
-    , norForeignRef = newFixed 0xFF
-    , norSymbol = "abc"
-    , norMom = minBound
-    , norMomDepth = minBound
-    , norCcId = minBound
-    , norMomom = minBound
-    , norMomomDepth = minBound
-    }
-  where
-    e :: HasCallStack => e
-    e = error "nor"
+instance SourceChain TestChain TestBase where
+  type (ChainNotarisationReceipt TestChain) = Word32
+  getLastNotarisationReceipt = undefined
 
+instance DestChain TestChain TestBase where
+  type (ChainNotarisation TestChain) = Word32
+  getLastNotarisationAndSequence = undefined
 
+instance Notarisation Word32 where
+  foreignHeight = id
+
+instance NotarisationReceipt Word32 where
+  receiptHeight = id
+ 
 -- TODO: arbitrary
-runStep mlastNota mnoe bnd =
+runStep mdest msource =
   \case
-    GetLastNotarisationFree f         -> f mlastNota
+    GetLastNotarisationFree f         -> f mdest
     WaitSourceHeight lastHeight f     -> f undefined
-    GetLastNotarisationReceipt f      -> f mnoe
-    MakeNotarisationReceipt noe f     -> f bnd
+    GetLastNotarisationReceiptFree f  -> f msource
+    MakeNotarisationReceipt ndest f   -> f ndest
     RunNotarise last current f        -> error "exited"
     RunNotariseReceipt seq bnd f      -> error "exited"
 
@@ -64,12 +67,14 @@ spec_notariser_step = do
   let
     e = error . show
     members = Address . newFixed <$> [1..42]
-    nc = NotariserConfig members (e 2) (e 3) (e 4) (e 5) (e 6) (e 7) (e 8) (e 9) (e 10) (e 11)
+    c1 = TestChain "SRC"
+    c2 = TestChain "DEST"
+    nc = NotariserConfig members (e 2) (e 3) c1 c2
     next f = runFreeT f >>= \case Pure a -> error "Pure"; Free f -> pure f
     term f = runFreeT f >>= \case Free _ -> error "Free"; Pure a -> pure a
     fin f = term (f ()) >>= (@?= Done)
 
-    go :: MonadLogger m => (NotariserStepF (m Done) -> m Done) -> m ()
+    go :: (NotariserStepF TestChain TestChain TestBase (TestBase Done) -> TestBase Done) -> TestBase ()
     go f = do
       Done <- runTestBase $ flip iterT (notariserStepFree nc) f
       pure ()
@@ -89,20 +94,18 @@ spec_notariser_step = do
 
       go \case
         RunNotariseReceipt _ ndata f -> do
-          ndata `shouldBe` bnd
+          ndata `shouldBe` 1
           f ()
-        o -> runStep (Just (noe 1, 98)) Nothing bnd o
+        o -> runStep (Just (1, 98)) Nothing o
 
     it "backward when there is a lower receipt" do
-      let back = KomodoNotarisationReceipt $ nor { norBlockNumber = 74 }
       go \case
         RunNotariseReceipt _ ndata f -> do
-          ndata `shouldBe` bnd
+          ndata `shouldBe` 75
           f ()
-        o -> runStep (Just (noe 75, 98)) (Just back) bnd o
+        o -> runStep (Just (75, 98)) (Just 74) o
         
     it "forward when there is an equal receipt" do
-      let back = KomodoNotarisationReceipt $ nor { norBlockNumber = 75 }
       go \case
         WaitSourceHeight lastHeight f -> do
           lastHeight `shouldBe` 75
@@ -110,7 +113,7 @@ spec_notariser_step = do
         RunNotarise seq h f -> do
           h `shouldBe` 80
           f ()
-        o -> runStep (Just (noe 75, 98)) (Just back) bnd o
+        o -> runStep (Just (75, 98)) (Just 75) o
   
   describe "proposer sequence" do
 
@@ -119,18 +122,18 @@ spec_notariser_step = do
         RunNotarise seq _ f -> do
           seq `shouldBe` 0
           f ()
-        o -> runStep Nothing undefined bnd o
+        o -> runStep Nothing undefined o
 
     it "forward" do
       go \case
         RunNotarise seq _ f -> do
           seq `shouldBe` 120
           f ()
-        o -> runStep (Just (noe 75, 120)) (Just bnd) undefined o
+        o -> runStep (Just (75, 120)) (Just 75) o
 
     it "back" do
       go \case
         RunNotariseReceipt seq bnd' f -> do
           seq `shouldBe` 141
           f ()
-        o -> runStep (Just (noe 0, 120)) Nothing bnd o
+        o -> runStep (Just (10, 120)) Nothing o

@@ -80,6 +80,7 @@ library:
                        , ScopedTypeVariables
                        , TemplateHaskell
                        , TupleSections
+                       , TypeFamilies
                        , TypeSynonymInstances
 
   c-sources: cbits/blake2_personalized.c

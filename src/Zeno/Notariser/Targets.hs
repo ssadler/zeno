@@ -8,43 +8,30 @@ import Network.Ethereum
 import Network.Komodo
 import Zeno.Consensus.Types
 import Zeno.EthGateway
-import Zeno.Monad
+import Zeno.Prelude
 
 
-class BlockChain c m where
-  type ChainNotarisation c :: *
+-- | Blockchain interface classes
+
+class BlockchainConfig c where
+  getSymbol :: c -> String
+
+class (BlockchainConfig c) => Blockchain c m where
   waitHeight :: c -> Word32 -> m ()
 
-class SourceChain c m where
-  getLastNotarisation :: c -> m (Maybe (ChainNotarisation c))
+class (Blockchain c m, NotarisationReceipt (ChainNotarisationReceipt c)) => SourceChain c m where
+  type ChainNotarisationReceipt c :: *
+  getLastNotarisationReceipt :: c -> m (Maybe (ChainNotarisationReceipt c))
 
-class DestChain c m where
+class (Blockchain c m, Notarisation (ChainNotarisation c)) => DestChain c m where
+  type ChainNotarisation c :: *
   getLastNotarisationAndSequence :: c -> m (Maybe (ChainNotarisation c, Int))
 
 
-data KMDSource = KMDSource
-  { kmdSymbol :: String
-  } deriving (Show, Eq)
+-- | Notarisation Data classes
 
-instance BlockChain KMDSource (Zeno r) where
-  type (ChainNotarisation KMDSource) = KomodoNotarisationReceipt
-  waitHeight KMDSource{..} = error "KMDSource waitheight"
+class Show n => Notarisation n where
+  foreignHeight :: n -> Word32
 
-instance Has BitcoinConfig r => SourceChain KMDSource (Zeno r) where
-  getLastNotarisation KMDSource{..} = kmdGetLastNotarisationData kmdSymbol
-
-
-data ETHDest = ETHDest
-  { ethChainId :: ChainId
-  , ethSymbol :: String
-  , ethNotarisationsContract :: Address
-  } deriving (Show, Eq)
-
-instance BlockChain ETHDest (Zeno r) where
-  type (ChainNotarisation ETHDest) = EthNotarisationData
-  waitHeight ETHDest{..} = error "ETHDest waitheight"
-
-instance Has GethConfig r => DestChain ETHDest (Zeno r) where
-  getLastNotarisationAndSequence ETHDest{..} = do
-    ethGetLastNotarisationAndSequence ethNotarisationsContract
-
+class Show n => NotarisationReceipt n where
+  receiptHeight :: n -> Word32

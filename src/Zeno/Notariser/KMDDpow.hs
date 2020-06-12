@@ -32,7 +32,7 @@ notariseKmdDpow nc@NotariserConfig{..} seq ndata = do
 
     txhash <- runConsensus label cparams outputs $ do
     
-      proposal <- step "inputs" (collectWith $ proposeInputs kmdNotarySigs)
+      proposal <- step "inputs" (collectWith $ proposeInputs (kmdNotarySigs sourceChain))
                                 (kmdPubKeyI, getOutPoint utxo)
 
       Ballot _ _ utxos <- propose "inputs" (Just seq) $ pure proposal
@@ -129,7 +129,7 @@ dpowCheck NotariserConfig{..} txHash (KomodoNotarisationReceipt ndata) = do
   threadDelayS 1 -- We hope this isnt' neccesary
   height <- bitcoinGetTxHeight txHash >>=
     maybe (throwIO $ Inconsistent "Notarisation tx confirmed but could not get height") pure
-  scanNotarisationsDB height kmdChainSymbol 1 >>=
+  scanNotarisationsDB height (kmdSymbol sourceChain) 1 >>=
     \case
       Nothing -> throwIO $ Inconsistent "Notarisation tx not in notarisations db"
       Just (_, _, opret) | opret /= KomodoNotarisationReceipt ndata -> do

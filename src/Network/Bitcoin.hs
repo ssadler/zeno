@@ -27,13 +27,15 @@ loadBitcoinConfig :: FilePath -> Zeno r BitcoinConfig
 loadBitcoinConfig path = do
   logInfo $ "Loading bitcoin config: " ++ path
   configData <- liftIO $ expandPath path >>= BS.readFile
-  let p p1 p2 = parseOnly (parseItem p1 p2) configData <|> Left p1
+  let
+    p :: String -> Parser a -> Either String a
+    p p1 p2 = parseOnly (parseItem p1 p2) configData <|> Left p1
   let econfig =
         mkRequest <$>
           (p "rpcuser"     toEnd   <|> pure "")          <*>
           (p "rpcpassword" toEnd   <|> pure "")          <*>
           (p "rpchost"     toEnd   <|> pure "127.0.0.1") <*>
-          (p "rpcport"     decimal <|> pure 7771)
+          (p "rpcport"     decimal <|> pure (7771 :: Int))
 
   case econfig of
     Left e -> error $ "Could not parse variable: " ++ e ++ " from config: " ++ path
@@ -48,7 +50,7 @@ loadBitcoinConfig path = do
     user <|> (skipLine >> parseItem name parseVal)
   mkRequest user pass host port =
      setRequestBasicAuth user pass $ 
-     setRequestPort port $
+     setRequestPort (port :: Int) $
      fromString $ "http://" ++ toS host ++ "/"
 
 

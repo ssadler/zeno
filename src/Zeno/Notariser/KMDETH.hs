@@ -14,6 +14,7 @@ import Zeno.EthGateway
 import Zeno.Notariser.Common
 import Zeno.Notariser.Common.KMD
 import Zeno.Notariser.KMDDpow
+import Zeno.Notariser.Targets
 import Zeno.Notariser.Types
 import Zeno.Notariser.Stats
 import Zeno.Notariser.Step
@@ -61,9 +62,9 @@ runNotariseKmdToEth pk gateway networkConfig gethConfig kmdConfPath useui = do
       pure $ nc { members, threshold }
 
     checkConfig NotariserConfig{..} (EthIdent _ addr)
-      | not (elem addr members)        = ce "I am not in the members list"
-      | length members < kmdNotarySigs = ce "Not enough members to sign tx on KMD"
-      | length members < threshold     = ce "Not enough members to sign tx on ETH"
+      | not (elem addr members)                      = ce "I am not in the members list"
+      | length members < (kmdNotarySigs sourceChain) = ce "Not enough members to sign tx on KMD"
+      | length members < threshold                   = ce "Not enough members to sign tx on ETH"
       | otherwise = pure ()
       where ce = throwIO . ConfigException
 
@@ -81,23 +82,25 @@ runNotariseKmdToEth pk gateway networkConfig gethConfig kmdConfPath useui = do
         fmtHttpException e = error ("Configuration error: " ++ show e)
 
 
-runNotariserStep :: NotariserConfig -> NotariserStep (Zeno EthNotariser) a -> Zeno EthNotariser a
-runNotariserStep nc@NotariserConfig{..} = iterT
-  \case
-    RunNotarise seq height f       -> notariseToETH nc seq height >>= f
+runNotariserStep :: NotariserConfig
+                 -> NotariserStep KMDSource ETHDest (Zeno EthNotariser) a
+                 -> Zeno EthNotariser a
+runNotariserStep nc@NotariserConfig{sourceChain=KMDSource{..}, destChain=ETHDest{..}, ..} =
+  iterT \case
+    RunNotarise seq height f -> notariseToETH nc seq height >>= f
     RunNotariseReceipt seq opret f -> notariseKmdDpow nc seq opret >>= f
-    WaitSourceHeight height f  -> waitKmdNotariseHeight kmdBlockInterval height >>= f
-    GetLastNotarisationReceipt f   -> kmdGetLastNotarisationData kmdChainSymbol >>= f
+    WaitSourceHeight height f -> waitKmdNotariseHeight kmdBlockInterval height >>= f
+    GetLastNotarisationReceiptFree f -> kmdGetLastNotarisationData kmdSymbol >>= f
 
     GetLastNotarisationFree f -> do
-      ethGetLastNotarisationAndSequence notarisationsContract >>= f
+      ethGetLastNotarisationAndSequence ethNotarisationsContract >>= f
 
     MakeNotarisationReceipt NOE{..} f  -> do
       f $ KomodoNotarisationReceipt $ NOR
         { norBlockHash = noeForeignHash
         , norBlockNumber = noeForeignHeight
         , norForeignRef = toFixed $ encode noeLocalHeight
-        , norSymbol = kmdChainSymbol
+        , norSymbol = kmdSymbol
         , norMom = minBound
         , norMomDepth = 0
         , norCcId = 0
@@ -110,7 +113,7 @@ runNotariserStep nc@NotariserConfig{..} = iterT
 
 notariseToETH :: NotariserConfig -> ProposerSequence -> Word32 -> Zeno EthNotariser ()
 notariseToETH nc@NotariserConfig{..} seq height32 = do
-
+  let ETHDest{..} = destChain
   let height = fromIntegral height32
   logDebug $ "Notarising from block %i" % height
 
@@ -118,8 +121,11 @@ notariseToETH nc@NotariserConfig{..} seq height32 = do
   gateway <- asks getEthGateway
   cparams <- getConsensusParamsWithStats nc KmdToEth
   r <- ask
-  let run = withContext (const r)
-      roundLabel = "kmd.%i ⇒  eth" % height
+  let
+    roundLabel = "kmd.%i ⇒  eth" % height
+
+    run :: Zeno EthNotariser a -> Consensus a
+    run = withContext (const r)
 
   -- we already have all the data for the call to set the new block height
   -- in our ethereum contract. so create the call.
@@ -127,7 +133,7 @@ notariseToETH nc@NotariserConfig{..} seq height32 = do
   blockHash <- queryBitcoin "getblockhash" [height]
   let notariseCallData = abi "notarise(uint256,bytes32,bytes)"
                              (height, blockHash :: Bytes32, "" :: ByteString)
-      proxyParams = (notarisationsContract, height, notariseCallData)
+      proxyParams = (ethNotarisationsContract, height, notariseCallData)
 
   -- Ok now we have all the parameters together, we need to collect sigs and get the tx
 
@@ -170,6 +176,7 @@ notariseToETH nc@NotariserConfig{..} seq height32 = do
 
 ethMakeNotarisationTx :: NotariserConfig -> ByteString -> Zeno EthNotariser Transaction
 ethMakeNotarisationTx NotariserConfig{..} callData = do
+  let ETHDest{..} = destChain
   EthIdent sk myAddress <- asks has
   gateway <- asks getEthGateway
   nonce <- queryAccountNonce myAddress

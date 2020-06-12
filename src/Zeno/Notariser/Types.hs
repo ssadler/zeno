@@ -45,20 +45,15 @@ instance Has EthIdent      EthNotariser where has = getEthIdent
 instance Has KomodoIdent   EthNotariser where has = getKomodoIdent
 
 
-data NotariserConfig = NotariserConfig
+data AbstractNotariserConfig source dest = NotariserConfig
   { members :: [Address]
   , threshold :: Int
-  , notarisationsContract :: Address
-  , kmdChainSymbol :: String
-  , kmdNotarySigs :: Int
-  , kmdBlockInterval :: Word32
   , consensusTimeout :: Int
-  , ethChainId :: ChainId
-  , ethNotariseGas :: Integer
-  , sourceChain :: KMDSource
-  , destChain :: ETHDest
+  , sourceChain :: source
+  , destChain :: dest
   } deriving (Show, Eq)
 
+type NotariserConfig = AbstractNotariserConfig KMDSource ETHDest
 
 instance FromJSON NotariserConfig where
   parseJSON =
@@ -73,8 +68,8 @@ instance FromJSON NotariserConfig where
         ethNotariseGas        <- o .: "ethNotariseGas"
         ethChainId            <- o .: "ethChainId"
         consensusTimeout      <- o .: "consensusTimeout" <|> pure defaultTimeout
-        let sourceChain = KMDSource kmdChainSymbol
-        let destChain = ETHDest ethChainId "ROPSTEN" notarisationsContract
+        let sourceChain = KMDSource kmdChainSymbol kmdNotarySigs kmdBlockInterval
+        let destChain = ETHDest ethChainId "ROPSTEN" notarisationsContract ethNotariseGas
         pure $ NotariserConfig{..}
     where
       members = uninit
@@ -94,15 +89,50 @@ data NotariserException = Inconsistent String
 
 
 
-class NotarisationData nota where
-  foreignHeight :: nota -> Word32
-  notarisedHeight :: nota -> Word32
 
-instance NotarisationData KomodoNotarisationReceipt where
-  notarisedHeight = norBlockNumber . unKNR
-  foreignHeight = parseForeignHeight . norForeignRef . unKNR
-    where parseForeignHeight = either murphy id . decode . unFixed
+data KMDSource = KMDSource
+  { kmdSymbol :: String
+  , kmdNotarySigs :: Int
+  , kmdBlockInterval :: Word32
+  } deriving (Show, Eq)
 
-instance NotarisationData EthNotarisationData where
-  notarisedHeight = noeLocalHeight
+instance BlockchainConfig KMDSource where
+  getSymbol = kmdSymbol
+
+instance Blockchain KMDSource (Zeno r) where
+  waitHeight KMDSource{..} = error "KMDSource waitheight"
+
+instance Has BitcoinConfig r => SourceChain KMDSource (Zeno r) where
+  type (ChainNotarisationReceipt KMDSource) = KomodoNotarisationReceipt
+  getLastNotarisationReceipt KMDSource{..} = kmdGetLastNotarisationData kmdSymbol
+
+
+data ETHDest = ETHDest
+  { ethChainId :: ChainId
+  , ethSymbol :: String
+  , ethNotarisationsContract :: Address
+  , ethNotariseGas :: Integer
+  } deriving (Show, Eq)
+
+instance BlockchainConfig ETHDest where
+  getSymbol = ethSymbol
+
+instance Blockchain ETHDest (Zeno r) where
+  waitHeight ETHDest{..} = error "ETHDest waitheight"
+
+instance Has GethConfig r => DestChain ETHDest (Zeno r) where
+  type (ChainNotarisation ETHDest) = EthNotarisationData
+  getLastNotarisationAndSequence ETHDest{..} = do
+    ethGetLastNotarisationAndSequence ethNotarisationsContract
+
+
+
+
+
+instance NotarisationReceipt KomodoNotarisationReceipt where
+  receiptHeight = norBlockNumber . unKNR
+
+instance Notarisation EthNotarisationData where
   foreignHeight = noeForeignHeight
+
+

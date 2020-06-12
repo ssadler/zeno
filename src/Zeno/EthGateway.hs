@@ -65,17 +65,14 @@ exportMultisigABI sigs =
       , BS.pack $ getV <$> sigs
       )
   where
-  -- `ecrecover` inside evm expects v to be v+27.
+  -- `ecrecover` inside evm expects v to be +27.
   getV = (+27) . getCompactRecSigV
 
 
 ethGetLastNotarisationAndSequence :: Has GethConfig r => Address -> Zeno r (Maybe (EthNotarisationData, Int))
 ethGetLastNotarisationAndSequence notarisationsContract = do
-  (r, sequence) <- ethCallABI notarisationsContract "getLastNotarisation()" ()
-  pure $
-    case r of
-      NOE 0 _ _ _ -> Nothing
-      _           -> Just (r, fromIntegral $ unU256 sequence)
+  (r@(NOE h _ _ _), sequence) <- ethCallABI notarisationsContract "getLastNotarisation()" ()
+  pure if h == 0 then Nothing else Just (r, fromIntegral $ unU256 sequence)
 
 
 ethMsg :: ByteString -> Bytes32
