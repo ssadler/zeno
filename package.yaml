@@ -125,6 +125,7 @@ tests:
     - tasty-hunit
     - tasty-hspec
     - tasty-discover
+    - tasty-quickcheck
     - QuickCheck
     - hspec
     - concurrency

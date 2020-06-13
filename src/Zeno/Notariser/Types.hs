@@ -68,8 +68,9 @@ instance FromJSON NotariserConfig where
         ethNotariseGas        <- o .: "ethNotariseGas"
         ethChainId            <- o .: "ethChainId"
         consensusTimeout      <- o .: "consensusTimeout" <|> pure defaultTimeout
+        ethBlockInterval      <- o .: "ethBlockInterval" <|> pure 5
         let sourceChain = KMDSource kmdChainSymbol kmdNotarySigs kmdBlockInterval
-        let destChain = ETHDest ethChainId "ROPSTEN" notarisationsContract ethNotariseGas
+        let destChain = ETHDest ethChainId "ROPSTEN" notarisationsContract ethNotariseGas ethBlockInterval
         pure $ NotariserConfig{..}
     where
       members = uninit
@@ -98,9 +99,10 @@ data KMDSource = KMDSource
 
 instance BlockchainConfig KMDSource where
   getSymbol = kmdSymbol
+  getNotarisationBlockInterval = kmdBlockInterval
 
-instance Blockchain KMDSource (Zeno r) where
-  waitHeight KMDSource{..} = error "KMDSource waitheight"
+instance Has BitcoinConfig r => BlockchainAPI KMDSource (Zeno r) where
+  getHeight KMDSource{..} = bitcoinGetHeight
 
 instance Has BitcoinConfig r => SourceChain KMDSource (Zeno r) where
   type (ChainNotarisationReceipt KMDSource) = KomodoNotarisationReceipt
@@ -112,13 +114,15 @@ data ETHDest = ETHDest
   , ethSymbol :: String
   , ethNotarisationsContract :: Address
   , ethNotariseGas :: Integer
+  , ethBlockInterval :: Word32
   } deriving (Show, Eq)
 
 instance BlockchainConfig ETHDest where
   getSymbol = ethSymbol
+  getNotarisationBlockInterval = ethBlockInterval
 
-instance Blockchain ETHDest (Zeno r) where
-  waitHeight ETHDest{..} = error "ETHDest waitheight"
+instance BlockchainAPI ETHDest (Zeno r) where
+  getHeight ETHDest{..} = error "ETHDest waitheight"
 
 instance Has GethConfig r => DestChain ETHDest (Zeno r) where
   type (ChainNotarisation ETHDest) = EthNotarisationData

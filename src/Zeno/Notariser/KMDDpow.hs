@@ -65,27 +65,6 @@ proposeInputs kmdNotaryInputs _threshold ballots =
      then Nothing
      else Just $ snd <$> ballots
 
-getNextHeight :: Word32 -> Word32 -> Word32 -> Word32
-getNextHeight interval last current =
-  let next = current - mod current interval
-   in next + if next > last then 0 else interval
-
-waitKmdNotariseHeight :: Has BitcoinConfig r => Word32 -> Word32 -> Zeno r Word32
-waitKmdNotariseHeight interval lastHeight = do
-  height <- bitcoinGetHeight
-  let nextHeight = getNextHeight interval lastHeight height
-  if nextHeight <= height
-     then pure nextHeight
-     else do
-       logInfo $ "Waiting for KMD height: " ++ show nextHeight
-       withUIProc (UIOther $ "Waiting for KMD block %i" % nextHeight) do
-         fix \f -> do
-           threadDelay $ 5 * 1000000
-           curHeight <- bitcoinGetHeight
-           if curHeight < nextHeight
-              then f
-              else pure nextHeight
-
 -- | Given selected UTXOs, compile a tx and sign own inputs, if any.
 signMyInput :: NotariserConfig -> H.SecKey -> Map Address UTXO -> [H.TxOut] -> SaplingTx
 signMyInput NotariserConfig{..} wif mapIns outputs = do

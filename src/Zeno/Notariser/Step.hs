@@ -41,8 +41,8 @@ data NotariserStepF source dest (m :: * -> *) next
   | MakeNotarisationReceipt         (ChainNotarisation dest) (ChainNotarisationReceipt source -> next)
   | RunNotarise                     ProposerSequence Word32 (() -> next)
   | RunNotariseReceipt              ProposerSequence (ChainNotarisationReceipt source) (() -> next)
-  | WaitSourceHeight                Word32 (Word32 -> next)
-  | WaitDestHeight                  Word32 (Word32 -> next)
+  | WaitNextSourceHeight            Word32 (Maybe Word32 -> next)
+  | WaitNextDestHeight              Word32 (Maybe Word32 -> next)
 
 deriving instance (Functor (NotariserStepF a b m))
 
@@ -59,10 +59,10 @@ type Notariser a b m = (MonadLogger m, SourceChain a m, DestChain b m)
 
 notariserStepFree :: forall a b m. Notariser a b m
                   => AbstractNotariserConfig a b -> NotariserStep a b m Done
-notariserStepFree nc@NotariserConfig{..} = do
-  getLastNotarisationFree >>= go >> pure Done
+notariserStepFree nc@NotariserConfig{..} = start >> pure Done
   where
-  --go :: Maybe (EthNotarisationData, ProposerSequence) -> NotariserStep m ()
+
+  go :: Maybe (ChainNotarisation b, ProposerSequence) -> NotariserStep a b m ()
   go Nothing = do
     logInfo "No prior notarisations found"
     forward 0 0
@@ -94,12 +94,36 @@ notariserStepFree nc@NotariserConfig{..} = do
         _ -> do
           logDebug "Receipt not found, proceed to backnotarise"
           opret <- makeNotarisationReceipt notarisation
-          let seq = shiftSequence sequence
+          let seq = sequence + quot (length members) 2
           runNotariseReceipt seq opret
 
-  forward sequence notarisedHeight = do
-      newHeight <- waitSourceHeight notarisedHeight
-      runNotarise sequence newHeight
+  start = getLastNotarisationFree >>= go
 
-  shiftSequence seq =
-    seq + shiftR (length members) 1
+  forward sequence lastHeight = do
+    waitNextSourceHeight lastHeight >>=
+      \case Nothing -> start
+            Just h -> runNotarise sequence h
+
+
+-- | This function has been thoroughly eyeballed
+waitNextNotariseHeight :: (MonadIO m, MonadLogger m, BlockchainAPI c m) => c -> Word32 -> m (Maybe Word32)
+waitNextNotariseHeight chain lastHeight = do
+  height <- getHeight chain
+  let interval = getNotarisationBlockInterval chain
+  let nextHeight = getNextHeight interval lastHeight height
+  if (height >= nextHeight)
+     then pure $ Just nextHeight
+     else do
+       Nothing <$ do
+          logInfo $ "Waiting for %s height: %i" % (getSymbol chain, nextHeight)
+          fix \f -> do
+            threadDelayS 5
+            height <- getHeight chain
+            when (height < nextHeight) f
+
+
+getNextHeight :: Word32 -> Word32 -> Word32 -> Word32
+getNextHeight interval last current =
+  let nextLo = last + interval - mod last interval
+      nextHi = current - mod current interval
+   in max nextLo nextHi

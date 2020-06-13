@@ -16,11 +16,9 @@ import Data.Void
 
 import Network.Ethereum (Address(..))
 
-import Zeno.Consensus.Types
 import Zeno.Notariser.Types
 import Zeno.Notariser.Targets
 import Zeno.Notariser.Step
-import Zeno.EthGateway
 import Debug.Trace
 
 
@@ -33,8 +31,10 @@ instance MonadLogger IO where monadLoggerLog a b c d = pure ()
 data TestChain = TestChain { unTestChain :: String }
 instance BlockchainConfig TestChain where
   getSymbol = unTestChain
-instance Blockchain TestChain TestBase where
-  waitHeight = error "testchainwaitheight"
+  getNotarisationBlockInterval _ = 5
+
+instance BlockchainAPI TestChain TestBase where
+  getHeight = error "testchainwaitheight"
 
 instance SourceChain TestChain TestBase where
   type (ChainNotarisationReceipt TestChain) = Word32
@@ -50,11 +50,10 @@ instance Notarisation Word32 where
 instance NotarisationReceipt Word32 where
   receiptHeight = id
  
--- TODO: arbitrary
 runStep mdest msource =
   \case
     GetLastNotarisationFree f         -> f mdest
-    WaitSourceHeight lastHeight f     -> f undefined
+    WaitNextSourceHeight lastHeight f -> f $ Just $ lastHeight + 1
     GetLastNotarisationReceiptFree f  -> f msource
     MakeNotarisationReceipt ndest f   -> f ndest
     RunNotarise last current f        -> error "exited"
@@ -83,15 +82,14 @@ spec_notariser_step = do
     it "forward when there are no notarisations" $ do
 
       GetLastNotarisationFree f <- next $ fromFT (notariserStepFree nc)
-      WaitSourceHeight lastHeight f <- next $ f Nothing
-      lastHeight `shouldBe` 0
-      RunNotarise seq h f <- next $ f 20
+      WaitNextSourceHeight nextHeight f <- next $ f Nothing
+      nextHeight `shouldBe` 0
+      RunNotarise seq h f <- next $ f $ Just 20
       seq `shouldBe` 0
       h `shouldBe` 20
       fin f
 
     it "backward when there is no receipt" do
-
       go \case
         RunNotariseReceipt _ ndata f -> do
           ndata `shouldBe` 1
@@ -107,13 +105,20 @@ spec_notariser_step = do
         
     it "forward when there is an equal receipt" do
       go \case
-        WaitSourceHeight lastHeight f -> do
-          lastHeight `shouldBe` 75
-          f 80
+        WaitNextSourceHeight nextHeight f -> do
+          nextHeight `shouldBe` 75
+          f $ Just 80
         RunNotarise seq h f -> do
           h `shouldBe` 80
           f ()
         o -> runStep (Just (75, 98)) (Just 75) o
+
+    it "repeat when wait for block" do
+      GetLastNotarisationFree f <- next $ fromFT (notariserStepFree nc)
+      WaitNextSourceHeight nextHeight f <- next $ f Nothing
+      nextHeight `shouldBe` 0
+      GetLastNotarisationFree f <- next $ f Nothing
+      pure ()
   
   describe "proposer sequence" do
 

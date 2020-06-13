@@ -96,11 +96,11 @@ runNotariser = do
 runNotariserStep :: NotariserConfig
                  -> NotariserStep KMDSource ETHDest (Zeno EthNotariser) a
                  -> Zeno EthNotariser a
-runNotariserStep nc@NotariserConfig{sourceChain=KMDSource{..}, destChain=ETHDest{..}, ..} =
+runNotariserStep nc@NotariserConfig{sourceChain=s@KMDSource{..}, destChain=d@ETHDest{..}, ..} =
   iterT \case
     RunNotarise seq height f -> notariseToETH nc seq height >>= f
     RunNotariseReceipt seq opret f -> notariseKmdDpow nc seq opret >>= f
-    WaitSourceHeight height f -> waitKmdNotariseHeight kmdBlockInterval height >>= f
+    WaitNextSourceHeight height f -> waitNextNotariseHeight s height >>= f
     GetLastNotarisationReceiptFree f -> kmdGetLastNotarisationData kmdSymbol >>= f
 
     GetLastNotarisationFree f -> do
@@ -190,7 +190,7 @@ ethMakeNotarisationTx NotariserConfig{..} callData = do
   gateway <- asks getEthGateway
   nonce <- queryAccountNonce myAddress
   U256 gasPriceRec <- queryEthereum "eth_gasPrice" ()
-  let gasPrice = gasPriceRec + quot gasPriceRec 2
+  let gasPrice = gasPriceRec + quot gasPriceRec 2         -- Fixed gas price increase
       tx = Tx nonce 0 (Just gateway) Nothing gasPrice ethNotariseGas callData ethChainId
   signTx sk tx
 
