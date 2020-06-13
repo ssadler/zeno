@@ -1,5 +1,4 @@
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE MonoLocalBinds #-}
 
 module Main where
 
@@ -11,6 +10,7 @@ import           Zeno.Notariser.KMDETH
 import           Zeno.Notariser.Stats
 import           Zeno.Prelude
 import           Zeno.CLI.Utils
+import           Zeno.Version
 
 
 main :: IO ()
@@ -28,6 +28,7 @@ parseAct = infoH topMethods $ fullDesc <> progDesc "Notariser for Komodo network
      <> (command "notarise" $ infoH notariserMethods  $ mempty)
      <> (command "stats"    $ infoH statsMethods      $ progDesc "Get statistics")
      <> (command "util"     $ infoH utilMethods       $ progDesc "Utilities")
+     <> (command "version"  $ infoH showVersionMethod $ progDesc "Show version")
    
    notariserMethods = subparser $
         (command "kmdeth" $ infoH runEthNotariserMethod  $ progDesc "Run KMD -> ETH notariser")
@@ -43,8 +44,15 @@ parseAct = infoH topMethods $ fullDesc <> progDesc "Notariser for Komodo network
          progDesc "Dump proposer timeouts")
 
 
+showVersionMethod :: Parser Method
+showVersionMethod = pure $ putStrLn revisionInfo
+
+withShowVersion :: Parser Method -> Parser Method
+withShowVersion parse = (>>) <$> showVersionMethod <*> parse --fmap (putStrLn revisionInfo >>)
+
+
 runEthNotariserMethod :: Parser Method
-runEthNotariserMethod =
+runEthNotariserMethod = withShowVersion $
   runNotariseKmdToEth
   <$> strOption ( long "pubkey" <> help "notariser pubkey" <> metavar "PUB" )
   <*> optGateway
@@ -54,8 +62,7 @@ runEthNotariserMethod =
   <*> optNoUI
 
 runSeedNotariserMethod :: Parser Method
-runSeedNotariserMethod = startSeedNode <$> optNetworkConfig <*> optNoUI
-
+runSeedNotariserMethod = withShowVersion $ startSeedNode <$> optNetworkConfig <*> optNoUI
 
 runDumpProposerTimeoutsMethod :: Parser Method
 runDumpProposerTimeoutsMethod =

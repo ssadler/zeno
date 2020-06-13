@@ -32,6 +32,7 @@ dependencies:
 - entropy
 - exceptions
 - free
+- githash
 - hashable
 - haskoin-core
 - http-client
