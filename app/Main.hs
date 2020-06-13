@@ -13,6 +13,7 @@ import           Zeno.Prelude
 import           Zeno.CLI.Utils
 
 import           TestSecp256k1
+import Crypto.Blake2
 
 
 main :: IO ()
@@ -70,4 +71,4 @@ runDumpProposerTimeoutsMethod =
 
 
 runTestSecp256k1Method :: Parser Method
-runTestSecp256k1Method = pure runTestSecp256k1
+runTestSecp256k1Method = pure doDelayThingyManyThreads -- runTestSecp256k1

@@ -1,6 +1,8 @@
 
 #include <string.h>
 #include <blake2b.c>
+#include <unistd.h>
+#include <pthread.h>
 
 
 int blake2b_256_personalized(
@@ -27,3 +29,26 @@ int blake2b_256_personalized(
 }
 
 
+pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
+int sleeps = 0;
+int wakes = 0;
+
+
+int doDelayThingy(int _i) {
+  pthread_mutex_lock(&mutex);
+  sleeps++;
+  pthread_mutex_unlock(&mutex);
+  usleep(100000);
+  pthread_mutex_lock(&mutex);
+  wakes++;
+  pthread_mutex_unlock(&mutex);
+  return _i;
+}
+
+int getSleeps() {
+  return sleeps;
+}
+
+int getWakes() {
+  return wakes;
+}

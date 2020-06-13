@@ -1,6 +1,7 @@
 
 module Crypto.Blake2
   ( blake2bPersonalized
+  , doDelayThingyManyThreads
   ) where
 
 
@@ -10,6 +11,9 @@ import Data.Word
 import Foreign.Ptr (Ptr)
 import System.IO.Unsafe
 
+import UnliftIO
+import UnliftIO.Concurrent
+import Control.Monad
 
 foreign import ccall unsafe "blake2b_256_personalized"
     c_blake2b_256_personalized :: Ptr Word8 -> Int  --- Pointer and length of personalization
@@ -31,3 +35,46 @@ blake2bPersonalized personalization input
                   >>= \case 0 -> pure ()
                             r -> error $ "blake2b returned with " ++ show r
 
+
+foreign import ccall unsafe "doDelayThingy" c_doDelayThingy :: Int -> IO Int
+foreign import ccall unsafe "getSleeps" c_getSleeps :: IO Int
+foreign import ccall unsafe "getWakes" c_getWakes :: IO Int
+
+
+doDelayThingy :: Int -> Int
+doDelayThingy = unsafePerformIO . c_doDelayThingy
+
+
+doDelayThingyManyThreads :: IO ()
+doDelayThingyManyThreads = do
+
+  lock1 <- newEmptyTMVarIO
+  lock2 <- newEmptyTMVarIO
+  count <- newTVarIO 0
+
+  let
+    f i = do
+      join $ atomically do
+        if mod i 2 == 0
+           then putTMVar lock1 ()
+           else putTMVar lock2 ()
+        let r = doDelayThingy i
+        if mod r 2 == 0
+           then takeTMVar lock1
+           else takeTMVar lock2
+        if r /= i
+          then pure $ Prelude.putStrLn "fault"
+          else do
+            c <- readTVar count
+            writeTVar count (c+1)
+            pure $ pure ()
+
+  let n = 100
+  mapM_ (forkIO . f) [1..n]
+
+  atomically do
+    c <- readTVar count
+    checkSTM $ c == n
+
+  print =<< c_getSleeps
+  print =<< c_getWakes
