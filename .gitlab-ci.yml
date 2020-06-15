@@ -1,0 +1,18 @@
+image: ubuntu:bionic
+
+cache:
+  key: global
+  paths:
+    - .stack
+    - .stack-work
+
+stages:
+  - test
+
+test:
+  stage: test
+  script:
+  - apt-get update -qy
+  - apt-get install -y curl libsecp256k1-dev pkg-config git
+  - curl -sSL https://get.haskellstack.org/ | sh
+  - stack --stack-root=`pwd`/.stack test
