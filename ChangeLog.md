@@ -1,7 +1,13 @@
 # Changelog for Zeno
 
-## Unreleased
+## 0.2.2.0 - 15/6/2020
 
+* Print version info on startup
+* Reload config more often during normal operation
+* Separate core synchronous notarising logic into separate module, write tests for module
+* Use block interval for both ends, kmd and eth also, and record eth block height, to prevent getting stuck in a round when no proposers are available
+* Add abstract interface for blockchain endpoints so it's easier to add new ones
+* Swap out bindings to Secp256k1 for less buggy version that supports recovery
 * More detail in dumpProposerTimeouts error messages
 * Bugfix for dumpProposerTimeouts
 
