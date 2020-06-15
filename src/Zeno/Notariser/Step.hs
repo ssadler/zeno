@@ -38,9 +38,8 @@ type ProposerSequence = Int
 data NotariserStepF source dest (m :: * -> *) next
   = GetLastNotarisationFree         (Maybe (ChainNotarisation dest, ProposerSequence) -> next)
   | GetLastNotarisationReceiptFree  (Maybe (ChainNotarisationReceipt source) -> next)
-  | MakeNotarisationReceipt         (ChainNotarisation dest) (ChainNotarisationReceipt source -> next)
-  | RunNotarise                     ProposerSequence Word32 (() -> next)
-  | RunNotariseReceipt              ProposerSequence (ChainNotarisationReceipt source) (() -> next)
+  | RunNotarise                     ProposerSequence Word32 (Maybe (ChainNotarisationReceipt source)) (() -> next)
+  | RunNotariseReceipt              ProposerSequence Word32 (ChainNotarisation dest) (() -> next)
   | WaitNextSourceHeight            Word32 (Maybe Word32 -> next)
   | WaitNextDestHeight              Word32 (Maybe Word32 -> next)
 
@@ -65,44 +64,53 @@ notariserStepFree nc@NotariserConfig{..} = start >> pure Done
   go :: Maybe (ChainNotarisation b, ProposerSequence) -> NotariserStep a b m ()
   go Nothing = do
     logInfo "No prior notarisations found"
-    forward 0 0
+    notarise 0 0 Nothing
 
   go (Just (notarisation, sequence)) = do
 
-    let notarisedHeight = foreignHeight notarisation
+    let
+      notarisedHeight = foreignHeight notarisation
+
+      backnotarise lastHeight = do
+        waitNextDestHeight lastHeight >>=
+          \case
+            Nothing -> start
+            Just newHeight -> do
+              let seq = sequence + quot (length members) 2
+              runNotariseReceipt seq newHeight notarisation
 
     logDebug $ "Found notarisation on %s for %s.%i" %
                (getSymbol destChain, getSymbol sourceChain, notarisedHeight)
 
     getLastNotarisationReceiptFree >>=
       \case
-        Just receipt
-          | notarisedHeight <= receiptHeight receipt -> do
+        Just receipt -> do
+          case compare (receiptHeight receipt) notarisedHeight of
+            LT -> backnotarise (foreignHeight receipt)
+            o  -> do
 
-            if notarisedHeight == receiptHeight receipt
-               then do
-                 logDebug "Found receipt, proceed with next notarisation"
-               else do
-                 logError $ show notarisation
-                 logError $ show receipt
-                 logError $ "The receipt height in %s is higher than the notarised\
-                            \ height in %s. Is %s node is lagging? Proceeding anyway." %
-                            (getSymbol sourceChain, getSymbol destChain, getSymbol destChain)
+              notarise sequence notarisedHeight (Just receipt) <*
 
-            forward sequence notarisedHeight
+                if o == EQ
+                   then do
+                     logDebug "Found receipt, proceed with next notarisation"
+                    else do
+                     logError $ show notarisation
+                     logError $ show receipt
+                     logError $ "The receipt height in %s is higher than the notarised\
+                                \ height in %s. Is %s node is lagging? Proceeding anyway." %
+                                (getSymbol sourceChain, getSymbol destChain, getSymbol destChain)
  
         _ -> do
           logDebug "Receipt not found, proceed to backnotarise"
-          opret <- makeNotarisationReceipt notarisation
-          let seq = sequence + quot (length members) 2
-          runNotariseReceipt seq opret
+          backnotarise 0
 
   start = getLastNotarisationFree >>= go
 
-  forward sequence lastHeight = do
+  notarise sequence lastHeight mlastReceipt = do
     waitNextSourceHeight lastHeight >>=
       \case Nothing -> start
-            Just h -> runNotarise sequence h
+            Just h -> runNotarise sequence h mlastReceipt
 
 
 -- | This function has been thoroughly eyeballed

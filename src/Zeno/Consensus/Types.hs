@@ -94,7 +94,7 @@ type RoundId = Bytes6
 getRoundId :: Consensus RoundId
 getRoundId = do
   seed <- asks ccSeed
-  pure $ toFixedR $ unFixed seed
+  pure $ toFixedR $ fromFixed seed
 
 getMyAddress :: Consensus Address
 getMyAddress = asks $ ethAddress . ident' . ccParams
@@ -102,7 +102,7 @@ getMyAddress = asks $ ethAddress . ident' . ccParams
 
 data Ballot a = Ballot
   { bMember :: Address
-  , bSig :: CompactRecSig
+  , bSig :: RecSig
   , bData :: a
   } deriving (Show, Generic)
 
@@ -110,8 +110,8 @@ type BallotData a = (Typeable a, Serialize a)
 
 instance Serialize a => Serialize (Ballot a)
 
-type Authenticated a = (CompactRecSig, a)
-type Inventory a = Map Address (CompactRecSig, a)
+type Authenticated a = (RecSig, a)
+type Inventory a = Map Address (RecSig, a)
 type Collect i o = Inventory i -> Consensus (Maybe o)
 
 unInventory :: Inventory a -> [Ballot a]
@@ -125,7 +125,7 @@ data StepMessage a = StepMessage
   } deriving (Generic, Show)
 
 instance Serialize a => Serialize (StepMessage a)
-data WrappedStepMessage i = WrappedStepMessage CompactRecSig (Maybe StepNum) (StepMessage i)
+data WrappedStepMessage i = WrappedStepMessage RecSig (Maybe StepNum) (StepMessage i)
   deriving (Generic)
 instance Serialize i => Serialize (WrappedStepMessage i)
 

@@ -4,7 +4,7 @@ module TestStep where
 import TestUtils
 
 import Control.Monad.Except
-import Crypto.Secp256k1Wrapped
+import Crypto.Secp256k1.Recoverable
 import qualified Data.Map.Strict as Map
 
 import Zeno.Consensus.Step
@@ -14,7 +14,7 @@ import Zeno.Prelude
 
 unit_merge_inventory :: IO ()
 unit_merge_inventory = do
-  sig <- sign sk (minBound :: Bytes32)
+  sig <- signIO sk (minBound :: Bytes32)
   let theirs = Map.fromList [(minBound, (sig, ())), (maxBound, (sig, ()))]
 
   let r = mergeInventory mempty mempty theirs

@@ -4,7 +4,6 @@ module Zeno.CLI.Utils where
 import Network.Komodo
 import Network.Bitcoin
 import Network.Ethereum
-import Crypto.Secp256k1 as Secp256k1 (derivePubKey)
 import Options.Applicative
 
 import Zeno.Prelude
@@ -24,7 +23,7 @@ fromPubMethod = runFromPub <$> strArgument ( metavar "PUB" )
 
 runFromSec :: SecKey -> IO ()
 runFromSec sk = do
-  let pk = Secp256k1.derivePubKey sk
+  pk <- derivePubKeyIO sk
   putStrLn $ printf "SecKey:    %s" (stripQuotes $ show sk)
   putStrLn $ printf "PubKey:    %s" (stripQuotes $ show pk)
   runFromPub pk

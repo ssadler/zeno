@@ -122,7 +122,6 @@ instance (PrintfArg a, PrintfArg b, PrintfArg c) => PercentFormat (a, b, c) wher
 instance (PrintfArg a, PrintfArg b, PrintfArg c, PrintfArg d) => PercentFormat (a, b, c, d) where
   s % (a, b, c, d) = printf s a b c d
 
-
 -- `fix` providing a value.
 fix1 :: a -> ((a -> b) -> a -> b) -> b
 fix1 a f = fix f a

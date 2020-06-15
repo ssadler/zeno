@@ -159,7 +159,7 @@ handleMessage Node{..} nodeId bs = do
   if BS.length toB /= 16
      then logDebug $ [pf|Could not decode packet from: %?|] nodeId
      else do
-       let to = ProcessId $ unsafeToFixed toB
+       let to = ProcessId $ toFixed toB
        atomically do
          STM.lookup to topics >>=
            \case

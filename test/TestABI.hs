@@ -86,6 +86,7 @@ test_misc = testGroup "misc"
   , testCase "misc7" $ abiPass ("abc"::ByteString,("def"::ByteString,True))
   , testCase "misc8" $ abiPass ([([(U256 1,"abc"::ByteString)],True)],0::Int)
   , testCase "misc9" $ abiPass (""::Bytes0)
+  , testCase "misc10" $ abiPass [""::ByteString, ""::ByteString]
   , testCase "fail1" $ abiFail (newFixed 1 :: Bytes1) (undefined::Int)
   , testCase "fail2" $ isLeft (decodeABI "" :: Either String Int) @? "string is not long enough"
   ]

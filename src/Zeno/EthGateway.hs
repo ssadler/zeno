@@ -3,6 +3,7 @@ module Zeno.EthGateway where
 
 import qualified Data.ByteString as BS
 
+import           Crypto.Secp256k1.Recoverable
 import           Control.Exception.Safe
 
 import           Network.Ethereum.Transaction
@@ -49,24 +50,22 @@ ethMakeProxySigMessage (dest, nonce, callData) =
   ethMsg $ toS dest <> abi "" nonce <> callData
 
 
-ethMakeProxyCallData :: ProxyParams -> [CompactRecSig] -> ByteString
+ethMakeProxyCallData :: ProxyParams -> [RecSig] -> ByteString
 ethMakeProxyCallData (dest, proxyNonce, proxyCallData) sigs =
   let (r, s, v) = exportMultisigABI sigs
    in abi proxySig (dest, proxyNonce, proxyCallData, r, s, v)
   where
   proxySig = "proxy(address,uint256,bytes,bytes32[],bytes32[],bytes)"
 
+type NotarisationParams = (Word32, Bytes32, ByteString)
 
-exportMultisigABI :: [CompactRecSig] -> ([Bytes32], [Bytes32], ByteString)
+ethMakeNotarisationCallData :: NotarisationParams -> ByteString
+ethMakeNotarisationCallData = abi "notarise(uint256,bytes32,bytes)"
+
+
+exportMultisigABI :: [RecSig] -> ([Bytes32], [Bytes32], ByteString)
 exportMultisigABI sigs =
-  let f = toFixed . fromShort
-   in ( f . getCompactRecSigR <$> sigs
-      , f . getCompactRecSigS <$> sigs
-      , BS.pack $ getV <$> sigs
-      )
-  where
-  -- `ecrecover` inside evm expects v to be +27.
-  getV = (+27) . getCompactRecSigV
+  over _3 (BS.pack . fmap (+27)) $ unzip3 $ toRSV <$> sigs
 
 
 ethGetLastNotarisationAndSequence :: Has GethConfig r => Address -> Zeno r (Maybe (EthNotarisationData, Int))

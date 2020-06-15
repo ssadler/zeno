@@ -6,6 +6,7 @@ import Data.Aeson
 import Data.Bits
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BSL
+import Data.FixedBytes
 import Data.RLP
 import Data.Serialize
 import Data.Word
@@ -51,13 +52,13 @@ instance Serialize PackedInteger where
   get = getPacked
 
 
-putPacked :: Integral i => i -> Put
+putPacked :: (Bits i, Integral i) => i -> Put
 putPacked i = do
-  let bs = packInteger $ fromIntegral i
-  put (fromIntegral $ BS.length bs :: VarInt)
-  putByteString bs
+  let bs = intToBytesLE i
+  put (fromIntegral $ length bs :: VarInt)
+  mapM_ put bs
 
-getPacked :: Integral i => Get i
+getPacked :: (Bits i, Integral i) => Get i
 getPacked = do
   len <- fromIntegral . unVarInt <$> get
-  fromIntegral . unpackInteger <$> getByteString len
+  intFromBytesLE <$> replicateM len get

@@ -3,10 +3,12 @@
 module Network.Bitcoin where
 
 import           Crypto.Hash
+import           Crypto.Secp256k1.Recoverable
 import qualified Data.Serialize as Ser
 import qualified Data.ByteArray as BA
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BS8
+import           Data.ByteString.Short (pack)
 import           Data.Attoparsec.ByteString.Char8 as A
 
 import           Zeno.Data.Aeson hiding (Parser)
@@ -79,11 +81,14 @@ bitcoinGetHeight :: Has BitcoinConfig r => Zeno r Word32
 bitcoinGetHeight = do
   queryBitcoin "getinfo" () <&> (.!"{blocks}")
 
-parseWif :: H.Network -> Text -> Either String H.SecKey
-parseWif net wif = do
+parseWif :: H.Network -> Text -> Either String SecKey
+parseWif net wif = toFixed. H.getSecKey <$> parseWifH net wif
+
+parseWifH :: H.Network -> Text -> Either String H.SecKey
+parseWifH net wif = do
   case H.fromWif net wif of
     Just (H.SecKeyI seckey True) -> pure seckey
     _ -> Left $ "Couldn't parse WIF from daemon using network " ++ H.getNetworkName net
 
 sha256b :: BS.ByteString -> Bytes32
-sha256b bs = unsafeToFixed $ BS.pack (BA.unpack (hash bs :: Digest SHA256))
+sha256b bs = unsafeToFixed $ pack (BA.unpack (hash bs :: Digest SHA256))

@@ -49,7 +49,7 @@ spawnStep obj collect = do
 
   ConsensusParams{ident' = EthIdent sk myAddr, ..} <- asks ccParams
   let sighash = getBallotSighash obj
-  mySig <- sign sk sighash
+  mySig <- signIO sk sighash
   let ballot = Ballot myAddr mySig obj
 
   ConsensusContext{ccParams = ConsensusParams{..},..} <- ask
@@ -149,7 +149,7 @@ mergeInventory membersSet ours theirs = do
     let sighash = getBallotSighash val
     when (Set.notMember addr membersSet) do
       throwError "Got ballot data for non member"
-    r <- unsafePerformIO $ recoverAddr sighash sig
+    let r = unsafePerformIO $ recoverAddr sighash sig
     when (r /= addr) do
       throwError "Got ballot data with invalid signature"
     pure (sig, val)
@@ -189,7 +189,7 @@ sendAuthenticated Step{..} peers obj = do
   EthIdent{..} <- asks has
   let payload = (Just stepNum, obj)
   let sighash = getMessageSigHash Step{..} payload
-  sig <- sign ethSecKey sighash
+  sig <- signIO ethSecKey sighash
   forM_ peers $ \peer -> do
     sendRemote peer processId (sig, payload)
 
@@ -203,14 +203,10 @@ authenticate :: BallotData i
 authenticate step@Step{..} act (RemoteMessage nodeId wsm) = do
   let WrappedStepMessage theirSig sn obj = wsm
   let sighash = getMessageSigHash step (sn, obj)
-  recoverAddr sighash theirSig >>=
-    \case
-       Right addr ->
-         if elem addr members
-            then act nodeId obj
-            else logWarn $ "Not member or wrong step: " ++ show addr
-       Left s -> do
-         logWarn $ "Signature recovery failed: " ++ s
+  addr <- recoverAddr sighash theirSig
+  if elem addr members
+     then act nodeId obj
+     else logWarn $ "Not member or wrong step: " ++ show addr
 
 --------------------------------------------------------------------------------
 -- | Pure functions for inventory building

@@ -47,7 +47,6 @@ dependencies:
 - relapse
 - resourcet
 - safe-exceptions
-- secp256k1-haskell
 - stm
 - stm-containers
 - string-conv
@@ -84,7 +83,9 @@ library:
                        , TypeFamilies
                        , TypeSynonymInstances
 
-  c-sources: cbits/blake2_personalized.c
+  c-sources:
+  - cbits/blake2_personalized.c
+  - cbits/secp256k1_recoverable.c
   when:
   - condition: arch(x86_64) || flag(support_sse)
     then:

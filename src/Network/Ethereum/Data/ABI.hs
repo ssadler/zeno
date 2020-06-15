@@ -80,11 +80,14 @@ putDynamic len fixedLen act = do
 instance PutABI Int where
   putABI i = putABI $ U256 $ fromIntegral i
 
+instance PutABI Word32 where
+  putABI i = putABI $ U256 $ fromIntegral i
+
 instance PutABI Integer where
   putABI = putABI . U256
 
 instance PutABI U256 where
-  putABI (U256 i) = putData $ bytesPad (packInteger i) True
+  putABI (U256 i) = putData $ bytesPad (BS.pack $ reverse $ intToBytesLE i) True
 
 instance PutABI ByteString where
   putABI bs =
@@ -126,7 +129,7 @@ instance PutABI a => PutABI [a] where
     putDynamic (length xs) innerLen $ mapM_ putABI xs
 
 instance forall n. (KnownNat n, n <= 32) => PutABI (FixedBytes n) where
-  putABI bs = putData $ bytesPad (unFixed bs) False
+  putABI bs = putData $ bytesPad (fromFixed bs) False
 
 instance forall n. (KnownNat n, n <= 32) => PutABI (PrefixedHex n) where
   putABI = putABI . unPrefixedHex
@@ -184,7 +187,7 @@ instance GetABI Integer where
   getABI = unU256 <$> getABI
 
 instance GetABI U256 where
-  getABI = U256 . unpackInteger <$> takeN 32
+  getABI = U256 . intFromBytesLE . reverse . BS.unpack <$> takeN 32
 
 instance GetABI Word32 where
   getABI = fromIntegral . unU256 <$> getABI

@@ -2,7 +2,6 @@
 module Network.ZCash.Sapling.Sign where
 
 import qualified Data.ByteString as BS
-import Crypto.Secp256k1 (SecKey)
 import Crypto.Blake2
 import Data.Serialize as S
 import qualified Haskoin as H
@@ -18,7 +17,7 @@ signTxSapling
   :: H.Network
   -> SaplingTx                  -- ^ transaction to sign
   -> [H.SigInput]              -- ^ signing parameters
-  -> [SecKey]                  -- ^ private keys to sign with
+  -> [H.SecKey]                  -- ^ private keys to sign with
   -> Either String SaplingTx   -- ^ signed transaction
 signTxSapling net otx sigis allKeys =
   saplingFromLegacy <$> signTx net (saplingToLegacy otx) sigis allKeys
@@ -102,7 +101,7 @@ signTx
   :: H.Network
   -> H.Tx                      -- ^ transaction to sign
   -> [H.SigInput]              -- ^ signing parameters
-  -> [SecKey]                  -- ^ private keys to sign with
+  -> [H.SecKey]                  -- ^ private keys to sign with
   -> Either String H.Tx        -- ^ signed transaction
 signTx net otx sigis allKeys
     | null ti   = Left "signTx: Transaction has no inputs"

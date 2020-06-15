@@ -104,8 +104,10 @@ instance BlockchainConfig KMDSource where
 instance Has BitcoinConfig r => BlockchainAPI KMDSource (Zeno r) where
   getHeight KMDSource{..} = bitcoinGetHeight
 
+type KomodoNotaryReceiptFromEth = KomodoNotaryOpret (Word32, Bytes28)
+
 instance Has BitcoinConfig r => SourceChain KMDSource (Zeno r) where
-  type (ChainNotarisationReceipt KMDSource) = KomodoNotarisationReceipt
+  type (ChainNotarisationReceipt KMDSource) = KomodoNotaryReceiptFromEth
   getLastNotarisationReceipt KMDSource{..} = kmdGetLastNotarisationData kmdSymbol
 
 
@@ -121,8 +123,8 @@ instance BlockchainConfig ETHDest where
   getSymbol = ethSymbol
   getNotarisationBlockInterval = ethBlockInterval
 
-instance BlockchainAPI ETHDest (Zeno r) where
-  getHeight ETHDest{..} = error "ETHDest waitheight"
+instance Has GethConfig r => BlockchainAPI ETHDest (Zeno r) where
+  getHeight ETHDest{..} = fromIntegral <$> eth_blockNumber
 
 instance Has GethConfig r => DestChain ETHDest (Zeno r) where
   type (ChainNotarisation ETHDest) = EthNotarisationData
@@ -132,9 +134,11 @@ instance Has GethConfig r => DestChain ETHDest (Zeno r) where
 
 
 
+instance Notarisation KomodoNotaryReceiptFromEth where
+  foreignHeight = fst . norForeignRef
 
-instance NotarisationReceipt KomodoNotarisationReceipt where
-  receiptHeight = norBlockNumber . unKNR
+instance NotarisationReceipt KomodoNotaryReceiptFromEth where
+  receiptHeight = norBlockNumber
 
 instance Notarisation EthNotarisationData where
   foreignHeight = noeForeignHeight

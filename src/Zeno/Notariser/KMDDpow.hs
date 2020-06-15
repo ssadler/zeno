@@ -20,12 +20,11 @@ import Zeno.Notariser.UTXO
 import Zeno.Prelude
 
 
-notariseKmdDpow :: NotariserConfig -> Int -> KomodoNotarisationReceipt -> Zeno EthNotariser ()
-notariseKmdDpow nc@NotariserConfig{..} seq ndata = do
+notariseKmdDpow :: NotariserConfig -> String -> Int -> KomodoNotaryReceiptFromEth -> Zeno EthNotariser ()
+notariseKmdDpow nc@NotariserConfig{..} label seq ndata = do
   withKomodoUtxo \utxo -> do
     KomodoIdent{..} <- asks has
     cparams <- getConsensusParamsWithStats nc EthToKmd
-    let label = "eth ⇒  kmd"
 
     r <- ask :: Zeno EthNotariser EthNotariser
     let run = withContext (const r)
@@ -38,7 +37,7 @@ notariseKmdDpow nc@NotariserConfig{..} seq ndata = do
       Ballot _ _ utxos <- propose "inputs" (Just seq) $ pure proposal
     
       -- Sign tx and collect signed inputs
-      let partlySignedTx = signMyInput nc kmdSecKey utxos outputs
+      let partlySignedTx = signMyInput nc kmdSecKeyH utxos outputs
           myInput = getMyInput utxo partlySignedTx
           waitCompileTx = collectWith $ collectTx partlySignedTx utxos
       finalTx <- step "sigs" waitCompileTx myInput
@@ -103,16 +102,16 @@ submitNotarisation NotariserConfig{..} tx = do
 
  
 -- | Validate assumptions
-dpowCheck :: NotariserConfig -> H.TxHash -> KomodoNotarisationReceipt -> Zeno EthNotariser ()
-dpowCheck NotariserConfig{..} txHash (KomodoNotarisationReceipt ndata) = do
+dpowCheck :: NotariserConfig -> H.TxHash -> KomodoNotaryReceiptFromEth -> Zeno EthNotariser ()
+dpowCheck NotariserConfig{..} txHash ndata = do
   threadDelayS 1 -- We hope this isnt' neccesary
   height <- bitcoinGetTxHeight txHash >>=
     maybe (throwIO $ Inconsistent "Notarisation tx confirmed but could not get height") pure
   scanNotarisationsDB height (kmdSymbol sourceChain) 1 >>=
     \case
       Nothing -> throwIO $ Inconsistent "Notarisation tx not in notarisations db"
-      Just (_, _, opret) | opret /= KomodoNotarisationReceipt ndata -> do
-        logError $ show (opret, KomodoNotarisationReceipt ndata)
+      Just (_, _, opret) | opret /= ndata -> do
+        logError $ show (opret, ndata)
         throwIO $ Inconsistent "Notarisation in db has different opret"
       _ -> do
         logInfo "Transaction Confirmed"

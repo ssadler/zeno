@@ -12,7 +12,7 @@ import Data.Either (rights)
 
 import qualified Haskoin as H
 
-import Network.Ethereum.Crypto (Address, CompactRecSig, sha3b, recoverAddr)
+import Network.Ethereum.Crypto (Address, sha3b, recoverAddr)
 import Network.Ethereum (GethConfig)
 import Network.Bitcoin
 import Network.Komodo
@@ -70,7 +70,7 @@ forkRecordProposerTimeout nc proposerTimeout = do
             let outpoint = getOutPoint utxo
             let tx = saplingTx [outpoint] outputs'
             let sigIn = H.SigInput (H.PayPK kmdPubKeyI) kmdInputAmount outpoint H.sigHashAll Nothing
-            let signed = either murphy id $ signTxSapling komodo tx [sigIn] [kmdSecKey]
+            let signed = either murphy id $ signTxSapling komodo tx [sigIn] [kmdSecKeyH]
             Just signed
 
         cparams <- getConsensusParams nc StatsToKmd
@@ -141,7 +141,7 @@ runDumpProposerTimeouts kmdConfPath gateway gethConfig numDays = do
         let markerAddress = H.PayPKHash $ getAddrHash address
         let outputsToSign = kmdDataOutputs outputAmount markerAddress $ encode payload
         let message = sha256b $ encode outputsToSign
-        addrs <- liftIO $ rights <$> forM sigs (recoverAddr message)
+        addrs <- liftIO $ forM sigs (recoverAddr message)
 
         when (length sigs < threshold) do
           throwError "Not enough signers"

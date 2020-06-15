@@ -37,27 +37,30 @@ instance BlockchainAPI TestChain TestBase where
   getHeight = error "testchainwaitheight"
 
 instance SourceChain TestChain TestBase where
-  type (ChainNotarisationReceipt TestChain) = Word32
-  getLastNotarisationReceipt = undefined
+  type (ChainNotarisationReceipt TestChain) = (Word32, Word32)
+  getLastNotarisationReceipt = error "getLastNotarisationReceipt"
 
 instance DestChain TestChain TestBase where
   type (ChainNotarisation TestChain) = Word32
-  getLastNotarisationAndSequence = undefined
+  getLastNotarisationAndSequence = error "getLastNotarisationAndSequence"
 
 instance Notarisation Word32 where
   foreignHeight = id
 
-instance NotarisationReceipt Word32 where
-  receiptHeight = id
+instance Notarisation (Word32, Word32) where
+  foreignHeight = snd
+
+instance NotarisationReceipt (Word32, Word32) where
+  receiptHeight = fst
  
 runStep mdest msource =
   \case
-    GetLastNotarisationFree f         -> f mdest
-    WaitNextSourceHeight lastHeight f -> f $ Just $ lastHeight + 1
-    GetLastNotarisationReceiptFree f  -> f msource
-    MakeNotarisationReceipt ndest f   -> f ndest
-    RunNotarise last current f        -> error "exited"
-    RunNotariseReceipt seq bnd f      -> error "exited"
+    GetLastNotarisationFree f             -> f mdest
+    WaitNextSourceHeight lastHeight f     -> f $ Just $ lastHeight + 1
+    WaitNextDestHeight   lastHeight f     -> f $ Just $ lastHeight + 1
+    GetLastNotarisationReceiptFree f      -> f msource
+    RunNotarise last current mreceipt f   -> error "exited"
+    RunNotariseReceipt seq bnd lastNota f -> error "exited"
 
 
 spec_notariser_step :: Spec
@@ -84,39 +87,47 @@ spec_notariser_step = do
       GetLastNotarisationFree f <- next $ fromFT (notariserStepFree nc)
       WaitNextSourceHeight nextHeight f <- next $ f Nothing
       nextHeight `shouldBe` 0
-      RunNotarise seq h f <- next $ f $ Just 20
+      RunNotarise seq h Nothing f <- next $ f $ Just 20
       seq `shouldBe` 0
       h `shouldBe` 20
       fin f
 
     it "backward when there is no receipt" do
       go \case
-        RunNotariseReceipt _ ndata f -> do
+        RunNotariseReceipt _ thisHeight ndata f -> do
           ndata `shouldBe` 1
           f ()
         o -> runStep (Just (1, 98)) Nothing o
 
     it "backward when there is a lower receipt" do
       go \case
-        RunNotariseReceipt _ ndata f -> do
+        RunNotariseReceipt _ thisHeight ndata f -> do
           ndata `shouldBe` 75
           f ()
-        o -> runStep (Just (75, 98)) (Just 74) o
+        o -> runStep (Just (75, 98)) (Just (74, 0)) o
         
     it "forward when there is an equal receipt" do
       go \case
         WaitNextSourceHeight nextHeight f -> do
           nextHeight `shouldBe` 75
           f $ Just 80
-        RunNotarise seq h f -> do
+        RunNotarise seq h (Just _) f -> do
           h `shouldBe` 80
           f ()
-        o -> runStep (Just (75, 98)) (Just 75) o
+        o -> runStep (Just (75, 98)) (Just (75, 0)) o
 
-    it "repeat when wait for block" do
+    it "repeat when wait for source block" do
       GetLastNotarisationFree f <- next $ fromFT (notariserStepFree nc)
       WaitNextSourceHeight nextHeight f <- next $ f Nothing
       nextHeight `shouldBe` 0
+      GetLastNotarisationFree f <- next $ f Nothing
+      pure ()
+
+    it "repeat when wait for dest block" do
+      GetLastNotarisationFree f <- next $ fromFT (notariserStepFree nc)
+      GetLastNotarisationReceiptFree f <- next $ f (Just (10, 1))
+      WaitNextDestHeight nextHeight f <- next $ f (Just (1, 1))
+      nextHeight `shouldBe` 1
       GetLastNotarisationFree f <- next $ f Nothing
       pure ()
   
@@ -124,21 +135,21 @@ spec_notariser_step = do
 
     it "first" do
       go \case
-        RunNotarise seq _ f -> do
+        RunNotarise seq _ _ f -> do
           seq `shouldBe` 0
           f ()
         o -> runStep Nothing undefined o
 
     it "forward" do
       go \case
-        RunNotarise seq _ f -> do
+        RunNotarise seq _ _ f -> do
           seq `shouldBe` 120
           f ()
-        o -> runStep (Just (75, 120)) (Just 75) o
+        o -> runStep (Just (75, 120)) (Just (75, 75)) o
 
     it "back" do
       go \case
-        RunNotariseReceipt seq bnd' f -> do
+        RunNotariseReceipt seq _ _ f -> do
           seq `shouldBe` 141
           f ()
         o -> runStep (Just (10, 120)) Nothing o

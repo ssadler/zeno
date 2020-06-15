@@ -25,12 +25,12 @@ newtype Address = Address { unAddress :: Bytes20 }
 instance GetABI Address where
   getABI = do
     fixed <- getABI
-    pure $ Address $ toFixedR (unFixed (fixed :: Bytes32))
+    pure $ Address $ toFixedR $ fromFixed (fixed :: Bytes32)
 
 instance PutABI Address where
   putABI (Address bs) = do
-    let bn = toFixedR $ unFixed bs
+    let bn = toFixedR $ fromFixed bs
     putABI (bn :: Bytes32)
 
 instance StringConv Address ByteString where
-  strConv _ = unFixed . unAddress
+  strConv _ = fromFixed . unAddress

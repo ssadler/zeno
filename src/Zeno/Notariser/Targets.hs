@@ -36,7 +36,7 @@ class (BlockchainAPI c m, Notarisation (ChainNotarisation c)) => DestChain c m w
 class Show n => Notarisation n where
   foreignHeight :: n -> Word32
 
-class Show n => NotarisationReceipt n where
+class Notarisation n => NotarisationReceipt n where
   receiptHeight :: n -> Word32
 
 

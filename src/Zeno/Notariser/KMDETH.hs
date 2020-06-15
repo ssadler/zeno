@@ -89,8 +89,8 @@ runNotariser = do
         when (i < maxCount) do
           join do
             catch
-              do act            >> pure (f (i+1))           -- Config reload every n notarisations
-              \ConsensusTimeout -> pure (f (i+3))           -- Faster if there are timeouts
+              do act            >> pure (f (i + 1))           -- Config reload every n notarisations
+              \ConsensusTimeout -> pure (f (i + 3))           -- Faster if there are timeouts
 
 
 runNotariserStep :: NotariserConfig
@@ -98,55 +98,53 @@ runNotariserStep :: NotariserConfig
                  -> Zeno EthNotariser a
 runNotariserStep nc@NotariserConfig{sourceChain=s@KMDSource{..}, destChain=d@ETHDest{..}, ..} =
   iterT \case
-    RunNotarise seq height f -> notariseToETH nc seq height >>= f
-    RunNotariseReceipt seq opret f -> notariseKmdDpow nc seq opret >>= f
+
     WaitNextSourceHeight height f -> waitNextNotariseHeight s height >>= f
-    GetLastNotarisationReceiptFree f -> kmdGetLastNotarisationData kmdSymbol >>= f
+    WaitNextDestHeight height f -> waitNextNotariseHeight d height >>= f
+
+    GetLastNotarisationReceiptFree f -> do
+      kmdGetLastNotarisationData kmdSymbol >>= f
 
     GetLastNotarisationFree f -> do
       ethGetLastNotarisationAndSequence ethNotarisationsContract >>= f
 
-    MakeNotarisationReceipt NOE{..} f  -> do
-      f $ KomodoNotarisationReceipt $ NOR
-        { norBlockHash = noeForeignHash
-        , norBlockNumber = noeForeignHeight
-        , norForeignRef = toFixed $ encode noeLocalHeight
-        , norSymbol = kmdSymbol
-        , norMom = minBound
-        , norMomDepth = 0
-        , norCcId = 0
-        , norMomom = minBound
-        , norMomomDepth = 0
-        }
+    RunNotarise seq sourceHeight mlastReceipt f -> do
+      blockHash <- queryBitcoin "getblockhash" [sourceHeight]
+      let params = (sourceHeight, blockHash, "")
+          label = "%s.%i ⇒  %s" % (getSymbol s, sourceHeight, getSymbol d)
+      notariseToETH nc label seq params >>= f
+
+    RunNotariseReceipt seq destHeight NOE{..} f -> do
+      let
+        label = "%s.%i ⇒  %s" % (getSymbol d, destHeight, getSymbol s)
+        receipt = NOR
+          { norBlockHash = noeForeignHash
+          , norBlockNumber = noeForeignHeight
+          , norForeignRef = (destHeight, minBound)
+          , norSymbol = kmdSymbol
+          , norMom = minBound
+          , norMomDepth = 0
+          , norCcId = 0
+          }
+      notariseKmdDpow nc label seq receipt >>= f
 
 
-notariseToETH :: NotariserConfig -> ProposerSequence -> Word32 -> Zeno EthNotariser ()
-notariseToETH nc@NotariserConfig{..} seq height32 = do
+notariseToETH :: NotariserConfig -> String -> ProposerSequence -> NotarisationParams -> Zeno EthNotariser ()
+notariseToETH nc@NotariserConfig{..} label seq notarisationParams = do
   let ETHDest{..} = destChain
-  let height = fromIntegral height32
-  logDebug $ "Notarising from block %i" % height
+  let height = fromIntegral $ view _1 notarisationParams
 
   ident@(EthIdent _ myAddress) <- asks has
-  gateway <- asks getEthGateway
   cparams <- getConsensusParamsWithStats nc KmdToEth
   r <- ask
   let
-    roundLabel = "kmd.%i ⇒  eth" % height
-
     run :: Zeno EthNotariser a -> Consensus a
     run = withContext (const r)
 
-  -- we already have all the data for the call to set the new block height
-  -- in our ethereum contract. so create the call.
+    notariseCallData = ethMakeNotarisationCallData notarisationParams
+    proxyParams = (ethNotarisationsContract, height, notariseCallData)
 
-  blockHash <- queryBitcoin "getblockhash" [height]
-  let notariseCallData = abi "notarise(uint256,bytes32,bytes)"
-                             (height, blockHash :: Bytes32, "" :: ByteString)
-      proxyParams = (ethNotarisationsContract, height, notariseCallData)
-
-  -- Ok now we have all the parameters together, we need to collect sigs and get the tx
-
-  runConsensus roundLabel cparams proxyParams do
+  runConsensus label cparams proxyParams do
 
     sigBallots <- step "tx sigs" (collectThreshold threshold)
                                  (ethMakeProxySigMessage proxyParams)

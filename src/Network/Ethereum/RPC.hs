@@ -39,7 +39,7 @@ queryAccountNonce addr =
 postTransaction :: Has GethConfig r => Transaction -> Zeno r Sha3
 postTransaction tx = do
   logInfo $ "Sending transaction: " ++ (show $ hashTx tx)
-  queryEthereum "eth_sendRawTransaction" [toJSON $ Hex $ encodeTx $ tx]
+  queryEthereum "eth_sendRawTransaction" [tx]
 
 
 -- Waits for a transaction to be confirmed with 1 extra block

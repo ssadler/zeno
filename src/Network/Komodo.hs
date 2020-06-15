@@ -4,7 +4,8 @@
 
 module Network.Komodo where
 
-import           Crypto.Secp256k1Wrapped
+import           Crypto.Secp256k1.Recoverable
+import           Data.Fixed
 import           Data.Serialize as S
 
 import           Network.Bitcoin
@@ -61,7 +62,7 @@ stringToRAddress s =
     _ -> Nothing
 
 deriveKomodoAddress :: MonadUnliftIO m => PubKey -> m RAddress
-deriveKomodoAddress pk = RAddress . H.addressHash <$> exportPubKey True pk
+deriveKomodoAddress pk = RAddress . H.addressHash <$> exportPubKeyIO True pk
 
 
 
@@ -69,6 +70,7 @@ deriveKomodoAddress pk = RAddress . H.addressHash <$> exportPubKey True pk
 
 data KomodoIdent = KomodoIdent
   { kmdSecKey :: SecKey
+  , kmdSecKeyH :: H.SecKey
   , kmdPubKey :: PubKey
   , kmdPubKeyI :: H.PubKeyI
   , kmdAddress :: RAddress
@@ -76,16 +78,17 @@ data KomodoIdent = KomodoIdent
 
 deriveKomodoIdent :: MonadUnliftIO m => SecKey -> m KomodoIdent
 deriveKomodoIdent kmdSecKey = do
-  kmdPubKey <- derivePubKey kmdSecKey
+  kmdPubKey <- derivePubKeyIO kmdSecKey
   kmdAddress <- deriveKomodoAddress kmdPubKey
-  let kmdPubKeyI = H.wrapPubKey True kmdPubKey
-  pure $ KomodoIdent{..}
+  let Just kmdSecKeyH = H.secKey $ fromFixed kmdSecKey
+  let kmdPubKeyI = H.wrapPubKey True $ H.derivePubKey kmdSecKeyH
+  kmdPubKeyI `seq` kmdSecKeyH `seq` pure KomodoIdent{..}
 
 
 -- UTXOs ----------------------------------------------------------------------
 
 listUnspentLogThresholdMs :: Int
-listUnspentLogThresholdMs = 200
+listUnspentLogThresholdMs = 2000
 
 komodoListUnspent :: Has BitcoinConfig r => [RAddress] -> Zeno r [KomodoUtxo]
 komodoListUnspent addrs = do
@@ -128,69 +131,46 @@ getOutPoint :: KomodoUtxo -> H.OutPoint
 getOutPoint utxo = H.OutPoint (utxoTxid utxo) (utxoVout utxo)
 
 
-
-
-
 -- Notarisation Data ----------------------------------------------------------
 --
 
-data KomodoNotarisation = NOR
+data KomodoNotaryOpret ref = NOR
   { norBlockHash :: Bytes32
   , norBlockNumber :: Word32
-  , norForeignRef :: Bytes32         -- Only present in encoded form in receipt
+  , norForeignRef :: ref
   , norSymbol :: String
   , norMom :: Bytes32
   , norMomDepth  :: Word16
   , norCcId :: Word16
-  , norMomom :: Bytes32
-  , norMomomDepth :: Word32
   } deriving (Eq, Show)
 
-instance Serialize KomodoNotarisation where
-  put nor@NOR{..} = encodeNotarisation isBack nor
-    where isBack = norForeignRef /= minBound
-  get = parseNotarisation False
+instance Serialize ref => Serialize (KomodoNotaryOpret ref) where
+  put NOR{..} = do
+    let putRev = put . bytesReverse
+    putRev $ norBlockHash
+    putWord32le norBlockNumber
+    put norForeignRef
+    mapM put norSymbol >> put '\0'
+    putRev norMom
+    putWord16le norMomDepth
+    putWord16le norCcId
+    -- when isBack do
+    --   putRev norMomom
+    --   putWord32le norMomomDepth
 
-encodeNotarisation :: Bool -> KomodoNotarisation -> Put
-encodeNotarisation isBack NOR{..} = do
-  put $ bytesReverse norBlockHash
-  putWord32le norBlockNumber
-  when isBack $ put $ bytesReverse norForeignRef
-  mapM put norSymbol >> put '\0'
-  put $ bytesReverse norMom
-  putWord16le norMomDepth
-  putWord16le norCcId
-  when isBack do
-    put $ bytesReverse norMomom
-    putWord32le norMomomDepth
+  get = do
+    let getSymbol = get >>= \case '\0' -> pure ""; s -> (s:) <$> getSymbol
+    let getRev = bytesReverse <$> get
+    norBlockHash <- getRev
+    norBlockNumber <- getWord32le
+    norForeignRef <- get
+    norSymbol <- getSymbol
+    norMom <- getRev
+    norMomDepth <- getWord16le
+    norCcId <- getWord16le
+    pure NOR{..}
 
-parseNotarisation :: Bool -> Get KomodoNotarisation
-parseNotarisation isBack = do
-  let getSymbol = get >>= \case '\0' -> pure ""; s -> (s:) <$> getSymbol
-      getRev = bytesReverse <$> get
-
-  norBlockHash <- getRev
-  norBlockNumber <- getWord32le
-  norForeignRef <- if isBack then getRev else pure nullBytes
-  norSymbol <- getSymbol
-  norMom <- getRev
-  norMomDepth <- getWord16le
-  norCcId <- getWord16le
-  norMomom <- if isBack then getRev else pure nullBytes
-  norMomomDepth <- if isBack then getWord32le else pure 0
-  pure NOR{..}
-
-instance FromJSON KomodoNotarisation where
-  parseJSON = parseJsonHexSerialized
-
-newtype KomodoNotarisationReceipt = KomodoNotarisationReceipt { unKNR :: KomodoNotarisation }
-  deriving (Eq, Show)
-
-instance Serialize KomodoNotarisationReceipt where
-  put (KomodoNotarisationReceipt n) = encodeNotarisation True n
-  get = KomodoNotarisationReceipt <$> parseNotarisation True
-
-instance FromJSON KomodoNotarisationReceipt where
+instance Serialize ref => FromJSON (KomodoNotaryOpret ref) where
   parseJSON = parseJsonHexSerialized
 
 -- Notarisation RPC
@@ -204,7 +184,7 @@ scanNotarisationsDB height symbol limit = do
     val <- queryBitcoin "scanNotarisationsDB" [show height, symbol, show limit]
     pure $ if val == Null
               then Nothing
-              else Just $ val .! "."
+              else Just $ val .! "{height,hash,opreturn}"
 
 kmdGetLastNotarisation :: (FromJSON n, Has BitcoinConfig r) => String -> Zeno r (Maybe (KmdNotarisation n))
 kmdGetLastNotarisation s = scanNotarisationsDB 0 s 100000

@@ -8,6 +8,7 @@ import Data.ByteArray as B
 import Data.ByteString as BS
 import Data.Word
 import Foreign.Ptr (Ptr)
+import Foreign.C.Types
 import System.IO.Unsafe
 
 
@@ -15,7 +16,7 @@ foreign import ccall unsafe "blake2b_256_personalized"
     c_blake2b_256_personalized :: Ptr Word8 -> Int  --- Pointer and length of personalization
                                -> Ptr Word8 -> Int  --- Pointer and length of data
                                -> Ptr Word8         --- Pointer to output
-                               -> IO Int
+                               -> IO CInt
 
 blake2bPersonalized :: ByteString -> ByteString -> ByteString
 blake2bPersonalized personalization input
