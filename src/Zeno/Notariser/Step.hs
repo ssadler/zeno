@@ -85,21 +85,20 @@ notariserStepFree nc@NotariserConfig{..} = start >> pure Done
     getLastNotarisationReceiptFree >>=
       \case
         Just receipt -> do
+          let fwd = notarise sequence notarisedHeight (Just receipt)
           case compare (receiptHeight receipt) notarisedHeight of
-            LT -> backnotarise (foreignHeight receipt)
-            o  -> do
-
-              notarise sequence notarisedHeight (Just receipt) <*
-
-                if o == EQ
-                   then do
-                     logDebug "Found receipt, proceed with next notarisation"
-                    else do
-                     logError $ show notarisation
-                     logError $ show receipt
-                     logError $ "The receipt height in %s is higher than the notarised\
-                                \ height in %s. Is %s node is lagging? Proceeding anyway." %
-                                (getSymbol sourceChain, getSymbol destChain, getSymbol destChain)
+            LT -> do
+              logDebug $ "Posting receipt to %s" % getSymbol sourceChain
+              backnotarise (foreignHeight receipt)
+            EQ -> fwd <* do
+              logDebug $ "Found receipt for %s.%i on %s, proceed with next notarisation" %
+                         (getSymbol sourceChain, notarisedHeight, getSymbol destChain)
+            GT  -> fwd <* do
+              logError $ show notarisation
+              logError $ show receipt
+              logError $ "The receipt height in %s is higher than the notarised\
+                         \ height in %s. Is %s node is lagging? Proceeding anyway." %
+                         (getSymbol sourceChain, getSymbol destChain, getSymbol destChain)
  
         _ -> do
           logDebug "Receipt not found, proceed to backnotarise"
