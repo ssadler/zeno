@@ -1,5 +1,10 @@
 # Changelog for Zeno
 
+## 0.2.2.1 - 16/6/2020
+
+* add `./manage.sh test-fast`
+* Fix some tests that got broken.
+
 ## 0.2.2.0 - 15/6/2020
 
 * Print version info on startup

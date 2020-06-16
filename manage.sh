@@ -26,11 +26,8 @@ function queryKmdDev () {
 
 function dot () {
     # eg: ./manage.sh dot | xdot -
-    graphmod -  # --collapse=Module
-}
-
-function build-fast() {
-  stack build --fast --ghc-options "-j4 +RTS -A128m -n2m -qg -RTS"
+    graphmod -
+    # --collapse=Module
 }
 
 function install-fast() {
@@ -38,10 +35,19 @@ function install-fast() {
   stack install
 }
 
+fast_build_ghc_ops="-j4 +RTS -A128m -n2m -qg -RTS"
+
+function build-fast() {
+  stack build --fast --ghc-options $fast_build_ghc_ops
+}
+
+function test-fast() {
+  stack test --ghc-options $fast_build_ghc_ops
+}
+
 function build-profile () {
   stack build --profile --ghc-options=-fprof-auto-top
 }
- 
 
 cmd=$1;
 if [[ "$cmd" == "" ]]; then
