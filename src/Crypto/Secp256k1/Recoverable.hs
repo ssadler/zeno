@@ -27,6 +27,8 @@ import Data.ByteString (ByteString)
 import Foreign
 import Foreign.C.Types
 import Data.Serialize
+import Lens.Micro.Platform
+import Test.QuickCheck (Arbitrary)
 
 
 newtype PubKey = PubKey { unPubKey :: FixedBytes 33 }
@@ -34,17 +36,19 @@ newtype PubKey = PubKey { unPubKey :: FixedBytes 33 }
 newtype SecKey = SecKey { unSecKey :: FixedBytes 32 }
   deriving (Eq, Read, Show, Serialize, ByteArrayAccess, IsString, Fixed 32) via FixedBytes 32
 newtype RecSig = RecSig { unRecSig :: FixedBytes 65 }
-  deriving (Eq, Read, Show, Serialize, ByteArrayAccess, FromJSON, ToJSON, IsString, Fixed 65) via FixedBytes 65
+  deriving ( Eq, Read, Show, Serialize, IsString, FromJSON, ToJSON
+           , ByteArrayAccess, Arbitrary, Fixed 65
+           ) via FixedBytes 65
 
-toRSV :: RecSig -> (Bytes32, Bytes32, Word8)
-toRSV (RecSig b) =
-  let (r, sv) = splitFixed b
-      (s, bv) = splitFixed sv
-      [v] = unpack $ unFixed bv
-   in (bytesReverse r, bytesReverse s, v)
+toRSV :: RecSig -> (Integer, Integer, Word8)
+toRSV b =
+  let bs = unpack $ unFixed b
+      (r, (s, [v])) = over _2 (splitAt 32) (splitAt 32 bs)
+   in (intFromBytesBE r, intFromBytesBE s, fromIntegral v)
 
-fromRSV :: Bytes32 -> Bytes32 -> Word8 -> RecSig
-fromRSV r s v = RecSig $ r `bappend` s `bappend` newFixed v
+fromRSV :: (Integer, Integer, Word8) -> RecSig
+fromRSV (r, s, v) = RecSig $ f r `bappend` f s `bappend` newFixed v
+  where f = toFixedR . BS.pack . intToBytesBE :: Integer -> Bytes32
 
 foreign import ccall unsafe "secp256k1_recoverable_sign"
   c_secp256k1_recoverable_sign :: Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO CInt
@@ -94,4 +98,4 @@ exportPubKeyIO False pk = do
     withByteArray pk \ppk -> do
       alloc 65 \pout -> do
         ret <- c_secp256k1_recoverable_pubkey_serialize_der pout ppk
-        unless (ret == 1) $ error $ "derive returned: " ++ show ret
+        unless (ret == 1) $ error $ "export returned: " ++ show ret

@@ -54,11 +54,11 @@ instance Serialize PackedInteger where
 
 putPacked :: (Bits i, Integral i) => i -> Put
 putPacked i = do
-  let bs = intToBytesLE i
+  let bs = intToBytesBE i
   put (fromIntegral $ length bs :: VarInt)
   mapM_ put bs
 
 getPacked :: (Bits i, Integral i) => Get i
 getPacked = do
   len <- fromIntegral . unVarInt <$> get
-  intFromBytesLE <$> replicateM len get
+  intFromBytesBE <$> replicateM len get

@@ -72,8 +72,20 @@ tx_a = Tx { _nonce = 0
           , _chainId = 16
           }
 
-txsig_a :: (Bytes32, Bytes32, Word8)
-txsig_a = ( "14f469b1b8022b411cbe6e6b19b21578223bb81be0f32048bc258baa905a47d0"
-          , "37a2c7cc63e8f8b3523700ad23709e2ae7582e62b78b7e6e178c203b5a863e68"
+txsig_a :: (Integer, Integer, Word8)
+txsig_a = ( 94207143704282536795077827584924287172326206634158126977845538321406706185236
+          , 47151008037308448561677267546586923650500568966043020322874503751144651072055
           , 1
           )
+
+
+
+prop_recover_address :: Bytes32 -> Bool
+prop_recover_address msg = unsafePerformIO do
+  sig <- signIO sk msg
+  a <- recoverAddr msg sig
+  pure $ a == address
+
+prop_split_rsv :: RecSig -> Bool
+prop_split_rsv sig =
+  fromRSV (toRSV sig) == sig

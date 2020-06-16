@@ -63,7 +63,7 @@ ethMakeNotarisationCallData :: NotarisationParams -> ByteString
 ethMakeNotarisationCallData = abi "notarise(uint256,bytes32,bytes)"
 
 
-exportMultisigABI :: [RecSig] -> ([Bytes32], [Bytes32], ByteString)
+exportMultisigABI :: [RecSig] -> ([Integer], [Integer], ByteString)
 exportMultisigABI sigs =
   over _3 (BS.pack . fmap (+27)) $ unzip3 $ toRSV <$> sigs
 

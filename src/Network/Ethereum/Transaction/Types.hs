@@ -41,7 +41,6 @@ instance RLPEncodable Transaction where
   rlpEncode tx = RLP.Array (c <> e) where
 
     RLP.Array c = rlpEncode
-
         ( _nonce tx
         , _gasPrice tx
         , _gas tx
@@ -52,8 +51,8 @@ instance RLPEncodable Transaction where
     
     RLP.Array e = rlpEncode $
         case toRSV <$> _sig tx of
-          Nothing -> (unChainId $ _chainId tx, "", "")
-          Just (r, s, v) -> (encodeSpecialV (_chainId tx) v, fromFixed r, fromFixed s)
+          Nothing -> (unChainId $ _chainId tx, 0, 0)
+          Just (r, s, v) -> (encodeSpecialV (_chainId tx) v, r, s)
 
   rlpDecode (RLP.Array a) | length a == 9 = do
 
@@ -67,7 +66,7 @@ instance RLPEncodable Transaction where
     let pad32 "" = ""
         pad32 bs = BS.replicate (32 - BS.length bs) 0 <> bs
         (c, v) = decodeSpecialV sv
-        _sig = if r == "" || s == "" then Nothing else Just (fromRSV (toFixed r) (toFixed s) v)
+        _sig = if r == 0 || s == 0 then Nothing else Just (fromRSV (r, s, v))
         _chainId = if isJust _sig then c else ChainId sv
 
     pure $ Tx { .. }

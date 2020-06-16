@@ -87,7 +87,7 @@ instance PutABI Integer where
   putABI = putABI . U256
 
 instance PutABI U256 where
-  putABI (U256 i) = putData $ bytesPad (BS.pack $ reverse $ intToBytesLE i) True
+  putABI (U256 i) = putData $ bytesPad (BS.pack $ intToBytesBE i) True
 
 instance PutABI ByteString where
   putABI bs =
@@ -187,7 +187,7 @@ instance GetABI Integer where
   getABI = unU256 <$> getABI
 
 instance GetABI U256 where
-  getABI = U256 . intFromBytesLE . reverse . BS.unpack <$> takeN 32
+  getABI = U256 . intFromBytesBE . BS.unpack <$> takeN 32
 
 instance GetABI Word32 where
   getABI = fromIntegral . unU256 <$> getABI

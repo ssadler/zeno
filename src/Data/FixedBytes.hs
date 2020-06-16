@@ -32,8 +32,8 @@ module Data.FixedBytes
   -- Hex Prefixed version
   , PrefixedHex(..)
   -- Misc
-  , intToBytesLE
-  , intFromBytesLE
+  , intToBytesBE
+  , intFromBytesBE
   ) where
 
 
@@ -55,6 +55,7 @@ import           Data.Serialize
 import qualified Data.RLP as RLP
 import           Foreign
 import           GHC.TypeLits
+import           Test.QuickCheck.Arbitrary
 import           Text.Printf
 
 
@@ -126,6 +127,11 @@ instance forall n. KnownNat n => Fixed n (FixedBytes n) where
   {-# INLINE unFixed #-}
   asFixed = id
   {-# INLINE asFixed #-}
+
+instance forall n. KnownNat n => Arbitrary (FixedBytes n) where
+  arbitrary =
+    let n = fixedGetN (Proxy :: Proxy n)
+     in Bytes . pack <$> replicateM n arbitrary
 
 bappend :: forall n m. (KnownNat n, KnownNat m)
         => FixedBytes n -> FixedBytes m -> FixedBytes (n + m)
@@ -271,17 +277,16 @@ instance forall n. KnownNat n => StringConv (PrefixedHex n) (FixedBytes n) where
 -- | Misc utils
 
 
-intToBytesLE :: (Bits a, Integral a) => a -> [Word8]
-intToBytesLE = pack
-  where pack 0 = []
-        pack x = fromIntegral (x .&. 255) : pack (shiftR x 8)
+intToBytesBE :: (Bits i, Integral i) => i -> [Word8]
+intToBytesBE = reverse . unpack
+  where unpack 0 = []
+        unpack x = fromIntegral (x .&. 255) : unpack (shiftR x 8)
 
-intFromBytesLE :: (Bits i, Integral i) => [Word8] -> i
-intFromBytesLE = unpack
-  where unpack (byte : rest) = fromIntegral byte + shift (unpack rest) 8
-        unpack [] = 0
+intFromBytesBE :: (Bits i, Integral i) => [Word8] -> i
+intFromBytesBE = pack . reverse
+  where pack (byte : rest) = fromIntegral byte + shift (pack rest) 8
+        pack [] = 0
 
 instance RLP.RLPEncodable ShortByteString where
   rlpEncode = RLP.rlpEncode . fromShort
   rlpDecode  = fmap toShort . RLP.rlpDecode
-
