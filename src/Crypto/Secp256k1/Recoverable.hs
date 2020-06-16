@@ -44,11 +44,11 @@ toRSV :: RecSig -> (Integer, Integer, Word8)
 toRSV b =
   let bs = unpack $ unFixed b
       (r, (s, [v])) = over _2 (splitAt 32) (splitAt 32 bs)
-   in (intFromBytesBE r, intFromBytesBE s, fromIntegral v)
+   in (intFromBytesBE $ reverse r, intFromBytesBE $ reverse s, fromIntegral v)
 
 fromRSV :: (Integer, Integer, Word8) -> RecSig
 fromRSV (r, s, v) = RecSig $ f r `bappend` f s `bappend` newFixed v
-  where f = toFixedR . BS.pack . intToBytesBE :: Integer -> Bytes32
+  where f = toFixedR . BS.pack . reverse . intToBytesBE :: Integer -> Bytes32
 
 foreign import ccall unsafe "secp256k1_recoverable_sign"
   c_secp256k1_recoverable_sign :: Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO CInt

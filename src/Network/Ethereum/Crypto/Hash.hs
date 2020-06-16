@@ -14,7 +14,7 @@ import           Data.ByteString (ByteString)
 import           Data.FixedBytes
 
 
-type Sha3 = Bytes32
+type Sha3 = PrefixedHex 32
 
 
 sha3' :: ByteString -> ByteString
