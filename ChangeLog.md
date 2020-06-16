@@ -2,6 +2,8 @@
 
 ## 0.2.2.1 - 16/6/2020
 
+* More debug messages for sync notariser
+* Remove dependency on `sys/random.h` which isn't present on some systems
 * add `./manage.sh test-fast`
 * Fix some tests that got broken.
 

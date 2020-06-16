@@ -35,6 +35,8 @@ module Data.FixedBytes
   -- Misc
   , intToBytesBE
   , intFromBytesBE
+  , intToBytesLE
+  , intFromBytesLE
   ) where
 
 
@@ -278,15 +280,18 @@ instance forall n. KnownNat n => StringConv (PrefixedHex n) (FixedBytes n) where
 -- | Misc utils
 
 
-intToBytesBE :: (Bits i, Integral i) => i -> [Word8]
-intToBytesBE = reverse . unpack
+intFromBytesBE, intFromBytesLE :: (Bits i, Integral i) => [Word8] -> i
+intFromBytesLE = pack
+  where pack (byte : rest) = fromIntegral byte + shift (pack rest) 8
+        pack [] = 0
+
+intToBytesBE, intToBytesLE :: (Bits i, Integral i) => i -> [Word8]
+intToBytesLE = unpack
   where unpack 0 = []
         unpack x = fromIntegral (x .&. 255) : unpack (shiftR x 8)
 
-intFromBytesBE :: (Bits i, Integral i) => [Word8] -> i
-intFromBytesBE = pack . reverse
-  where pack (byte : rest) = fromIntegral byte + shift (pack rest) 8
-        pack [] = 0
+intFromBytesBE = intFromBytesLE . reverse
+intToBytesBE = reverse . intToBytesLE
 
 instance RLP.RLPEncodable ShortByteString where
   rlpEncode = RLP.rlpEncode . fromShort
