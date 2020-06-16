@@ -1,5 +1,4 @@
 
-#include <sys/random.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <errno.h>
@@ -13,15 +12,27 @@ static secp256k1_context* ctx;
 void __attribute__ ((constructor)) premain()
 {
     ctx = secp256k1_context_create(SECP256K1_CONTEXT_SIGN | SECP256K1_CONTEXT_VERIFY);
+
     unsigned char seed[32];
-    if (32 != getrandom(seed, 32, 0)) {
-        fprintf(stderr, "%s: getrandom failed with errno: %i\n", __FILE__, errno);
+    int read;
+#ifdef SYS_getrandom
+    read = syscall(SYS_getrandom, seed, 32, 0);
+#else
+    FILE *fp = fopen("/dev/urandom", "r");
+    read = (int) fread(&seed, 1, 32, fp);
+    fclose(fp);
+#endif
+
+    if (read != 32) {
+        fprintf(stderr, "%s: Could not initialize secp256k1 context\n", __FILE__);
         exit(1);
     }
+
     if (!secp256k1_context_randomize(ctx, seed)) {
         fprintf(stderr, "secp256k1_context_randomize failed\n");
         exit(1);
     }
+    fprintf(stderr, "secp256k1_context_randomize succeeded\n");
 }
 
 int secp256k1_recoverable_sign(

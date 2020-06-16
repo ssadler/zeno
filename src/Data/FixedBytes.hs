@@ -12,6 +12,7 @@ module Data.FixedBytes
   ( module Out
   , Fixed(..)
   , FixedBytes(..)
+  , asFixed
   , bappend
   , bytesReverse
   , eitherFixed
@@ -62,7 +63,6 @@ import           Text.Printf
 class KnownNat n => Fixed n a | a -> n where
   unsafeToFixed :: ShortByteString -> a
   unFixed :: a -> ShortByteString
-  asFixed :: a -> FixedBytes n
 
 
 -- Bytes type -----------------------------------------------------------------
@@ -89,11 +89,6 @@ instance KnownNat n => Serialize (FixedBytes n) where
   put = putShortByteString . unFixed
   get = Bytes <$> getShortByteString n where
     n = fixedGetN (Proxy :: Proxy n)
-
-asHex :: [Word8] -> String
-asHex [] = []
-asHex (x:xs) = (c $ quot x 16) : (c $ mod x 16) : asHex xs
-  where c w = "0123456789abcdef" !! fromIntegral w
 
 instance forall n. KnownNat n => ToJSON (FixedBytes n) where
   toJSON = toJSON . asHex . unpack . unFixed
@@ -125,13 +120,19 @@ instance forall n. KnownNat n => Fixed n (FixedBytes n) where
   {-# INLINE unsafeToFixed #-}
   unFixed = unFixedBytes
   {-# INLINE unFixed #-}
-  asFixed = id
-  {-# INLINE asFixed #-}
 
 instance forall n. KnownNat n => Arbitrary (FixedBytes n) where
   arbitrary =
     let n = fixedGetN (Proxy :: Proxy n)
      in Bytes . pack <$> replicateM n arbitrary
+
+asFixed :: Fixed n a => a -> FixedBytes n
+asFixed = Bytes . unFixed
+
+asHex :: [Word8] -> String
+asHex [] = []
+asHex (x:xs) = (c $ quot x 16) : (c $ mod x 16) : asHex xs
+  where c w = "0123456789abcdef" !! fromIntegral w
 
 bappend :: forall n m. (KnownNat n, KnownNat m)
         => FixedBytes n -> FixedBytes m -> FixedBytes (n + m)
