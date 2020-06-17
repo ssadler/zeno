@@ -32,7 +32,6 @@ void __attribute__ ((constructor)) premain()
         fprintf(stderr, "secp256k1_context_randomize failed\n");
         exit(1);
     }
-    fprintf(stderr, "secp256k1_context_randomize succeeded\n");
 }
 
 int secp256k1_recoverable_sign(
