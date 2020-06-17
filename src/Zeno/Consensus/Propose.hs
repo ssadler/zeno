@@ -50,7 +50,7 @@ determineProposers mseq = do
   pure $
     take (length members') $
       case (proposerRoundRobin, mseq) of
-        (true, Just seq) -> do
+        (True, Just seq) -> do
           let primary = members' !! mod seq (length members')
           (primary, True) : filter (\(a, _) -> a /= primary) fallbacks
         _ -> fallbacks
