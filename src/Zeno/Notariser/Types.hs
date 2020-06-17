@@ -49,6 +49,7 @@ data AbstractNotariserConfig source dest = NotariserConfig
   { members :: [Address]
   , threshold :: Int
   , consensusTimeout :: Int
+  , proposerRoundRobin :: Bool
   , sourceChain :: source
   , destChain :: dest
   } deriving (Show, Eq)
@@ -69,6 +70,7 @@ instance FromJSON NotariserConfig where
         ethChainId            <- o .: "ethChainId"
         consensusTimeout      <- o .: "consensusTimeout" <|> pure defaultTimeout
         ethBlockInterval      <- o .: "ethBlockInterval" <|> pure 5
+        proposerRoundRobin    <- o .: "proposerRoundRobin" <|> pure False
         let sourceChain = KMDSource kmdChainSymbol kmdNotarySigs kmdBlockInterval
         let destChain = ETHDest ethChainId "ROPSTEN" notarisationsContract ethNotariseGas ethBlockInterval
         pure $ NotariserConfig{..}

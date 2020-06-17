@@ -71,7 +71,7 @@ spec_notariser_step = do
     members = Address . newFixed <$> [1..42]
     c1 = TestChain "SRC"
     c2 = TestChain "DEST"
-    nc = NotariserConfig members (e 2) (e 3) c1 c2
+    nc = NotariserConfig members (e 2) (e 3) False c1 c2
     next f = runFreeT f >>= \case Pure a -> error "Pure"; Free f -> pure f
     term f = runFreeT f >>= \case Free _ -> error "Free"; Pure a -> pure a
     fin f = term (f ()) >>= (@?= Done)

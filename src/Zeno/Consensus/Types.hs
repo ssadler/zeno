@@ -139,6 +139,7 @@ data ConsensusParams = ConsensusParams
   { members'           :: [Address]
   , ident'             :: EthIdent
   , timeout'           :: Timeout
+  , proposerRoundRobin :: Bool
   , onProposerTimeout' :: Maybe (ProposerTimeout -> IO ())
   , roundTypeId        :: VarInt
   }

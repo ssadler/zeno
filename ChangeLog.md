@@ -1,5 +1,9 @@
 # Changelog for Zeno
 
+## 0.2.3.0 - 17/6/2020
+
+* Make proposer round robin activation configurable
+
 ## 0.2.2.2 - 16/6/2020
 
 * More debug messages for sync notariser

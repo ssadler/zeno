@@ -38,27 +38,40 @@ import Zeno.Consensus.Types
 --   even if one proposer times out. We will not record statistics for the
 --   fallback proposers, because the fallback proposers will not be called upon
 --   an equal number of times.
---
+
+
 determineProposers :: Maybe Int -> Consensus [(Address, Bool)]
-determineProposers (Just seq) = do
-  ConsensusParams{members'}  <- asks has
-  let primary = members' !! mod seq (length members')
-  ((primary, True):) . take 2 <$> determineProposers Nothing
-determineProposers Nothing = do
-  ConsensusParams{members'}  <- asks has
+determineProposers mseq = do
+  ConsensusParams{members', proposerRoundRobin}  <- asks has
   seed <- getStepSeed
-  {- This gives fairly good distribution:
-  import hashlib
-  dist = [0] * 64
-  for i in xrange(100000):
-      m = hashlib.sha256(str(i))
-      d = sum(map(ord, m.digest()))
-      dist[d%64] += 1
-  print dist
-  -}
-  let msg2sum = sum . map fromIntegral . BS.unpack . sha3' . encode
-      i = mod (msg2sum seed) (length members')
-  pure $ drop i $ (,False) <$> cycle members'
+
+  let fallbacks = (,False) <$> distribute seed members'
+
+  pure $
+    take (length members') $
+      case (proposerRoundRobin, mseq) of
+        (true, Just seq) -> do
+          let primary = members' !! mod seq (length members')
+          (primary, True) : filter (\(a, _) -> a /= primary) fallbacks
+        _ -> fallbacks
+
+  where
+
+  distribute seed members = do
+    {- Random selection based on step seed
+    import hashlib
+    dist = [0] * 64
+    for i in xrange(100000):
+        m = hashlib.sha256(str(i))
+        d = sum(map(ord, m.digest()))
+        dist[d%64] += 1
+    print dist
+    -}
+    
+    let msg2sum = sum . map fromIntegral . BS.unpack . sha3' . encode
+        i = mod (msg2sum seed) (length members)
+     in drop i members
+
 
 dispatchProposerTimeout :: Address -> Consensus ()
 dispatchProposerTimeout proposer = do
@@ -68,7 +81,6 @@ dispatchProposerTimeout proposer = do
   liftIO $ act timeout
 
 
-
 propose :: forall a. BallotData a
         => String
         -> Maybe Int
@@ -76,35 +88,35 @@ propose :: forall a. BallotData a
         -> Consensus (Ballot a)
 propose name mseq mobj = do
   incMajorStepNum
-  determineProposers mseq >>= go
-    where
-      go :: [(Address, Bool)] -> Consensus (Ballot a)
-      go [] = throwIO ConsensusTimeout
-      go ((pAddr, isPrimary):xs) = do
+  proposers <- determineProposers mseq
+  go $ take 3 proposers
+  where
+    go :: [(Address, Bool)] -> Consensus (Ballot a)
+    go [] = throwIO ConsensusTimeout
+    go ((pAddr, isPrimary):xs) = do
 
-        obj <- do
-          myAddress <- getMyAddress
-          if pAddr == myAddress
-             then logDebug ("Proposer is: %s (me)" % show pAddr) >> (Just <$> mobj)
-             else logDebug ("Proposer is: %s" % show pAddr) >> pure Nothing
+      obj <- do
+        myAddress <- getMyAddress
+        if pAddr == myAddress
+           then logDebug ("Proposer is: %s (me)" % show pAddr) >> (Just <$> mobj)
+           else logDebug ("Proposer is: %s" % show pAddr) >> pure Nothing
 
-        let
-          collect inv = do
-            case Map.lookup pAddr inv of
-              Just (s, Just obj2) -> pure $ Just $ Ballot pAddr s obj2
-              Just (s, Nothing) -> do
-                -- TODO: handle mischief
-                throwIO ConsensusTimeout
-              Nothing -> pure Nothing
-        
-        catch
-          do step' (printf "propose %s" name) collect obj
+      let
+        collect inv = do
+          case Map.lookup pAddr inv of
+            Just (s, Just obj2) -> pure $ Just $ Ballot pAddr s obj2
+            Just (s, Nothing) -> do
+              -- TODO: handle mischief
+              throwIO ConsensusTimeout
+            Nothing -> pure Nothing
+      
+      catch
+        do step' (printf "propose %s" name) collect obj
 
-          \ConsensusTimeout -> do
-            logInfo $ "Timeout collecting for proposer: " ++ show pAddr
-            when isPrimary do
-              dispatchProposerTimeout pAddr
-            incMinorStepNum
-            go xs
-
+        \ConsensusTimeout -> do
+          logInfo $ "Timeout collecting for proposer: " ++ show pAddr
+          when isPrimary do
+            dispatchProposerTimeout pAddr
+          incMinorStepNum
+          go xs
 
