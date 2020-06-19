@@ -8,11 +8,7 @@ extra-deps:
 - git: https://github.com/ssadler/haskoin-core
   commit: 1efb7a5764cf6846122d2be73c306e3d826db085
 - git: https://github.com/haskoin/secp256k1-haskell
-  commit: f0dbaa6739c8ac922a432aa8df8f73a117c510b6
-
-flags:
-  secp256k1-haskell:
-    recovery: true
+  commit: 239159122cc6f830957759a1d247ded7ffeba915
 
 
 # Extra package databases containing global packages

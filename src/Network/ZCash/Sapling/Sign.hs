@@ -15,10 +15,10 @@ import Zeno.Prelude
 
 signTxSapling
   :: H.Network
-  -> SaplingTx                  -- ^ transaction to sign
-  -> [H.SigInput]              -- ^ signing parameters
+  -> SaplingTx                   -- ^ transaction to sign
+  -> [H.SigInput]                -- ^ signing parameters
   -> [H.SecKey]                  -- ^ private keys to sign with
-  -> Either String SaplingTx   -- ^ signed transaction
+  -> Either String SaplingTx     -- ^ signed transaction
 signTxSapling net otx sigis allKeys =
   saplingFromLegacy <$> signTx net (saplingToLegacy otx) sigis allKeys
 

@@ -16,6 +16,7 @@ function runKmdDev () {
       -ac_blocktime=3 \
       -addressindex=1 \
       -ac_nk=96,5 \
+      -ac_sapling=2 \
       -testnode=1 &
   cpulimit -l 33 -p $!
 }
