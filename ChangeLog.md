@@ -1,5 +1,9 @@
 # Changelog for Zeno
 
+## 0.2.3.1 - 19/6/2020
+
+* Upgrade version of secp256k1 wrapper
+
 ## 0.2.3.0 - 17/6/2020
 
 * Make proposer round robin activation configurable
