@@ -1,5 +1,5 @@
 name:                zeno
-version:             0.2.3.1
+version:             0.2.2.2
 github:              "ssadler/zeno"
 license:             BSD3
 author:              "ssadler"
@@ -31,7 +31,6 @@ dependencies:
 - emojis
 - entropy
 - exceptions
-- free
 - githash
 - hashable
 - haskoin-core
@@ -40,6 +39,7 @@ dependencies:
 - memory
 - microlens-platform
 - monad-logger
+- monad-skeleton
 - mtl
 - network
 - network-simple
@@ -66,12 +66,14 @@ library:
                        , BlockArguments
                        , ConstraintKinds
                        , DataKinds
+                       , DeriveFunctor
                        , DeriveGeneric
                        , DerivingStrategies
                        , DerivingVia
                        , FlexibleContexts
                        , FlexibleInstances
                        , FunctionalDependencies
+                       , GADTs
                        , GeneralizedNewtypeDeriving
                        , OverloadedStrings
                        , LambdaCase
@@ -79,6 +81,7 @@ library:
                        , NamedFieldPuns
                        , RecordWildCards
                        , ScopedTypeVariables
+                       , StandaloneDeriving
                        , TemplateHaskell
                        , TupleSections
                        , TypeFamilies

@@ -28,7 +28,6 @@ getConsensusParams nc@NotariserConfig{..} roundType = do
   let members' = members
       ident' = ident
       timeout' = consensusTimeout
-      onProposerTimeout' = Nothing
       roundTypeId = fromIntegral $ fromEnum roundType
   pure $ ConsensusParams{..}
 

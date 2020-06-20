@@ -6,6 +6,7 @@ module Zeno.Consensus
   , withConsensusNode
   , runConsensus
   , propose
+  , proposeWithAction
   , step
   , incStep
   , collectMajority
@@ -23,7 +24,7 @@ import Zeno.Consensus.Types
 import Zeno.Consensus.Round
 import Zeno.Consensus.Propose
 import Zeno.Consensus.P2P
-import Network.Ethereum.Crypto.Address (Address)
+import Network.Ethereum.Crypto (Address)
 
 import Zeno.Prelude
 import Zeno.Console

@@ -2,25 +2,38 @@
 
 module Network.JsonRpc
   ( RPCException(..)
+  , RPCTransportException(..)
   , Endpoint(..)
   , queryJsonRpc
   ) where
 
+import qualified Data.ByteString as BS
 import           Network.HTTP.Client
 import           Network.HTTP.Simple
 import           Network.Socket hiding (send, recv)
 
+import           Data.Aeson (encode)
 import           Zeno.Data.Aeson
 import           Zeno.Monad
 import           Zeno.Prelude
 
 
-data RPCException =
-    RPCUnexpected String
-  | RPCException String
-  deriving (Show)
+data RPCException
+  = RPCError Value
+  | RPCUnexpectedResult Value
+
+instance Show RPCException where
+  show (RPCError v) = "RPCError: " ++ jsonString v
+  show (RPCUnexpectedResult v) = "RPCUnexpected: " ++ jsonString v
 
 instance Exception RPCException
+
+data RPCTransportException
+  = RPCJsonException JSONException
+  | RPCHttpException HttpException
+  deriving (Show)
+
+instance Exception RPCTransportException
 
 data Endpoint = HttpEndpoint Request
 
@@ -36,24 +49,32 @@ createRequest method params =
          , "id"      .= Number 1
          ]
 
-queryHttp :: Request -> Value -> Zeno r Value
-queryHttp req body = do
+queryHttpJson :: Request -> Value -> Zeno r Value
+queryHttpJson req body = do
   let reqWithBody = setRequestBodyJSON body $ setRequestMethod "POST" req
-  response <- httpJSONEither reqWithBody
-  case getResponseBody response of
-       Left e -> throwIO $ RPCException (show e)
-       Right out -> pure out
+  catch
+    do
+      response <- httpJSONEither reqWithBody
+      case getResponseBody response of
+           Left e -> throwIO $ RPCJsonException e
+           Right out -> pure out
+
+    \e -> throwIO $ RPCHttpException e
 
 queryJsonRpc :: (FromJSON a, ToJSON p) => Endpoint -> Text -> p -> Zeno r a
 queryJsonRpc endpoint method params = do
-  let transport = case endpoint of HttpEndpoint req -> queryHttp req
-      req = createRequest method params
-  traceE ("Json RPC: " ++ show (endpoint, asString req)) do
-    res <- transport req
+  let transport = case endpoint of HttpEndpoint req -> queryHttpJson req
+      body = createRequest method params
+  traceE ("Json RPC: " ++ show (endpoint, jsonString body)) do
+    res <- transport body
     case res .? "{error}" of
       Just e | e /= Null ->
-        throwIO $ RPCException $ asString (e::Value)
+        throwIO $ RPCError e
       _ ->
         case res .? "{result}" of
           Just r -> pure r
-          Nothing -> throwIO $ RPCUnexpected $ asString res
+          Nothing -> throwIO $ RPCUnexpectedResult res
+
+
+jsonString :: Value -> String
+jsonString = toS . encode

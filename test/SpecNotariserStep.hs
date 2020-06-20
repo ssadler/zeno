@@ -1,4 +1,5 @@
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE PartialTypeSignatures #-}
 
 module SpecNotariserStep where
 
@@ -6,9 +7,8 @@ import TestUtils
 
 import Control.Monad.Except
 import Control.Monad.Identity
-import Control.Monad.Trans.Free hiding (iterT)
-import Control.Monad.Trans.Free.Church
 import Control.Monad.Logger
+import Control.Monad.Skeleton
 
 import Data.Word
 import Data.FixedBytes
@@ -19,8 +19,7 @@ import Network.Ethereum (Address(..))
 import Zeno.Notariser.Types
 import Zeno.Notariser.Targets
 import Zeno.Notariser.Step
-import Debug.Trace
-
+import Zeno.Prelude
 
 type TestBase = IO
 runTestBase = id
@@ -53,103 +52,115 @@ instance Notarisation (Word32, Word32) where
 instance NotarisationReceipt (Word32, Word32) where
   receiptHeight = fst
  
+
+
+type Bone = NotariserStepI TestChain TestChain TestBase
+
+
+runStep :: Maybe (ChainNotarisation TestChain, ProposerSequence)
+        -> Maybe (ChainNotarisationReceipt TestChain)
+        -> MonadView Bone (Skeleton Bone) a -> TestBase (Skeleton Bone a)
 runStep mdest msource =
   \case
-    GetLastNotarisationFree f             -> f mdest
-    WaitNextSourceHeight lastHeight f     -> f $ Just $ lastHeight + 1
-    WaitNextDestHeight   lastHeight f     -> f $ Just $ lastHeight + 1
-    GetLastNotarisationReceiptFree f      -> f msource
-    RunNotarise last current mreceipt f   -> error "exited"
-    RunNotariseReceipt seq bnd lastNota f -> error "exited"
+    GetLastNotarisationFree             :>>= f -> pure $ f mdest
+    GetLastNotarisationReceiptFree      :>>= f -> pure $ f msource
+    WaitNextSourceHeight lastHeight     :>>= f -> pure $ f $ Just $ lastHeight + 1
+    WaitNextDestHeight   lastHeight     :>>= f -> pure $ f $ Just $ lastHeight + 1
+    NotariserStepLift act               :>>= f -> f <$> act
+    RunNotarise last current mreceipt   :>>= f -> error "exited"
+    RunNotariseReceipt seq bnd lastNota :>>= f -> error "exited"
+
+members' = Address . newFixed <$> [1..42]
+nc = NotariserConfig members' (error "threhsold") (error "timeout") (error "proposerRoundRobin") (TestChain "SRC") (TestChain "DEST")
+go :: (MonadView Bone (Skeleton Bone) () -> TestBase (Skeleton Bone ())) -> TestBase ()
+go f = inner $ debone $ notariserStepFree nc
+  where
+    inner (Return ()) = pure ()
+    inner o = f o >>= inner . debone
+
+next :: Skeleton Bone a -> TestBase (MonadView Bone (Skeleton Bone) a)
+next skel =
+  case debone skel of
+    NotariserStepLift act :>>= f -> act >>= next . f
+    o -> pure o
 
 
-spec_notariser_step :: Spec
-spec_notariser_step = do
+test_notariser_step :: TestTree
+test_notariser_step = testGroup "notarises"
+  [
+    testCase "forward when there are no notarisations" do
 
-  let
-    e = error . show
-    members = Address . newFixed <$> [1..42]
-    c1 = TestChain "SRC"
-    c2 = TestChain "DEST"
-    nc = NotariserConfig members (e 2) (e 3) False c1 c2
-    next f = runFreeT f >>= \case Pure a -> error "Pure"; Free f -> pure f
-    term f = runFreeT f >>= \case Free _ -> error "Free"; Pure a -> pure a
-    fin f = term (f ()) >>= (@?= Done)
-
-    go :: (NotariserStepF TestChain TestChain TestBase (TestBase Done) -> TestBase Done) -> TestBase ()
-    go f = do
-      Done <- runTestBase $ flip iterT (notariserStepFree nc) f
-      pure ()
-
-  describe "notarises" do
-    it "forward when there are no notarisations" $ do
-
-      GetLastNotarisationFree f <- next $ fromFT (notariserStepFree nc)
-      WaitNextSourceHeight nextHeight f <- next $ f Nothing
+      GetLastNotarisationFree :>>= f <- next $ notariserStepFree nc
+      WaitNextSourceHeight nextHeight :>>= f <- next $ f Nothing
       nextHeight `shouldBe` 0
-      RunNotarise seq h Nothing f <- next $ f $ Just 20
+      RunNotarise seq h Nothing :>>= f <- next $ f $ Just 20
       seq `shouldBe` 0
       h `shouldBe` 20
-      fin f
+      Return () <- next $ f ()
+      pure ()
 
-    it "backward when there is no receipt" do
+  , testCase "backward when there is no receipt" do
       go \case
-        RunNotariseReceipt _ thisHeight ndata f -> do
-          ndata `shouldBe` 1
-          f ()
+        RunNotariseReceipt _ thisHeight ndata :>>= f -> do
+          liftIO $ ndata `shouldBe` (1 :: Word32)
+          pure $ f ()
         o -> runStep (Just (1, 98)) Nothing o
 
-    it "backward when there is a lower receipt" do
+  , testCase "backward when there is a lower receipt" do
       go \case
-        RunNotariseReceipt _ thisHeight ndata f -> do
+        RunNotariseReceipt _ thisHeight ndata :>>= f -> do
           ndata `shouldBe` 75
-          f ()
+          pure $ f ()
         o -> runStep (Just (75, 98)) (Just (74, 0)) o
         
-    it "forward when there is an equal receipt" do
+  , testCase "forward when there is an equal receipt" do
       go \case
-        WaitNextSourceHeight nextHeight f -> do
+        WaitNextSourceHeight nextHeight :>>= f -> do
           nextHeight `shouldBe` 75
-          f $ Just 80
-        RunNotarise seq h (Just _) f -> do
+          pure $ f $ Just 80
+        RunNotarise seq h (Just _) :>>= f -> do
           h `shouldBe` 80
-          f ()
+          pure $ f ()
         o -> runStep (Just (75, 98)) (Just (75, 0)) o
 
-    it "repeat when wait for source block" do
-      GetLastNotarisationFree f <- next $ fromFT (notariserStepFree nc)
-      WaitNextSourceHeight nextHeight f <- next $ f Nothing
+  , testCase "repeat when wa, testCase for source block" do
+      GetLastNotarisationFree :>>= f <- next $ notariserStepFree nc
+      WaitNextSourceHeight nextHeight :>>= f <- next $ f Nothing
       nextHeight `shouldBe` 0
-      GetLastNotarisationFree f <- next $ f Nothing
+      GetLastNotarisationFree :>>= f <- next $ f Nothing
       pure ()
 
-    it "repeat when wait for dest block" do
-      GetLastNotarisationFree f <- next $ fromFT (notariserStepFree nc)
-      GetLastNotarisationReceiptFree f <- next $ f (Just (10, 1))
-      WaitNextDestHeight nextHeight f <- next $ f (Just (1, 1))
+  , testCase "repeat when wa, testCase for dest block" do
+      GetLastNotarisationFree :>>= f <- next $ notariserStepFree nc
+      GetLastNotarisationReceiptFree :>>= f <- next $ f (Just (10, 1))
+      WaitNextDestHeight nextHeight :>>= f <- next $ f (Just (1, 1))
       nextHeight `shouldBe` 1
-      GetLastNotarisationFree f <- next $ f Nothing
+      GetLastNotarisationFree :>>= f <- next $ f Nothing
       pure ()
-  
-  describe "proposer sequence" do
+  ]
 
-    it "first" do
+
+test_notariser_proposer_sequence :: TestTree
+test_notariser_proposer_sequence = testGroup "proposer sequence"
+  [
+    testCase "first" do
       go \case
-        RunNotarise seq _ _ f -> do
+        RunNotarise seq _ _ :>>= f -> do
           seq `shouldBe` 0
-          f ()
+          pure $ f ()
         o -> runStep Nothing undefined o
 
-    it "forward" do
+  , testCase "forward" do
       go \case
-        RunNotarise seq _ _ f -> do
+        RunNotarise seq _ _ :>>= f -> do
           seq `shouldBe` 120
-          f ()
+          pure $ f ()
         o -> runStep (Just (75, 120)) (Just (75, 75)) o
 
-    it "back" do
+  , testCase "back" do
       go \case
-        RunNotariseReceipt seq _ _ f -> do
+        RunNotariseReceipt seq _ _ :>>= f -> do
           seq `shouldBe` 141
-          f ()
+          pure $ f ()
         o -> runStep (Just (10, 120)) Nothing o
+  ]

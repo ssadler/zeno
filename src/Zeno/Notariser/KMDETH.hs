@@ -1,6 +1,8 @@
 
 module Zeno.Notariser.KMDETH where
 
+import qualified Data.Map.Strict as Map
+import Data.List ((\\))
 import Data.Serialize
 
 import Network.Bitcoin
@@ -16,7 +18,6 @@ import Zeno.Notariser.Common.KMD
 import Zeno.Notariser.KMDDpow
 import Zeno.Notariser.Targets
 import Zeno.Notariser.Types
-import Zeno.Notariser.Stats
 import Zeno.Notariser.Step
 import Zeno.Consensus
 import Zeno.Console
@@ -44,15 +45,15 @@ runNotariseKmdToEth pk gateway networkConfig gethConfig kmdConfPath useui = do
           logInfo $ "KMD address: " ++ show kmdAddress
           logInfo $ "ETH address: " ++ show ethAddress
           runKmdThreads
-          runNotariser
+          runNotariserForever
 
 
-runNotariser :: Zeno EthNotariser ()
-runNotariser = do
+runNotariserForever :: Zeno EthNotariser ()
+runNotariserForever = do
   runForever do                               -- Run and handle variety of exceptions
     withLocalResources do                     -- All threads killed if there's an exception
       nc <- getNotariserConfig "KMDETH"       -- Config will be refeshed if there is an exception
-      asks has >>= checkConfig nc
+      asks has >>= validateConfig nc
       runRepeatedly do
         runNotariserStep nc $ notariserStepFree nc
 
@@ -63,7 +64,7 @@ runNotariser = do
       JsonInABI nc <- ethCallABI gateway "getConfig(string)" (configName :: Text)
       pure $ nc { members, threshold }
 
-    checkConfig NotariserConfig{..} (EthIdent _ addr)
+    validateConfig NotariserConfig{..} (EthIdent _ addr)
       | not (elem addr members)                      = ce "I am not in the members list"
       | length members < (kmdNotarySigs sourceChain) = ce "Not enough members to sign tx on KMD"
       | length members < threshold                   = ce "Not enough members to sign tx on ETH"
@@ -73,15 +74,13 @@ runNotariser = do
     runForever act = forever $ act `catches` handlers
       where
         handlers =
-          [ Handler $ \e -> recover logWarn  20 (fmtHttpException e)
-          , Handler $ \e -> recover logWarn  20 (e :: RPCException)
+          [ Handler $ \e -> recover logError 10 (e :: RPCException)
+          , Handler $ \e -> recover logError 20 (e :: RPCTransportException)
           , Handler $ \e -> recover logError 60 (e :: ConfigException)
           ]
         recover f d e = do
           f $ show e
           liftIO $ threadDelayS d
-        fmtHttpException (HttpExceptionRequest _ e) = e
-        fmtHttpException e = error ("Configuration error: " ++ show e)
 
     runRepeatedly act = do
       let maxCount = 10
@@ -96,25 +95,28 @@ runNotariser = do
 runNotariserStep :: NotariserConfig
                  -> NotariserStep KMDSource ETHDest (Zeno EthNotariser) a
                  -> Zeno EthNotariser a
-runNotariserStep nc@NotariserConfig{sourceChain=s@KMDSource{..}, destChain=d@ETHDest{..}, ..} =
-  iterT \case
+runNotariserStep nc@NotariserConfig{sourceChain=s@KMDSource{..}, destChain=d@ETHDest{..}, ..} = go
+  where
+  go = deboneBy \case
 
-    WaitNextSourceHeight height f -> waitNextNotariseHeight s height >>= f
-    WaitNextDestHeight height f -> waitNextNotariseHeight d height >>= f
+    NotariserStepLift act :>>= f -> act >>= go . f
 
-    GetLastNotarisationReceiptFree f -> do
-      kmdGetLastNotarisationData kmdSymbol >>= f
+    WaitNextSourceHeight height :>>= f -> waitNextNotariseHeight s height >>= go . f
+    WaitNextDestHeight height :>>= f -> waitNextNotariseHeight d height >>= go . f
 
-    GetLastNotarisationFree f -> do
-      ethGetLastNotarisationAndSequence ethNotarisationsContract >>= f
+    GetLastNotarisationReceiptFree :>>= f -> do
+      kmdGetLastNotarisationData kmdSymbol >>= go . f
 
-    RunNotarise seq sourceHeight mlastReceipt f -> do
+    GetLastNotarisationFree :>>= f -> do
+      ethGetLastNotarisationAndSequence ethNotarisationsContract >>= go . f
+
+    RunNotarise seq sourceHeight mlastReceipt :>>= f -> do
       blockHash <- queryBitcoin "getblockhash" [sourceHeight]
       let params = (sourceHeight, blockHash, "")
           label = "%s.%i ⇒  %s" % (getSymbol s, sourceHeight, getSymbol d)
-      notariseToETH nc label seq params >>= f
+      notariseToETH nc label seq params >>= go . f
 
-    RunNotariseReceipt seq destHeight NOE{..} f -> do
+    RunNotariseReceipt seq destHeight NOE{..} :>>= f -> do
       let
         label = "%s.%i ⇒  %s" % (getSymbol d, destHeight, getSymbol s)
         receipt = NOR
@@ -126,7 +128,7 @@ runNotariserStep nc@NotariserConfig{sourceChain=s@KMDSource{..}, destChain=d@ETH
           , norMomDepth = 0
           , norCcId = 0
           }
-      notariseKmdDpow nc label seq receipt >>= f
+      notariseKmdDpow nc label seq receipt >>= go . f
 
 
 notariseToETH :: NotariserConfig -> String -> ProposerSequence -> NotarisationParams -> Zeno EthNotariser ()
@@ -135,7 +137,7 @@ notariseToETH nc@NotariserConfig{..} label seq notarisationParams = do
   let height = fromIntegral $ view _1 notarisationParams
 
   ident@(EthIdent _ myAddress) <- asks has
-  cparams <- getConsensusParamsWithStats nc KmdToEth
+
   r <- ask
   let
     run :: Zeno EthNotariser a -> Consensus a
@@ -143,60 +145,93 @@ notariseToETH nc@NotariserConfig{..} label seq notarisationParams = do
 
     notariseCallData = ethMakeNotarisationCallData notarisationParams
     proxyParams = (ethNotarisationsContract, height, notariseCallData)
+    proxySigHash = ethMakeProxySigMessage proxyParams
 
+  cparams <- getConsensusParams nc KmdToEth
   runConsensus label cparams proxyParams do
 
-    sigBallots <- step "tx sigs" (collectThreshold threshold)
-                                 (ethMakeProxySigMessage proxyParams)
+    sigsInv <- step "tx sigs" (collectThreshold threshold) proxySigHash
 
-    let proxyCallData = ethMakeProxyCallData proxyParams (bSig <$> unInventory sigBallots)
-        buildTx = run $ ethMakeNotarisationTx nc proxyCallData
-    ballot@(Ballot proposer _ tx) <- propose "tx sender" (Just seq) buildTx
-    run $ checkTxProposed ballot
+    let chosen = Map.take threshold sigsInv
+        proxyCallData = ethMakeProxyCallData proxyParams (bSig <$> unInventory chosen)
+        proposal = do
+          tx <- run $ ethMakeNotarisationTx nc proxyCallData
+          pure (chosen, tx) -- Send chosen sigs to make it easy to reconstruct tx
 
-    -- There's a bit of an open question here: A single node is selected to create the transaction,
-    -- and many nodes can indeed submit it but they may encounter errors depending on how fast their
-    -- ethereum nodes sync, because it'll appear as a double spend to Ethereum. So the question is what
-    -- to do, do we trust the proposer to submit the transaction (they could just do so anyway), or
-    -- do all nodes submit the transactions? Probably a subset should submit.
+    txid <-
+      proposeWithAction "tx sender" (Just seq) proposal
+        \(Ballot pAddr sig (chosenSigs, tx)) -> do
+          run do
+            sigs <- either invalidProposal pure $ validateSigs nc proxySigHash chosenSigs
+            validateProposedTx nc proxyParams sigs pAddr tx
+            catch
+              do postTransaction tx
+              \e -> do
+                invalidProposal $
+                  "Exception posting proposed transaction: %s\n%s" %
+                    (show tx, show (e :: RPCException))
 
-    let txid = hashTx tx
-
-    _ <- step "confirm tx" collectMajority ()
-
-    run $
-      if proposer == myAddress
-         then postTransaction tx >> pure ()
-         else logInfo $ "Proposer will submit: " ++ show txid
-
-    -- This will timeout if proposer had an exception while submitting the transaction
-    _ <- step "confirm submit" (collectMembers [proposer]) ()
-
-    -- Check that everyone else confirmed the proposer
-    _ <- step "confirm submit" collectMajority ()
-  
     incStep "wait for tx confirm ..."
     run $ waitTransactionConfirmed1 (120 * 1000000) txid
     logInfo "Transaction confirmed"
     pure ()
 
 
+invalidProposal :: String -> Zeno EthNotariser a
+invalidProposal = throwIO . ConsensusInvalidProposal
+
+
 ethMakeNotarisationTx :: NotariserConfig -> ByteString -> Zeno EthNotariser Transaction
-ethMakeNotarisationTx NotariserConfig{..} callData = do
+ethMakeNotarisationTx nc@NotariserConfig{..} callData = do
   let ETHDest{..} = destChain
   EthIdent sk myAddress <- asks has
-  gateway <- asks getEthGateway
-  nonce <- queryAccountNonce myAddress
   U256 gasPriceRec <- queryEthereum "eth_gasPrice" ()
   let gasPrice = gasPriceRec + quot gasPriceRec 2         -- Fixed gas price increase
-      tx = Tx nonce 0 (Just gateway) Nothing gasPrice ethNotariseGas callData ethChainId
+  tx <- ethMakeNotarisationTxWithGas nc myAddress gasPrice callData
   signTx sk tx
 
+ethMakeNotarisationTxWithGas
+  :: NotariserConfig -> Address -> Integer -> ByteString -> Zeno EthNotariser Transaction
+ethMakeNotarisationTxWithGas NotariserConfig{..} address gasPrice callData = do
+  let ETHDest{..} = destChain
+  gateway <- asks getEthGateway
+  nonce <- queryAccountNonce address
+  pure $ Tx nonce 0 (Just gateway) Nothing gasPrice ethNotariseGas callData ethChainId
 
-checkTxProposed :: Ballot Transaction -> Zeno EthNotariser ()
-checkTxProposed (Ballot sender _ tx) = do
+validateSigs :: NotariserConfig -> Bytes32 -> Inventory Bytes32 -> Either String [RecSig]
+validateSigs NotariserConfig{..} ourHash chosenInv = do
+  when (length chosenInv /= threshold) do
+    Left $ "Wrong number of sigs, expected %i, got %i" % (threshold, length chosenInv)
+
+  forM (Map.toList chosenInv)
+    \(addr, (sig, theirhash)) -> do
+      when (not $ elem addr members) do
+        Left "Contains non members"
+      when (theirhash /= ourHash) do
+        Left "Hash is not the same"
+      let recoveredAddr = unsafePerformIO $ recoverAddr ourHash sig
+      when (recoveredAddr /= addr) do
+        Left "Invalid signature provided"
+      pure sig
+
+validateProposedTx
+  :: NotariserConfig -> ProxyParams -> [RecSig] -> Address -> Transaction -> Zeno EthNotariser ()
+validateProposedTx nc@NotariserConfig{..} proxyParams sigs sender tx = do
+
   recoverFrom tx >>=
     \case
-      Nothing -> throwIO $ ConsensusMischief sender "Can't recover sender from tx"
-      Just s | s /= sender -> throwIO $ ConsensusMischief sender "Sender wrong"
+      Nothing -> invalidProposal "Can't recover sender from tx"
+      Just s | s /= sender -> invalidProposal "Sender wrong"
       _ -> pure ()
+
+  minGasPrice <- eth_gasPrice
+  when (_gasPrice tx < minGasPrice) do
+    invalidProposal "Gas price too low"
+
+  let callData = ethMakeProxyCallData proxyParams sigs
+  reconstructed <-
+    ethMakeNotarisationTxWithGas nc sender (_gasPrice tx) callData
+      <&> (\tx -> tx { _sig = _sig tx })
+
+  when (reconstructed /= tx) do
+    invalidProposal "could not reconstruct tx"

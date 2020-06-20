@@ -45,7 +45,6 @@ instance FromJSON StepNum where
 makeLensesWith abbreviatedFields ''StepNum
 
 
-
 data ConsensusNode = ConsensusNode
   { cpNode :: Node
   , cpPeers :: PeerState
@@ -58,8 +57,10 @@ data ConsensusContext = ConsensusContext
   , ccParams   :: ConsensusParams
   , ccSeed     :: Bytes32
   , ccStepNum  :: TVar StepNum        -- TODO: Not so sure it's smart for the step
-                                      -- to have access to this
+                                      -- to have access to this, since it's mutable
+                                      -- and shared.
   }
+
 instance Has ConsensusNode ConsensusContext where has = ccNode
 instance Has Node ConsensusContext where has = has . ccNode
 instance Has PeerState ConsensusContext where has = has . ccNode
@@ -139,8 +140,6 @@ data ConsensusParams = ConsensusParams
   { members'           :: [Address]
   , ident'             :: EthIdent
   , timeout'           :: Timeout
-  , proposerRoundRobin :: Bool
-  , onProposerTimeout' :: Maybe (ProposerTimeout -> IO ())
   , roundTypeId        :: VarInt
   }
 
@@ -163,23 +162,5 @@ data ConsensusTimeout = ConsensusTimeout deriving (Show)
 instance Exception ConsensusTimeout
 data ConsensusMischief = ConsensusMischief Address String deriving (Show)
 instance Exception ConsensusMischief
-
--- Do we need this?
-withTimeout :: Int -> Consensus a -> Consensus a
-withTimeout t =
-  local $
-    \c -> c { ccParams = (ccParams c) { timeout' = t } }
-
---------------------------------------------------------------------------------
--- Stats types
---------------------------------------------------------------------------------
-
-data ProposerTimeout = ProposerTimeout
-  { proposer :: Address
-  , roundId  :: RoundId
-  , stepNum  :: StepNum
-  } deriving (Show, Generic)
-    deriving Serialize via (SerializeAeson ProposerTimeout)
- 
-instance ToJSON ProposerTimeout
-instance FromJSON ProposerTimeout
+data ConsensusInvalidProposal = ConsensusInvalidProposal String deriving (Show)
+instance Exception ConsensusInvalidProposal

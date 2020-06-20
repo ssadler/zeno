@@ -6,7 +6,6 @@ import qualified Haskoin as H
 
 import Data.Serialize
 
-import Network.Ethereum.Crypto.Address
 import Network.Komodo
 import Network.Bitcoin
 import Network.Ethereum

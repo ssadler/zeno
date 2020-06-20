@@ -14,7 +14,6 @@ import Zeno.Console
 import Zeno.Consensus
 import Zeno.Notariser.Common.KMD
 import Zeno.Notariser.Common
-import Zeno.Notariser.Stats
 import Zeno.Notariser.Types
 import Zeno.Notariser.UTXO
 import Zeno.Prelude
@@ -24,7 +23,7 @@ notariseKmdDpow :: NotariserConfig -> String -> Int -> KomodoNotaryReceiptFromEt
 notariseKmdDpow nc@NotariserConfig{..} label seq ndata = do
   withKomodoUtxo \utxo -> do
     KomodoIdent{..} <- asks has
-    cparams <- getConsensusParamsWithStats nc EthToKmd
+    cparams <- getConsensusParams nc EthToKmd
 
     r <- ask :: Zeno EthNotariser EthNotariser
     let run = withContext (const r)

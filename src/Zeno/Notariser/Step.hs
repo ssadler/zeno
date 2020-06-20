@@ -1,6 +1,3 @@
-{-# LANGUAGE DeriveFunctor #-}
-{-# LANGUAGE GADTs #-}
-{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE KindSignatures #-}
 
 -- | Zeno uses a consensus algorithm, but it is stateless, it doesn't write any data
@@ -12,8 +9,7 @@ module Zeno.Notariser.Step where
 
 import Data.Bits
 
-import Control.Monad.Trans.Free.Church
-import Control.Monad.Free.TH
+import Control.Monad.Skeleton
 
 import Network.Komodo
 
@@ -29,37 +25,37 @@ import Zeno.EthGateway
 -- Notariser interface
 --------------------------------------------------------------------------------
 
-type NotariserStep a b m = FT (NotariserStepF a b m) m
-
-instance MonadLogger m => MonadLogger (NotariserStep a b m)
 
 type ProposerSequence = Int
 
-data NotariserStepF source dest (m :: * -> *) next
-  = GetLastNotarisationFree         (Maybe (ChainNotarisation dest, ProposerSequence) -> next)
-  | GetLastNotarisationReceiptFree  (Maybe (ChainNotarisationReceipt source) -> next)
-  | RunNotarise                     ProposerSequence Word32 (Maybe (ChainNotarisationReceipt source)) (() -> next)
-  | RunNotariseReceipt              ProposerSequence Word32 (ChainNotarisation dest) (() -> next)
-  | WaitNextSourceHeight            Word32 (Maybe Word32 -> next)
-  | WaitNextDestHeight              Word32 (Maybe Word32 -> next)
+type NotariserStep s d m = Skeleton (NotariserStepI s d m)
 
-deriving instance (Functor (NotariserStepF a b m))
+instance MonadLogger m => MonadLogger (NotariserStep s d m) where
+  monadLoggerLog a b c d = bone $ NotariserStepLift $ monadLoggerLog a b c d
 
-makeFree ''NotariserStepF
+instance MonadIO m => MonadIO (Skeleton (NotariserStepI a b m)) where
+  liftIO = bone . NotariserStepLift . liftIO
 
-data Done = Done                -- This little guy helps disambiguate between
-  deriving (Eq, Show)           -- termination and early return when testing
+data NotariserStepI s d (m :: * -> *) x where
+  GetLastNotarisationFree         :: NotariserStepI s d m (Maybe (ChainNotarisation d, ProposerSequence))
+  GetLastNotarisationReceiptFree  :: NotariserStepI s d m (Maybe (ChainNotarisationReceipt s))
+  RunNotarise                     :: ProposerSequence -> Word32 -> Maybe (ChainNotarisationReceipt s) -> NotariserStepI s d m ()
+  RunNotariseReceipt              :: ProposerSequence -> Word32 -> ChainNotarisation d -> NotariserStepI s d m ()
+  WaitNextSourceHeight            :: Word32 -> NotariserStepI s d m (Maybe Word32)
+  WaitNextDestHeight              :: Word32 -> NotariserStepI s d m (Maybe Word32)
+  NotariserStepLift               :: m a -> NotariserStepI s d m a
 
 --------------------------------------------------------------------------------
 -- Step algorithm
 --------------------------------------------------------------------------------
 
-type Notariser a b m = (MonadLogger m, SourceChain a m, DestChain b m)
+type Notariser a b m = (SourceChain a m, DestChain b m, MonadLogger m)
 
 notariserStepFree :: forall a b m. Notariser a b m
-                  => AbstractNotariserConfig a b -> NotariserStep a b m Done
-notariserStepFree nc@NotariserConfig{..} = start >> pure Done
+                  => AbstractNotariserConfig a b -> Skeleton (NotariserStepI a b m) ()
+notariserStepFree nc@NotariserConfig{..} = start
   where
+  start = bone GetLastNotarisationFree >>= go
 
   go :: Maybe (ChainNotarisation b, ProposerSequence) -> NotariserStep a b m ()
   go Nothing = do
@@ -72,17 +68,17 @@ notariserStepFree nc@NotariserConfig{..} = start >> pure Done
       notarisedHeight = foreignHeight notarisation
 
       backnotarise lastHeight = do
-        waitNextDestHeight lastHeight >>=
+        bone (WaitNextDestHeight lastHeight) >>=
           \case
             Nothing -> start
             Just newHeight -> do
               let seq = sequence + quot (length members) 2
-              runNotariseReceipt seq newHeight notarisation
+              bone $ RunNotariseReceipt seq newHeight notarisation
 
     logDebug $ "Found notarisation on %s for %s.%i" %
                (getSymbol destChain, getSymbol sourceChain, notarisedHeight)
 
-    getLastNotarisationReceiptFree >>=
+    bone GetLastNotarisationReceiptFree >>=
       \case
         Just receipt -> do
           let fwd = notarise sequence notarisedHeight (Just receipt)
@@ -104,12 +100,10 @@ notariserStepFree nc@NotariserConfig{..} = start >> pure Done
           logDebug "Receipt not found, proceed to backnotarise"
           backnotarise 0
 
-  start = getLastNotarisationFree >>= go
-
   notarise sequence lastHeight mlastReceipt = do
-    waitNextSourceHeight lastHeight >>=
+    bone (WaitNextSourceHeight lastHeight) >>=
       \case Nothing -> start
-            Just h -> runNotarise sequence h mlastReceipt
+            Just h -> bone $ RunNotarise sequence h mlastReceipt
 
 
 -- | This function has been thoroughly eyeballed

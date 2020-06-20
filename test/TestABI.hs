@@ -6,7 +6,6 @@ import qualified Data.ByteString as BS
 import           Data.Either
 import           Network.Ethereum.Data
 import           Network.Ethereum.Crypto
-import           Network.Ethereum.Crypto.Address
 import           Network.Ethereum.Types
 
 import           Zeno.Prelude

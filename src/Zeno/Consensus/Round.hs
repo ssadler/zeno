@@ -15,7 +15,6 @@ module Zeno.Consensus.Round
   ) where
 
 import           Control.Monad.Reader
-import           Control.Monad.State
 
 import qualified Data.ByteString as BS
 import qualified Data.Map as Map
@@ -38,29 +37,9 @@ import           Control.Monad.STM (orElse, throwSTM)
 import           UnliftIO.Async (waitCatchSTM, waitSTM)
 
 
+
+
 -- Run round ------------------------------------------------------------------
-
-
--- Problem: The round and step are multithreaded. Currently, Zeno will try to repeat
--- a round when it gets a proposer timeout, and if it's a backnotarisation, it wont
--- include any new data into the round seed.
-
-
-
--- TODO: Get label from thread? Or get rid of threads?
--- Getting rid of the threads for each step would be a good thing. Some of the
--- program state is implicitly encoded in threads, and therefore inaccessible,
--- and more error prone to boot. Rather than threads, there could be a map
--- of open rounds, and a map of steps that are currently executing, with
--- function pointers for them to receive data. The chances are that
--- this could be achieved without changing the structure of the program
--- that much, since it's basically the same thing, you could eliminate alot
--- of locks and queues if there was a main thread doing the work, and a single
--- CPU core should be enough for hundreds of concurrent steps. And you'll get
--- an itrospectable data structure which can be dumped out at runtime, easily
--- paused, resumed etc, without the worry of deadlocks. Could also probably
--- use less mutable variables, which might be a bonus for testing, but not
--- sure about performance.
 
 runConsensus :: (Serialize a, Has ConsensusNode r)
              => String -> ConsensusParams -> a -> Consensus b -> Zeno r b
@@ -115,9 +94,20 @@ step' :: forall a b. BallotData a => String -> Collect a b -> a -> Consensus b
 step' name collect obj = do
   -- The step itself is run in a separate thread, and left running even
   -- when it's produced a result
-  recv <- spawnStep obj collect
+  recv <- spawnStep obj
   ConsensusParams{timeout'} <- asks ccParams
-  receiveTimeout recv timeout' >>= maybe (throwIO ConsensusTimeout) pure
+  r <-
+    runExceptT do
+      receiveDuring recv timeout' \inv -> do
+        lift (collect inv) >>=
+          maybe (pure ()) throwError
+  case r of
+    Right () -> throwIO ConsensusTimeout
+    Left r -> do
+      spawnNoHandle ("eater for: " ++ name) do   -- So that the step doesnt get blocked
+        forever $ receiveWait recv
+      pure r
+
 
 incStep :: String -> Consensus ()
 incStep label = do

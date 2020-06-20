@@ -10,8 +10,6 @@ module Zeno.Logging
   , logMurphy
   , logMessage
   , whenSlow
-  , AsString
-  , asString
   , getLogMessage
   , pf
   ) where
@@ -47,15 +45,6 @@ logWarn = logWarnN . fromString
 
 logMurphy :: MonadLogger m => String -> m ()
 logMurphy s = logErrorN $ "Invariant violated: " <> fromString s
-
-class AsString a where
-  asString :: a -> String
-
-instance AsString BS8.ByteString where
-  asString = BS8.unpack
-
-instance AsString Value where
-  asString = asString . toStrict . encode
 
 
 getLogMessage :: Loc -> LogSource -> LogLevel -> LogStr -> IO BS8.ByteString

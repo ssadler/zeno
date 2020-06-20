@@ -78,3 +78,6 @@ eth_getBlockByHash n = queryEthereum "eth_getBlockByHash" (n, False)
 
 eth_getBlockByNumber :: Has GethConfig r => U256 -> Zeno r EthBlock
 eth_getBlockByNumber n = queryEthereum "eth_getBlockByNumber" (n, False)
+
+eth_gasPrice :: Has GethConfig r => Zeno r Integer
+eth_gasPrice = unU256 <$> queryEthereum "eth_gasPrice" ()

@@ -7,7 +7,6 @@ import           Options.Applicative
 import           Zeno.Config
 import           Zeno.Consensus
 import           Zeno.Notariser.KMDETH
-import           Zeno.Notariser.Stats
 import           Zeno.Prelude
 import           Zeno.CLI.Utils
 import           Zeno.Version
@@ -26,7 +25,6 @@ parseAct = infoH topMethods $ fullDesc <> progDesc "Notariser for Komodo network
    topMethods = subparser $
         (command "notarize" $ infoH notariserMethods  $ progDesc "Notarizer modes")
      <> (command "notarise" $ infoH notariserMethods  $ mempty)
-     <> (command "stats"    $ infoH statsMethods      $ progDesc "Get statistics")
      <> (command "util"     $ infoH utilMethods       $ progDesc "Utilities")
      <> (command "version"  $ infoH showVersionMethod $ progDesc "Show version")
    
@@ -38,10 +36,6 @@ parseAct = infoH topMethods $ fullDesc <> progDesc "Notariser for Komodo network
         (command "fromWif" $ infoH fromWifMethod $ progDesc "derive from WIF")
      <> (command "fromSec" $ infoH fromSecMethod $ progDesc "derive from secret")
      <> (command "fromPub" $ infoH fromPubMethod $ progDesc "derive from pubkey")
-
-   statsMethods = subparser $
-        (command "proposerTimeouts" $ infoH runDumpProposerTimeoutsMethod $
-         progDesc "Dump proposer timeouts")
 
 
 showVersionMethod :: Parser Method
@@ -63,12 +57,3 @@ runEthNotariserMethod = withShowVersion $
 
 runSeedNotariserMethod :: Parser Method
 runSeedNotariserMethod = withShowVersion $ startSeedNode <$> optNetworkConfig <*> optNoUI
-
-runDumpProposerTimeoutsMethod :: Parser Method
-runDumpProposerTimeoutsMethod =
-  runDumpProposerTimeouts
-  <$> optKmdConfigPath
-  <*> optGateway
-  <*> optGethConfig
-  <*> optNumberOfDays
-
