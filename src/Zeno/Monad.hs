@@ -46,12 +46,12 @@ instance Applicative (Zeno r) where
   pure x = Zeno $ \f app -> f app x
   {-# INLINE pure #-}
   (<*>) = ap
+  {-# INLINE (<*>) #-}
 
 instance Monad (Zeno r) where
   return = pure
   Zeno f >>= g = Zeno $
     \rest -> f (\app a -> unZeno (g a) rest app)
-  {-# INLINE (>>=) #-}
 
 instance Semigroup a => Semigroup (Zeno r a) where
   ma <> mb = (<>) <$> ma <*> mb

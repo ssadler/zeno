@@ -5,6 +5,7 @@ module Zeno.Process.Types where
 import Crypto.Hash
 import Control.Applicative
 import qualified Data.ByteArray as BA
+import qualified Data.ByteString.Short as BSS
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BSL
 import Data.Hashable (Hashable)
@@ -69,7 +70,7 @@ data Node = Node
 --   Alternatives would be: eagerly allocating a receiver for a topic we don't
 --   have a listener for, and some thread to monitor it while there's no consumer,
 --   or using multiple maps, one for lookup by topic and one for lookup by nonce.
-type ReceiveMiss = (ProcessId, NodeId, BS.ByteString)
+type ReceiveMiss = (ProcessId, NodeId, BSS.ShortByteString)
 type ReceiveMissCache = IntMap ReceiveMiss
 
 data WrappedReceiver = WrappedReceiver

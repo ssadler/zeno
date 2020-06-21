@@ -144,7 +144,7 @@ getReceiverSTM Node{..} pid = do
     (misses, nextCache) <- receiveCacheTake pid <$> readTVar missCache
     writeTVar missCache nextCache
     forM_ misses
-      \(_, nodeId, bs) -> wrappedReceive recv nodeId bs
+      \(_, nodeId, bs) -> wrappedReceive recv nodeId (fromShort bs)
 
 withRemoteMessage :: (NodeId -> a -> m b) -> RemoteMessage a -> m b
 withRemoteMessage act (RemoteMessage nodeId msg) = act nodeId msg

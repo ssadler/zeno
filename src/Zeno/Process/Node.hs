@@ -2,6 +2,7 @@
 
 module Zeno.Process.Node where
 
+import Control.DeepSeq
 import Data.Serialize
 import qualified Data.Map as Map
 import qualified Data.ByteString as BS
@@ -108,20 +109,26 @@ runConnection node@Node{..} conn ip = do
   handle (\ConnectionClosed -> mempty) do -- Don't spam up the log
     nodeId <- readHeader
     forever do
-      len <- (decode <$> receiveLen 4) >>= either murphy pure :: Zeno () Word32
-      receiveMessage (fromIntegral len) >>= handleMessage node nodeId
+      msg <- liftIO do
+        receiveMessageLength >>= receiveMessage . fromIntegral
+      msg `deepseq` handleMessage node nodeId msg
 
   where
-  murphy :: String -> Zeno () a
+  murphy :: MonadIO m => String -> m a
   murphy s = throwIO $ NetworkMurphy $ desc ip s
     where desc = [pf|Invariant violation error somehow triggered by: %?: %s|]
 
+  receiveMessageLength :: IO Word32
+  receiveMessageLength = do
+    (decode <$> receiveLen 4) >>= either murphy pure
+
+  receiveMessage :: Int -> IO ByteString
   receiveMessage len = do
     when (len > 10000) do
       throwIO $ NetworkMischief $ [pf|%? sent oversize message: %?|] (renderIp ip) len
     receiveLen len
 
-  receiveLen :: Int -> Zeno () ByteString
+  receiveLen :: MonadIO m => Int -> m ByteString
   receiveLen 0 = pure ""
   receiveLen len = do
     fix2 "" len \f xs rem -> do
@@ -133,6 +140,7 @@ runConnection node@Node{..} conn ip = do
         GT -> f newbs newrem
         LT -> murphy "More data received than expected"
 
+  readHeader :: Zeno () NodeId
   readHeader = do
     header <- receiveLen 3
     case decode header of
@@ -164,7 +172,8 @@ handleMessage Node{..} nodeId bs = do
          STM.lookup to topics >>=
            \case
              Nothing -> do
-               let miss = (to, nodeId, rem)
-               modifyTVar missCache $ receiveCachePut miss
+               pure ()
+               -- let miss = (to, nodeId, toShort rem)
+               -- modifyTVar missCache $ receiveCachePut miss
              Just (WrappedReceiver write) -> do
                write nodeId rem

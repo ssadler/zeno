@@ -121,10 +121,11 @@ peerController state@PeerState{..} seeds = do
 
   where
   handle peer GetPeers = do
-    peers <- readTVarIO p2pPeers
-    let peersWithoutCaller = Peers $ Set.delete peer peers
-    sendRemote peer peerControllerPid peersWithoutCaller
-    newPeer peer
+    pure ()
+    -- peers <- readTVarIO p2pPeers
+    -- let peersWithoutCaller = Peers $ Set.delete peer peers
+    -- sendRemote peer peerControllerPid peersWithoutCaller
+    -- newPeer peer
 
   handle peer (Peers peers) = do
     known <- readTVarIO $ p2pPeers
