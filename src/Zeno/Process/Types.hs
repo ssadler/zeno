@@ -81,7 +81,7 @@ type Forwarder = (TQueue ForwardMessage, TVar (IO ()))
 
 type ForwardMessage = BSL.ByteString
 
-type Receiver i = TQueue i
+type Receiver i = TBQueue i
 
 type RemoteReceiver i = Receiver (RemoteMessage i)
 
@@ -107,16 +107,13 @@ instance HasReceive (AsyncProcess i b) i where
   receiveSTM (Process{..}) = readTBQueue procMbox
   receiveMaybeSTM (Process{..}) = tryReadTBQueue procMbox
 
-instance HasReceive (Receiver i) i where
-  receiveSTM = readTQueue
-  receiveMaybeSTM = tryReadTQueue
-
 instance HasReceive (TMVar i) i where
   receiveSTM = takeTMVar
   receiveMaybeSTM = tryTakeTMVar
 
 instance HasReceive (TBQueue i) i where
   receiveSTM = readTBQueue
+  receiveMaybeSTM = tryReadTBQueue
 
 data TopicIsRegistered = TopicIsRegistered ProcessId
   deriving (Show, Eq)

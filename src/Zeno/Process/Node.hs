@@ -104,45 +104,60 @@ data ConnectionClosed = ConnectionClosed deriving (Show)
 instance Exception ConnectionClosed
 
 
+receiveMessageLength :: Socket -> IO Word32
+receiveMessageLength conn = do
+  l <- receiveLen conn 4
+  case decode l of
+    Left s -> murphy s
+    Right r -> pure r
+
+receiveMessage :: Socket -> Int -> IO ByteString
+receiveMessage conn len = do
+  when (len > 10000) do
+    throwIO $ NetworkMischief "Got oversize message"
+  receiveLen conn len
+
+receiveLen :: Socket -> Int -> IO ByteString
+receiveLen conn 0 = pure ""
+receiveLen conn len = do
+  s <- recv conn len >>= maybe (throwIO ConnectionClosed) pure
+  let rem = len - BS.length s
+  case compare 0 rem of
+    EQ -> pure s
+    LT -> (s <>) <$> receiveLen conn rem
+    GT -> murphy "More data received than expected"
+
+
+
+
 runConnection :: Node -> Socket -> HostAddress -> Zeno () ()
 runConnection node@Node{..} conn ip = do
   handle (\ConnectionClosed -> mempty) do -- Don't spam up the log
     nodeId <- readHeader
-    forever do
+    --forever do
+    fix \f -> do
       msg <- liftIO do
-        receiveMessageLength >>= receiveMessage . fromIntegral
-      msg `deepseq` handleMessage node nodeId msg
+        receiveMessageLength conn >>= receiveMessage conn . fromIntegral
+      handleMessage node nodeId msg
+      f
 
   where
   murphy :: MonadIO m => String -> m a
   murphy s = throwIO $ NetworkMurphy $ desc ip s
     where desc = [pf|Invariant violation error somehow triggered by: %?: %s|]
-
-  receiveMessageLength :: IO Word32
-  receiveMessageLength = do
-    (decode <$> receiveLen 4) >>= either murphy pure
-
-  receiveMessage :: Int -> IO ByteString
-  receiveMessage len = do
-    when (len > 10000) do
-      throwIO $ NetworkMischief $ [pf|%? sent oversize message: %?|] (renderIp ip) len
-    receiveLen len
-
-  receiveLen :: MonadIO m => Int -> m ByteString
-  receiveLen 0 = pure ""
-  receiveLen len = do
-    fix2 "" len \f xs rem -> do
-      s <- recv conn rem >>= maybe (throwIO ConnectionClosed) pure
-      let newbs = xs <> BSL.fromStrict s
-          newrem = rem - BS.length s
-      case compare newrem 0 of
-        EQ -> pure $ BSL.toStrict newbs
-        GT -> f newbs newrem
-        LT -> murphy "More data received than expected"
+  -- receiveLen len = do
+  --   fix2 "" len \f xs rem -> do
+  --     s <- recv conn rem >>= maybe (throwIO ConnectionClosed) pure
+  --     let newbs = xs <> BSL.fromStrict s
+  --         newrem = rem - BS.length s
+  --     case compare newrem 0 of
+  --       EQ -> pure $ BSL.toStrict newbs
+  --       GT -> f newbs newrem
+  --       LT -> murphy "More data received than expected"
 
   readHeader :: Zeno () NodeId
   readHeader = do
-    header <- receiveLen 3
+    header <- liftIO $ receiveLen conn 3
     case decode header of
       Right ('\0', port) -> pure $ NodeId (renderIp ip) port
       Left s -> murphy s -- How can we fail to decode exactly 3 bytes into a (Word8, Word16)

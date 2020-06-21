@@ -128,7 +128,7 @@ getReceiverSTM Node{..} pid = do
     \case
       Just r -> throwSTM $ TopicIsRegistered pid
       Nothing -> do
-        recv <- newTQueue
+        recv <- newTBQueue 3
         populateFromRecvCache recv
         let wrapped = WrappedReceiver $ wrappedReceive recv
         STM.insert wrapped pid topics
@@ -136,7 +136,7 @@ getReceiverSTM Node{..} pid = do
   where
   wrappedReceive chan nodeId bs = do
       case decode bs of
-        Right a -> writeTQueue chan $ RemoteMessage nodeId a
+        Right a -> writeTBQueue chan $ RemoteMessage nodeId a
         _ -> pure ()  -- Could have a "bad queue", ie redirect all decode failures
                       -- to a thread which monitors for peer mischief
 
