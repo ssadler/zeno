@@ -48,7 +48,7 @@ postTransaction tx = do
 waitTransactionConfirmed1 :: Has GethConfig r => Int -> EthTxHash -> Zeno r (Maybe U256)
 waitTransactionConfirmed1 timeout txid = do
   let delay = min timeout 3000000
-  queryEthereum "eth_getTransactionByHash" txid >>=
+  queryEthereum "eth_getTransactionByHash" [txid] >>=
     \case
       Nothing -> pure Nothing
       Just v -> 
