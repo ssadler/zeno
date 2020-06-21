@@ -9,6 +9,7 @@ module Zeno.Logging
   , logWarn
   , logMurphy
   , logMessage
+  , logTrace
   , whenSlow
   , getLogMessage
   , pf
@@ -19,6 +20,7 @@ import Data.Aeson
 import qualified Data.ByteString.Char8 as BS8
 import Data.ByteString.Lazy (toStrict)
 import Data.String (fromString)
+import Data.Text (Text)
 import Data.Time.Clock
 import Data.Time.Format
 import Control.Monad.Logger as LOG hiding (logDebug, logInfo, logError, logWarn)
@@ -33,7 +35,6 @@ import Zeno.Console.Types as LOG
 logDebug :: MonadLogger m => String -> m ()
 logDebug = logDebugN . fromString
 
-
 logInfo :: MonadLogger m => String -> m ()
 logInfo = logInfoN . fromString
 
@@ -46,6 +47,9 @@ logWarn = logWarnN . fromString
 logMurphy :: MonadLogger m => String -> m ()
 logMurphy s = logErrorN $ "Invariant violated: " <> fromString s
 
+logTrace :: MonadLogger m => Text -> String -> m ()
+logTrace level = logOtherN (LevelOther level) . fromString
+
 
 getLogMessage :: Loc -> LogSource -> LogLevel -> LogStr -> IO BS8.ByteString
 getLogMessage loc source level str = do
@@ -53,9 +57,15 @@ getLogMessage loc source level str = do
   pure $ fromLogStr $ toLogStr t <> defaultLogStr loc source level str
 
 logMessage :: ToLogStr msg => Console -> Loc -> LogSource -> LogLevel -> msg -> IO ()
-logMessage (Console lvlFilter mstatus _ h) loc source level msg = do
+logMessage (Console lvlFilter debugMask mstatus _ h) loc source level msg = do
   line <- getLogMessage loc source level (toLogStr msg)
-  when (level >= lvlFilter) do
+  let
+    doLog =
+      case level of
+        LevelOther debuglvl -> elem debuglvl debugMask
+        _ -> level >= lvlFilter
+
+  when doLog do
     case mstatus of
       Just queue -> atomically $ writeTBQueue queue $ UILog line
       Nothing -> BS8.hPutStr h line *> hFlush stdout

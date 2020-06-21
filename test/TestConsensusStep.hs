@@ -1,5 +1,5 @@
 
-module TestStep where
+module TestConsensusStep where
 
 import TestUtils
 

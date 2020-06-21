@@ -45,18 +45,18 @@ postTransaction tx = do
 -- Waits for a transaction to be confirmed with 1 extra block
 -- There's a detail here - we should probably wait for it to be confirmed with one
 -- or two extra blocks, but, testing is being done with ganache which mines blocks on demand.
--- TODO.
-waitTransactionConfirmed1 :: Has GethConfig r => Int -> EthTxHash -> Zeno r (Maybe Value)
+waitTransactionConfirmed1 :: Has GethConfig r => Int -> EthTxHash -> Zeno r (Maybe U256)
 waitTransactionConfirmed1 timeout txid = do
   let delay = min timeout 3000000
-  r <- queryEthereum "eth_getTransactionReceipt" [txid]
-  pure r >>=
+  queryEthereum "eth_getTransactionByHash" txid >>=
     \case
-      o | isJust (o .? "{blockNumber}" :: Maybe U256) -> pure $ Just o
-      _ | timeout == 0 -> pure Nothing
-      r -> do
-        liftIO (threadDelay delay)
-        waitTransactionConfirmed1 (timeout - delay) txid
+      Nothing -> pure Nothing
+      Just v -> 
+        case v .? "{blockNumber}" of
+          Just n -> pure $ Just n
+          Nothing -> do
+            threadDelay delay
+            waitTransactionConfirmed1 (timeout - delay) txid
 
 
 data RPCMaybe a = RPCMaybe (Maybe a)
@@ -67,7 +67,7 @@ instance FromJSON a => FromJSON (RPCMaybe a) where
   parseJSON val = RPCMaybe . Just <$> parseJSON val
 
 
-eth_getTransactionReceipt :: Has GethConfig r => Sha3 -> Zeno r TransactionReceipt
+eth_getTransactionReceipt :: Has GethConfig r => EthTxHash -> Zeno r TransactionReceipt
 eth_getTransactionReceipt h = queryEthereum "eth_getTransactionReceipt" [h]
 
 eth_blockNumber :: Has GethConfig r => Zeno r U256

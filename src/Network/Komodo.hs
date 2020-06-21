@@ -22,21 +22,22 @@ import           UnliftIO
 
 komodo :: Network
 komodo = btc
-    { getNetworkName = "komodo"
-    , getNetworkIdent = "kmd"
-    , getAddrPrefix = 60
-    , getScriptPrefix = 85
-    , getSecretPrefix = 188
-    , getExtPubKeyPrefix = 0x0488b21e
-    , getExtSecretPrefix = 0x0488ade4
-    , getCashAddrPrefix = Nothing
-    , getBech32Prefix = Nothing
-    }
+  { getNetworkName = "komodo"
+  , getNetworkIdent = "kmd"
+  , getAddrPrefix = 60
+  , getScriptPrefix = 85
+  , getSecretPrefix = 188
+  , getExtPubKeyPrefix = 0x0488b21e
+  , getExtSecretPrefix = 0x0488ade4
+  , getCashAddrPrefix = Nothing
+  , getBech32Prefix = Nothing
+  }
 
 
 -- Classic Address ------------------------------------------------------------
 
 newtype RAddress = RAddress { getAddrHash :: H.Hash160 }
+  deriving (Eq, Ord, Serialize)
 
 instance FromJSON RAddress where
   parseJSON val = do
@@ -64,6 +65,7 @@ stringToRAddress s =
 deriveKomodoAddress :: MonadUnliftIO m => PubKey -> m RAddress
 deriveKomodoAddress pk = RAddress . H.addressHash <$> exportPubKeyIO True pk
 
+nullRAddress = RAddress "0000000000000000000000000000000000000000"
 
 
 -- Ident ----------------------------------------------------------------------
@@ -142,7 +144,7 @@ data KomodoNotaryOpret ref = NOR
   , norMom :: Bytes32
   , norMomDepth  :: Word16
   , norCcId :: Word16
-  } deriving (Eq, Show)
+  } deriving (Eq, Show, Functor)
 
 instance Serialize ref => Serialize (KomodoNotaryOpret ref) where
   put NOR{..} = do
@@ -180,11 +182,10 @@ type KmdNotarisation n = (Word32, H.TxHash, n)
 scanNotarisationsDB :: (FromJSON n, Has BitcoinConfig r)
                     => Word32 -> String -> Word32 -> Zeno r (Maybe (KmdNotarisation n))
 scanNotarisationsDB height symbol limit = do
-  traceE "scanNotarisationsDB" $ do
-    val <- queryBitcoin "scanNotarisationsDB" [show height, symbol, show limit]
-    pure $ if val == Null
-              then Nothing
-              else Just $ val .! "{height,hash,opreturn}"
+  val <- queryBitcoin "scanNotarisationsDB" [show height, symbol, show limit]
+  pure $ if val == Null
+            then Nothing
+            else Just $ val .! "{height,hash,opreturn}"
 
 kmdGetLastNotarisation :: (FromJSON n, Has BitcoinConfig r) => String -> Zeno r (Maybe (KmdNotarisation n))
 kmdGetLastNotarisation s = scanNotarisationsDB 0 s 100000

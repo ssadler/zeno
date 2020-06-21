@@ -105,7 +105,7 @@ instance BlockchainConfig KMDSource where
 instance Has BitcoinConfig r => BlockchainAPI KMDSource (Zeno r) where
   getHeight KMDSource{..} = bitcoinGetHeight
 
-type KomodoNotaryReceiptFromEth = KomodoNotaryOpret (Word32, Bytes28)
+type KomodoNotaryReceiptFromEth = KomodoNotaryOpret (Word32, RAddress, Bytes8)
 
 instance Has BitcoinConfig r => SourceChain KMDSource (Zeno r) where
   type (ChainNotarisationReceipt KMDSource) = KomodoNotaryReceiptFromEth
@@ -136,7 +136,7 @@ instance Has GethConfig r => DestChain ETHDest (Zeno r) where
 
 
 instance Notarisation KomodoNotaryReceiptFromEth where
-  foreignHeight = fst . norForeignRef
+  foreignHeight = view _1 . norForeignRef
 
 instance NotarisationReceipt KomodoNotaryReceiptFromEth where
   receiptHeight = norBlockNumber

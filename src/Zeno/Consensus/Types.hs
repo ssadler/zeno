@@ -154,6 +154,12 @@ data ConsensusNetworkConfig = CNC
 newtype RoundProtocol = RoundProtocol Word64
   deriving Serialize via H.VarInt
 
+withTimeout :: Int -> Consensus a -> Consensus a
+withTimeout t = 
+  local $
+    \c -> c { ccParams = (ccParams c) { timeout' = t } }
+
+
 -- Monad ----------------------------------------------------------------------
 
 type Consensus = Zeno ConsensusContext

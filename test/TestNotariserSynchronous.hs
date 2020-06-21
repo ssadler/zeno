@@ -1,7 +1,7 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE PartialTypeSignatures #-}
 
-module SpecNotariserStep where
+module TestNotariserSynchronous where
 
 import TestUtils
 
@@ -18,7 +18,7 @@ import Network.Ethereum (Address(..))
 
 import Zeno.Notariser.Types
 import Zeno.Notariser.Targets
-import Zeno.Notariser.Step
+import Zeno.Notariser.Synchronous
 import Zeno.Prelude
 
 type TestBase = IO

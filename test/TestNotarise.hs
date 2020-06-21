@@ -2,7 +2,7 @@
 module TestNotarise where
 
 import Data.Word
-import Zeno.Notariser.Step
+import Zeno.Notariser.Synchronous
 
 import TestUtils
 

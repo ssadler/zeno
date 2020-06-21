@@ -27,38 +27,44 @@ notariseKmdDpow nc@NotariserConfig{..} label seq ndata = do
 
     r <- ask :: Zeno EthNotariser EthNotariser
     let run = withContext (const r)
+        outputsCommon = makeOutputs ndata
+        ndataWithMe = set _2 kmdAddress <$> ndata
 
-    txhash <- runConsensus label cparams outputs $ do
+    runConsensus label cparams outputsCommon $ do
     
-      proposal <- step "inputs" (collectWith $ proposeInputs (kmdNotarySigs sourceChain))
+      proposal <- step "inputs" (collectWith $ collectInputs (kmdNotarySigs sourceChain))
                                 (kmdPubKeyI, getOutPoint utxo)
 
-      Ballot _ _ utxos <- propose "inputs" (Just seq) $ pure proposal
+      Ballot _ _ (utxos, ndataWithProposer) <-
+        propose "inputs" (Just seq) $ pure (proposal, ndataWithMe)
     
+      let
+        outputsWithProposer = makeOutputs ndataWithProposer
+        partlySignedTx = signMyInput nc kmdSecKeyH utxos outputsWithProposer
+        myInput = getMyInput utxo partlySignedTx
+        waitCompileTx = collectWith $ collectTx partlySignedTx utxos
+
       -- Sign tx and collect signed inputs
-      let partlySignedTx = signMyInput nc kmdSecKeyH utxos outputs
-          myInput = getMyInput utxo partlySignedTx
-          waitCompileTx = collectWith $ collectTx partlySignedTx utxos
       finalTx <- step "sigs" waitCompileTx myInput
 
       _ <- step "confirm" collectMajority ()
     
       incStep "wait for tx confirm ..."
-      run $ submitNotarisation nc finalTx
-
-    dpowCheck nc txhash ndata
+      run do
+        txhash <- submitNotarisation nc finalTx
+        dpowCheck nc txhash ndataWithProposer
 
   where
-  outputs = kmdDataOutputs outputAmount dpowRecip $ encode ndata
+  makeOutputs = kmdDataOutputs outputAmount dpowRecip . encode
   outputAmount = kmdInputAmount -- Miners get the majority
   dpowRecip = H.PayPK "020e46e79a2a8d12b9b5d12c7a91adb4e454edfae43c0a0cb805427d2ac7613fd9"
 
 type UTXO = (H.PubKeyI, H.OutPoint)
 
-proposeInputs :: Int -> Int -> Inventory UTXO -> Maybe (Map Address UTXO)
-                                                      -- I think maybe the addresses are redundant
-                                                      -- in this map
-proposeInputs kmdNotaryInputs _threshold ballots =
+collectInputs :: Int -> Int -> Inventory UTXO
+              -> Maybe (Map Address UTXO)  -- I think maybe the addresses are redundant
+                                           -- in this map
+collectInputs kmdNotaryInputs _threshold ballots =
   if length ballots < kmdNotaryInputs
      then Nothing
      else Just $ snd <$> ballots

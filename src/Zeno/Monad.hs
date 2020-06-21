@@ -2,6 +2,8 @@
 
 module Zeno.Monad where
 
+import Data.Text (Text)
+import qualified Data.Set as Set
 import Control.Monad.Catch as Catch hiding (bracket)
 import Control.Monad.Logger
 import Control.Monad.Reader
@@ -134,6 +136,10 @@ withContext = localZeno . fmap
 
 getConsole :: Zeno r Console
 getConsole = Zeno \rest app -> rest app (_console app)
+
+withHideTrace :: Text -> Zeno r a -> Zeno r a
+withHideTrace lvl =
+  localZeno (console . logDebugMask %~ Set.delete lvl)
 
 --------------------------------------------------------------------------------
 -- | Has typeclass

@@ -8,7 +8,6 @@ module Zeno.Prelude
   ( module ALL
   , LazyByteString
   , PercentFormat(..)
-  , traceE
   , fromHex
   , toHex
   , expandPath
@@ -80,10 +79,6 @@ import System.IO.Unsafe as ALL (unsafePerformIO)
 import Debug.Trace as ALL (traceShowId, traceM, traceShowM)
 
 type LazyByteString = BSL.ByteString
-
-traceE :: String -> Zeno r a -> Zeno r a
-traceE prefix act = do
-  onException act $ logError prefix
 
 fromHex :: ByteString -> ByteString
 fromHex bs =

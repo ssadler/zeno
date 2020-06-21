@@ -63,17 +63,20 @@ queryHttpJson req body = do
 
 queryJsonRpc :: (FromJSON a, ToJSON p) => Endpoint -> Text -> p -> Zeno r a
 queryJsonRpc endpoint method params = do
-  let transport = case endpoint of HttpEndpoint req -> queryHttpJson req
-      body = createRequest method params
-  traceE ("Json RPC: " ++ show (endpoint, jsonString body)) do
-    res <- transport body
-    case res .? "{error}" of
-      Just e | e /= Null ->
-        throwIO $ RPCError e
-      _ ->
-        case res .? "{result}" of
-          Just r -> pure r
-          Nothing -> throwIO $ RPCUnexpectedResult res
+  let
+    transport = case endpoint of HttpEndpoint req -> queryHttpJson req
+    body = createRequest method params
+    go = do
+      res <- transport body
+      case res .? "{error}" of
+        Just e | e /= Null ->
+          throwIO $ RPCError e
+        _ ->
+          case res .? "{result}" of
+            Just r -> pure r
+            Nothing -> throwIO $ RPCUnexpectedResult res
+
+  onException go $ logTrace debugTraceRPC $ "Error during request: %s %s" % (show endpoint, jsonString body)
 
 
 jsonString :: Value -> String

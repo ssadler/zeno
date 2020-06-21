@@ -18,7 +18,7 @@ import Zeno.Notariser.Common.KMD
 import Zeno.Notariser.KMDDpow
 import Zeno.Notariser.Targets
 import Zeno.Notariser.Types
-import Zeno.Notariser.Step
+import Zeno.Notariser.Synchronous
 import Zeno.Consensus
 import Zeno.Console
 import Zeno.Prelude
@@ -55,7 +55,7 @@ runNotariserForever = do
       nc <- getNotariserConfig "KMDETH"       -- Config will be refeshed if there is an exception
       asks has >>= validateConfig nc
       runRepeatedly do
-        runNotariserStep nc $ notariserStepFree nc
+        runNotariserSync nc $ notariserSyncFree nc
 
   where
     getNotariserConfig configName = do
@@ -92,23 +92,25 @@ runNotariserForever = do
               \ConsensusTimeout -> pure (f (i + 3))           -- Faster if there are timeouts
 
 
-runNotariserStep :: NotariserConfig
-                 -> NotariserStep KMDSource ETHDest (Zeno EthNotariser) a
-                 -> Zeno EthNotariser a
-runNotariserStep nc@NotariserConfig{sourceChain=s@KMDSource{..}, destChain=d@ETHDest{..}, ..} = go
+runNotariserSync :: NotariserConfig
+                 -> NotariserSync KMDSource ETHDest (Zeno EthNotariser) ()
+                 -> Zeno EthNotariser ()
+runNotariserSync nc@NotariserConfig{sourceChain=s@KMDSource{..}, destChain=d@ETHDest{..}, ..} = go
   where
   go = deboneBy \case
 
-    NotariserStepLift act :>>= f -> act >>= go . f
+    Return () -> pure ()
+
+    NotariserSyncLift act :>>= f -> act >>= go . f
 
     WaitNextSourceHeight height :>>= f -> waitNextNotariseHeight s height >>= go . f
     WaitNextDestHeight height :>>= f -> waitNextNotariseHeight d height >>= go . f
 
-    GetLastNotarisationReceiptFree :>>= f -> do
-      kmdGetLastNotarisationData kmdSymbol >>= go . f
-
-    GetLastNotarisationFree :>>= f -> do
+    GetLastNotarisation :>>= f -> do
       ethGetLastNotarisationAndSequence ethNotarisationsContract >>= go . f
+
+    GetLastNotarisationReceipt :>>= f -> do
+      kmdGetLastNotarisationData kmdSymbol >>= go . f
 
     RunNotarise seq sourceHeight mlastReceipt :>>= f -> do
       blockHash <- queryBitcoin "getblockhash" [sourceHeight]
@@ -122,7 +124,7 @@ runNotariserStep nc@NotariserConfig{sourceChain=s@KMDSource{..}, destChain=d@ETH
         receipt = NOR
           { norBlockHash = noeForeignHash
           , norBlockNumber = noeForeignHeight
-          , norForeignRef = (destHeight, minBound)
+          , norForeignRef = (destHeight, nullRAddress, minBound)
           , norSymbol = kmdSymbol
           , norMom = minBound
           , norMomDepth = 0
@@ -158,23 +160,29 @@ notariseToETH nc@NotariserConfig{..} label seq notarisationParams = do
           tx <- run $ ethMakeNotarisationTx nc proxyCallData
           pure (chosen, tx) -- Send chosen sigs to make it easy to reconstruct tx
 
-    txid <-
+    withTimeout (120 * 1000000) do
       proposeWithAction "tx sender" (Just seq) proposal
         \(Ballot pAddr sig (chosenSigs, tx)) -> do
           run do
+
             sigs <- either invalidProposal pure $ validateSigs nc proxySigHash chosenSigs
             validateProposedTx nc proxyParams sigs pAddr tx
-            catch
-              do postTransaction tx
-              \e -> do
-                invalidProposal $
-                  "Exception posting proposed transaction: %s\n%s" %
-                    (show tx, show (e :: RPCException))
 
-    incStep "wait for tx confirm ..."
-    run $ waitTransactionConfirmed1 (120 * 1000000) txid
-    logInfo "Transaction confirmed"
-    pure ()
+            withHideTrace debugTraceRPC $ 
+              catch
+                do void $ postTransaction tx
+                \e -> do
+                  logTrace debugTraceRPC $ "Got submission error, maybe acceptable: " ++ show (e :: RPCException)
+
+            let txid = hashTx tx
+            waitTransactionConfirmed1 (120 * 1000000) txid >>=
+              \case
+                Nothing -> do
+                  -- This is the fast path fail; we submitted the tx but our node doesn't know
+                  -- about it, so it must be invalid.
+                  invalidProposal $ show tx
+                Just height -> do
+                  logInfo $ "Tx confirmed in block %s: %s" % (show height, show txid)
 
 
 invalidProposal :: String -> Zeno EthNotariser a
@@ -187,16 +195,16 @@ ethMakeNotarisationTx nc@NotariserConfig{..} callData = do
   EthIdent sk myAddress <- asks has
   U256 gasPriceRec <- queryEthereum "eth_gasPrice" ()
   let gasPrice = gasPriceRec + quot gasPriceRec 2         -- Fixed gas price increase
-  tx <- ethMakeNotarisationTxWithGas nc myAddress gasPrice callData
+  nonce <- queryAccountNonce myAddress
+  tx <- ethMakeNotarisationTxPartial nc callData <&>
+    \tx -> tx { _nonce = nonce, _gasPrice = gasPrice }
   signTx sk tx
 
-ethMakeNotarisationTxWithGas
-  :: NotariserConfig -> Address -> Integer -> ByteString -> Zeno EthNotariser Transaction
-ethMakeNotarisationTxWithGas NotariserConfig{..} address gasPrice callData = do
+ethMakeNotarisationTxPartial :: NotariserConfig -> ByteString -> Zeno EthNotariser Transaction
+ethMakeNotarisationTxPartial NotariserConfig{..} callData = do
   let ETHDest{..} = destChain
   gateway <- asks getEthGateway
-  nonce <- queryAccountNonce address
-  pure $ Tx nonce 0 (Just gateway) Nothing gasPrice ethNotariseGas callData ethChainId
+  pure $ Tx (error "nonce") 0 (Just gateway) Nothing (error "gasPrice") ethNotariseGas callData ethChainId
 
 validateSigs :: NotariserConfig -> Bytes32 -> Inventory Bytes32 -> Either String [RecSig]
 validateSigs NotariserConfig{..} ourHash chosenInv = do
@@ -215,7 +223,8 @@ validateSigs NotariserConfig{..} ourHash chosenInv = do
       pure sig
 
 validateProposedTx
-  :: NotariserConfig -> ProxyParams -> [RecSig] -> Address -> Transaction -> Zeno EthNotariser ()
+  :: NotariserConfig -> ProxyParams -> [RecSig]
+  -> Address -> Transaction -> Zeno EthNotariser ()
 validateProposedTx nc@NotariserConfig{..} proxyParams sigs sender tx = do
 
   recoverFrom tx >>=
@@ -230,8 +239,10 @@ validateProposedTx nc@NotariserConfig{..} proxyParams sigs sender tx = do
 
   let callData = ethMakeProxyCallData proxyParams sigs
   reconstructed <-
-    ethMakeNotarisationTxWithGas nc sender (_gasPrice tx) callData
-      <&> (\tx -> tx { _sig = _sig tx })
+    ethMakeNotarisationTxPartial nc callData <&>
+      \txre -> txre { _gasPrice = _gasPrice tx, _nonce = _nonce tx, _sig = _sig tx }
 
   when (reconstructed /= tx) do
+    logDebug $ show tx
+    logDebug $ show reconstructed
     invalidProposal "could not reconstruct tx"

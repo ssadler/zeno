@@ -3,6 +3,8 @@ module Zeno.Console.Types where
 
 import qualified Data.ByteString.Char8 as BS8
 import Control.Monad.Logger (LogLevel(..))
+import qualified Data.Set as Set
+import Data.Text
 
 import Lens.Micro.Platform
 
@@ -31,6 +33,7 @@ data UIProcess
 
 data Console = Console
   { _logLevel :: LogLevel
+  , _logDebugMask :: Set.Set Text
   , _statusBar :: Maybe (TBQueue ConsoleCtrl)
   , _writeStatusEvents :: Bool
   , _fileHandle :: Handle
@@ -38,12 +41,15 @@ data Console = Console
 
 makeLenses ''Console
 
+debugTraceRPC :: Text
+debugTraceRPC = "RPC"
+
 consoleWarn :: Console
-consoleWarn = Console LevelWarn Nothing False stdout
+consoleWarn = Console LevelWarn mempty Nothing False stdout
 
 defaultLog :: Console
-defaultLog = Console LevelDebug Nothing False stdout
+defaultLog = Console LevelDebug mempty Nothing False stdout
 
 stderrLog :: Console
-stderrLog = Console LevelDebug Nothing False stderr
+stderrLog = Console LevelDebug mempty Nothing False stderr
 
