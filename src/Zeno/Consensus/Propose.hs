@@ -43,7 +43,8 @@ determineProposers :: Maybe Int -> Consensus [(Address, Bool)]
 determineProposers (Just seq) = do
   ConsensusParams{members'}  <- asks has
   let primary = members' !! mod seq (length members')
-  ((primary, True):) . take 2 <$> determineProposers Nothing
+  let fallbacks = filter ((/=primary) . fst) <$> determineProposers Nothing
+  ((primary, True):) . take 2 <$> fallbacks
 determineProposers Nothing = do
   ConsensusParams{members'}  <- asks has
   seed <- getStepSeed

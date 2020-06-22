@@ -168,11 +168,10 @@ notariseToETH nc@NotariserConfig{..} label seq notarisationParams = do
             sigs <- either invalidProposal pure $ validateSigs nc proxySigHash chosenSigs
             validateProposedTx nc proxyParams sigs pAddr tx
 
-            withHideTrace debugTraceRPC $ 
-              catch
-                do void $ postTransaction tx
-                \e -> do
-                  logTrace debugTraceRPC $ "Got submission error, maybe acceptable: " ++ show (e :: RPCException)
+            catch
+              do void $ postTransaction tx
+              \e -> do
+                logTrace debugTraceRPC $ "Got submission error, maybe acceptable: " ++ show (e :: RPCException)
 
             let txid = hashTx tx
             waitTransactionConfirmed1 (120 * 1000000) txid >>=

@@ -56,7 +56,7 @@ loadBitcoinConfig path = do
      fromString $ "http://" ++ toS host ++ "/"
 
 
-queryBitcoin :: (Has BitcoinConfig r, FromJSON a, ToJSON b) => Text -> b -> Zeno r a
+queryBitcoin :: (Has BitcoinConfig r, FromJSON a, JsonRPCArgs b) => Text -> b -> Zeno r a
 queryBitcoin method params = hasReader $ do
   endpoint <- asks getRequest
   queryJsonRpc (HttpEndpoint endpoint) method params

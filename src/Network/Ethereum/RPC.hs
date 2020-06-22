@@ -13,7 +13,7 @@ import           Zeno.Monad
 import           Zeno.Prelude
 
 
-queryEthereum :: (Has GethConfig r, ToJSON b, FromJSON a) => Text -> b -> Zeno r a
+queryEthereum :: (Has GethConfig r, JsonRPCArgs b, FromJSON a) => Text -> b -> Zeno r a
 queryEthereum method params = do
   uri <- asks $ gethEndpoint . has
   let endpoint = HttpEndpoint $ fromString uri

@@ -156,8 +156,7 @@ newtype RoundProtocol = RoundProtocol Word64
 
 withTimeout :: Int -> Consensus a -> Consensus a
 withTimeout t = 
-  local $
-    \c -> c { ccParams = (ccParams c) { timeout' = t } }
+  local \c -> c { ccParams = (ccParams c) { timeout' = t } }
 
 
 -- Monad ----------------------------------------------------------------------

@@ -1,7 +1,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module Network.JsonRpc
-  ( RPCException(..)
+  ( JsonRPCArgs(..)
+  , RPCException(..)
   , RPCTransportException(..)
   , Endpoint(..)
   , queryJsonRpc
@@ -16,6 +17,14 @@ import           Data.Aeson (encode)
 import           Zeno.Data.Aeson
 import           Zeno.Monad
 import           Zeno.Prelude
+
+
+class ToJSON a => JsonRPCArgs a
+instance ToJSON a => JsonRPCArgs [a]
+instance JsonRPCArgs ()
+instance (ToJSON a, ToJSON b) => JsonRPCArgs (a, b)
+instance (ToJSON a, ToJSON b, ToJSON c) => JsonRPCArgs (a, b, c)
+instance (ToJSON a, ToJSON b, ToJSON c, ToJSON d) => JsonRPCArgs (a, b, c, d)
 
 
 data RPCException
@@ -61,7 +70,7 @@ queryHttpJson req body = do
 
     \e -> throwIO $ RPCHttpException e
 
-queryJsonRpc :: (FromJSON a, ToJSON p) => Endpoint -> Text -> p -> Zeno r a
+queryJsonRpc :: (FromJSON a, JsonRPCArgs p) => Endpoint -> Text -> p -> Zeno r a
 queryJsonRpc endpoint method params = do
   let
     transport = case endpoint of HttpEndpoint req -> queryHttpJson req

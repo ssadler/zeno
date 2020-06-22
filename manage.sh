@@ -13,8 +13,8 @@ PATH="../komodo/src/:$PATH"
 
 function runKmdDev () {
   komodod -ac_name=TXSCLZDEV -ac_supply=999999 -ac_reward=1000000 \
-      -ac_blocktime=3 \
       -addressindex=1 \
+      -ac_blocktime=3 \
       -ac_nk=96,5 \
       -ac_sapling=2 \
       -testnode=1 &
