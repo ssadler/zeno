@@ -67,16 +67,15 @@ testInboundConnectionLimit = do
   mreceivers <- newMVar mempty
   sem <- newMVar (0 :: Int)
 
-  asyncs <- forM [0..1] \i -> do
-      asnc <- async do
-        do
+  asyncs <-
+    forM [0..1] \i -> do
+      async do
         inboundConnectionLimit mreceivers 0 1 do
           modifyMVar_ sem \p -> do
             when (p /= 0) $ error $ "invariant violated: " ++ show p
             pure (p+1)
 
           modifyMVar_ sem (pure . (subtract 1))
-      pure asnc
 
   forM_ asyncs \a -> do
     waitCatch a >>= either (fail . show) pure
