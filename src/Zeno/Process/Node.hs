@@ -62,6 +62,7 @@ withNode (NetworkConfig host port) act = do
               do closeSock $ fst client
 
   wrapRunConn node s@(sock, sockAddr) asnc = do
+    traceM "aa"
     -- TODO: logDebug new connections
     -- Is it logging connection errors here?
     logDiedSync ("IN:" ++ show sockAddr) do
@@ -132,28 +133,21 @@ receiveLen conn len = do
 
 runConnection :: Node -> Socket -> HostAddress -> Zeno () ()
 runConnection node@Node{..} conn ip = do
+  traceM "a"
   handle (\ConnectionClosed -> mempty) do -- Don't spam up the log
     nodeId <- readHeader
     --forever do
     fix \f -> do
       msg <- liftIO do
         receiveMessageLength conn >>= receiveMessage conn . fromIntegral
-      handleMessage node nodeId msg
+      --handleMessage node nodeId msg
+      traceM "b"
       f
 
   where
   murphy :: MonadIO m => String -> m a
   murphy s = throwIO $ NetworkMurphy $ desc ip s
     where desc = [pf|Invariant violation error somehow triggered by: %?: %s|]
-  -- receiveLen len = do
-  --   fix2 "" len \f xs rem -> do
-  --     s <- recv conn rem >>= maybe (throwIO ConnectionClosed) pure
-  --     let newbs = xs <> BSL.fromStrict s
-  --         newrem = rem - BS.length s
-  --     case compare newrem 0 of
-  --       EQ -> pure $ BSL.toStrict newbs
-  --       GT -> f newbs newrem
-  --       LT -> murphy "More data received than expected"
 
   readHeader :: Zeno () NodeId
   readHeader = do
@@ -161,34 +155,9 @@ runConnection node@Node{..} conn ip = do
     case decode header of
       Right ('\0', port) -> pure $ NodeId (renderIp ip) port
       Left s -> murphy s -- How can we fail to decode exactly 3 bytes into a (Word8, Word16)
-      Right (_, _) -> do
-        -- Someone is port scanning, or running incorrect version
-        more <- recv conn 20 >>= maybe mempty pure
-        let (line: _) = lines $ toS $ header <> more
-        if take 4 line == "GET" || take 4 line == "POST"
-           then logInfo $ "%s :eyes: %s" % (renderIp ip, show line)
-           else logDebug $ [pf|Unsupported protocol (%s)|] (show line)
-        throwIO ConnectionClosed
+      Right (_, _) -> undefined
 
 
 
 renderIp :: HostAddress -> String
 renderIp ip = "%i.%i.%i.%i" % hostAddressToTuple ip
-
-handleMessage :: Node -> NodeId -> BS.ByteString -> Zeno () ()
-handleMessage _ _ "" = mempty
-handleMessage Node{..} nodeId bs = do
-  let (toB, rem) = BS.splitAt 16 bs
-  if BS.length toB /= 16
-     then logDebug $ [pf|Could not decode packet from: %?|] nodeId
-     else do
-       let to = ProcessId $ toFixed toB
-       atomically do
-         STM.lookup to topics >>=
-           \case
-             Nothing -> do
-               pure ()
-               -- let miss = (to, nodeId, toShort rem)
-               -- modifyTVar missCache $ receiveCachePut miss
-             Just (WrappedReceiver write) -> do
-               write nodeId rem
