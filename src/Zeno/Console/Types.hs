@@ -3,6 +3,7 @@ module Zeno.Console.Types where
 
 import qualified Data.ByteString.Char8 as BS8
 import Control.Monad.Logger (LogLevel(..))
+import Options.Applicative
 import qualified Data.Set as Set
 import Data.Text
 
@@ -42,7 +43,7 @@ data Console = Console
 makeLenses ''Console
 
 debugTraceRPC :: Text
-debugTraceRPC = "RPC"
+debugTraceRPC = "rpc"
 
 consoleWarn :: Console
 consoleWarn = Console LevelWarn mempty Nothing False stdout
@@ -52,4 +53,16 @@ defaultLog = Console LevelDebug mempty Nothing False stdout
 
 stderrLog :: Console
 stderrLog = Console LevelDebug mempty Nothing False stderr
+
+type ConsoleArgs = (Bool, String)
+
+optConsoleArgs = (,) <$> ui <*> debug
+  where
+  ui = switch
+     ( long "log-ui"
+    <> help "Enable fancy (but currently buggy) status bar" )
+  debug = option str
+     ( long "log-debug"
+    <> value mempty
+    <> help "comma separated list of topics to debug i.e: rpc" )
 

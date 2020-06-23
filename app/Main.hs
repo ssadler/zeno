@@ -53,7 +53,7 @@ runEthNotariserMethod = withShowVersion $
   <*> optConsensusConfig
   <*> optGethConfig
   <*> optKmdConfigPath
-  <*> optNoUI
+  <*> optConsoleArgs
 
 runSeedNotariserMethod :: Parser Method
-runSeedNotariserMethod = withShowVersion $ startSeedNode <$> optNetworkConfig <*> optNoUI
+runSeedNotariserMethod = withShowVersion $ startSeedNode <$> optNetworkConfig <*> optConsoleArgs

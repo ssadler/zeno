@@ -2,11 +2,10 @@
 module Zeno.Console
   ( Console(..)
   , UI(..)
-  , withConsoleUI
+  , withConsole
   , sendUI
   , withUIProc
   , renderStatus
-  , testConsole
   ) where
 
 import Control.Monad
@@ -14,7 +13,8 @@ import Control.Monad.State
 import Control.Monad.Logger hiding (logInfo)
 
 import qualified Data.ByteString.Char8 as BS8
-import Data.Function (fix)
+import qualified Data.Text as T
+import qualified Data.Set as Set
 
 import Lens.Micro.Platform
 
@@ -48,6 +48,7 @@ withUIProc proc act = do
     sendUI $ UI_Process $ Just proc
     finally (unmask act)
             (sendUI $ UI_Process Nothing)
+
 
 
 data UI = UI
@@ -128,20 +129,25 @@ runConsoleUI proc = do
       hFlush stdout
 
 
-withConsoleUI :: LogLevel -> Zeno r a -> Zeno r a
-withConsoleUI level act = do
-  proc <- spawn "UI" runConsoleUI
-  let c = Console level mempty (Just $ procMbox proc) True stderr
+withConsole :: ConsoleArgs -> LogLevel -> Zeno r a -> Zeno r a
+withConsole (useUI, debug) level act = do
+  let topics = Set.fromList $ T.splitOn "," $ T.toLower $ T.pack debug
+  ui <- 
+    if useUI
+       then Just . procMbox <$> spawn "UI" runConsoleUI
+       else pure Nothing
+
+  let c = Console level topics ui True stderr
   localZeno (console .~ c) act
 
 
-testConsole :: IO ()
-testConsole = do
-  runZeno defaultLog () do
-    withConsoleUI LevelDebug do
-      forM_ [0..] \i -> do
-        sendUI $ UI_Peers i
-        when (mod i 3 == 0) do
-          logInfo $ "i is getting longer: " ++ concat (replicate i (show i))
-        threadDelay 400000
 
+-- testConsole :: IO ()
+-- testConsole = do
+--   runZeno defaultLog () do
+--     withConsoleUI LevelDebug do
+--       forM_ [0..] \i -> do
+--         sendUI $ UI_Peers i
+--         when (mod i 3 == 0) do
+--           logInfo $ "i is getting longer: " ++ concat (replicate i (show i))
+--         threadDelay 400000
