@@ -107,9 +107,13 @@ runConnection :: Node -> Socket -> HostAddress -> Zeno () ()
 runConnection node@Node{..} conn ip = do
   handle (\ConnectionClosed -> mempty) do -- Don't spam up the log
     nodeId <- readHeader
-    forever do
+    -- forever do // Rather spookily, using `forever` here results in a memory leak.
+    -- Memory leaks in monadic loops have been encountered in Haskell but they are supposed
+    -- to be all fixed by now.
+    fix \f -> do
       len <- (decode <$> receiveLen 4) >>= either murphy pure :: Zeno () Word32
       receiveMessage (fromIntegral len) >>= handleMessage node nodeId
+      f
 
   where
   murphy :: String -> Zeno () a
