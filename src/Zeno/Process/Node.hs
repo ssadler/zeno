@@ -72,7 +72,10 @@ withNode (NetworkConfig host port) act = do
     installHandler sigPIPE Ignore Nothing 
 
 
-filterInboundConnections :: Node -> SockAddr -> ClassyAsync () -> (HostAddress -> Zeno () a) -> Zeno () a
+maxConn :: Int
+maxConn = 3
+
+filterInboundConnections :: Node -> SockAddr -> ClassyAsync () -> (HostAddress -> Zeno () ()) -> Zeno () ()
 filterInboundConnections Node{..} sockAddr asnc act = do
   case sockAddr of
     SockAddrInet _ ip@16777343 -> do
@@ -85,7 +88,7 @@ filterInboundConnections Node{..} sockAddr asnc act = do
 
     SockAddrInet _ ip -> do
       actIO <- toIO $ act ip
-      liftIO $ inboundConnectionLimit mreceivers ip asnc actIO
+      liftIO $ inboundConnectionLimit mreceivers ip maxConn actIO
 
     other -> throwIO $ UnsupportedForeignHost other
 

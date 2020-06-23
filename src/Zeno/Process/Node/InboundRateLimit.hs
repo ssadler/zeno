@@ -13,6 +13,7 @@ import Control.Monad
 import Control.Monad.Catch
 import Test.DejaFu
 import Test.DejaFu.Conc.Internal.STM
+import Test.DejaFu.Conc.Internal.Common
 
 import Control.Monad.Conc.Class
 import Control.Concurrent.Classy hiding (wait)
@@ -20,105 +21,65 @@ import Control.Concurrent.Classy.Async
 import Control.Concurrent.Classy.MVar
 
 import qualified Data.Map as Map
-import Debug.Trace
 
 
 type HostAddress = Word32
-type ReceiverMap m = TVar (STM m) (Map.Map HostAddress (Async m ()))
+type ReceiverMap m = MVar m (Map.Map HostAddress Int)
 type ClassyAsync = Async IO
 classyAsync :: MonadConc m => m a -> m (Async m a)
 classyAsync = async
 
 newReceiverMap :: MonadConc m => m (ReceiverMap m)
-newReceiverMap = atomically (newTVar mempty)
-
+newReceiverMap = newMVar mempty
 
 inboundConnectionLimit
-  :: MonadConc m
+  :: forall m a. MonadConc m
   => ReceiverMap m
   -> HostAddress
-  -> Async m ()
-  -> m a
-  -> m a
-inboundConnectionLimit mreceivers ip asnc act = do
-  finally
-    do
-      r <- atomically do
-        lookupAsync ip mreceivers <*
-          insertAsync ip asnc mreceivers
-      case r of
-        Nothing -> pure ()
-        Just asnc -> do
-          traceM "Killing thread"
-          cancel asnc -- Synchronously cancel
-          void $ waitCatch asnc
-      act
-    do
-      atomically do
-        lookupAsync ip mreceivers >>=
-          mapM_ \oasnc -> 
-            when (asnc == oasnc) (void $ deleteAsync ip mreceivers)
+  -> Int
+  -> m ()
+  -> m ()
+inboundConnectionLimit mreceivers ip maxConn act = do
+  Control.Concurrent.Classy.mask \unmask -> do
+    r <-
+      modifyMVar mreceivers
+        \rmap -> do
+          case Map.lookup ip rmap of
+            Nothing -> pure (Map.insert ip 1 rmap, True)
+            Just n | n == maxConn -> pure (rmap, False)
+            Just n -> pure (Map.insert ip (n+1) rmap, True)
+    when r do
+       finally
+        do unmask act
+        do
+          modifyMVarMasked_ (mreceivers :: ReceiverMap m)
+            \rmap ->
+              pure $
+                case (Map.lookup ip rmap) of
+                  Nothing -> error "Invariant: Receivers map got Nothing"
+                  Just 1 -> Map.delete ip rmap
+                  Just n -> Map.insert ip (n-1) rmap
 
 
-insertAsync :: MonadConc m => HostAddress -> Async m () -> ReceiverMap m -> STM m ()
-insertAsync ip asnc t = do
-  modifyTVar t $ Map.insert ip asnc
+testInboundConnectionLimit :: Program Basic IO ()
+testInboundConnectionLimit = do
 
-lookupAsync :: MonadConc m => HostAddress -> ReceiverMap m -> STM m (Maybe (Async m ()))
-lookupAsync ip tmap = do
-  Map.lookup ip <$> readTVar tmap
-
-deleteAsync :: MonadConc m => HostAddress -> ReceiverMap m -> STM m ()
-deleteAsync ip t = modifyTVar t $ Map.delete ip
-
-
-testInboundConnectionLimit :: Program (WithSetup (ModelTVar IO Integer)) IO ()
-testInboundConnectionLimit = withSetup setup \sem -> do
-
-  mreceivers <- atomically (newTVar mempty)
+  mreceivers <- newMVar mempty
+  sem <- newMVar (0 :: Int)
 
   asyncs <- forM [0..1] \i -> do
-      handoff <- newEmptyMVar
       asnc <- async do
-        me <- takeMVar handoff
-        inboundConnectionLimit mreceivers 0 me do
-          finally
-            do
-               atomically $ modifyTVar sem (+1)
-               -- threadDelay 1                                   -- Test breaks if uncommented.
-               --                                 https://github.com/barrucadu/dejafu/issues/323
-            do atomically (modifyTVar sem (subtract 1))
-      putMVar handoff asnc
+        do
+        inboundConnectionLimit mreceivers 0 1 do
+          modifyMVar_ sem \p -> do
+            when (p /= 0) $ error $ "invariant violated: " ++ show p
+            pure (p+1)
+
+          modifyMVar_ sem (pure . (subtract 1))
       pure asnc
 
-  mapM_ waitCatch asyncs
-
-  where
-  setup :: Program Basic IO (ModelTVar IO Integer)
-  setup = do
-    single <- atomically $ newTVar 0
-    registerInvariant do
-      n <- inspectTVar single
-      when (n > 1) $ error "too many threads"
-      pure ()
-    pure single
+  forM_ asyncs \a -> do
+    waitCatch a >>= either (fail . show) pure
 
 data TooManyThreads = TooManyThreads deriving (Show)
 instance Exception TooManyThreads
-
--- testInboundConnectionLimit :: Program (WithSetup (ModelTVar IO Int)) IO Int
--- testInboundConnectionLimit = withSetup setup $ \tvar -> do
---     a <- async (act tvar)
---     b <- async (act tvar)
---     _ <- waitCatch a
---     _ <- waitCatch b
---     atomically $ readTVar tvar
--- 
---   where
---     setup = atomically $ newTVar 0
--- 
---     act tvar = do
---       atomically $ modifyTVar tvar (+1)
---       threadDelay 1
---       atomically (readTVar tvar) >>= traceShowM
---       atomically $ modifyTVar tvar (subtract 1)
