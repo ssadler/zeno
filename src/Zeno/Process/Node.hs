@@ -113,6 +113,7 @@ runConnection node@Node{..} conn ip = do
     fix \f -> do
       len <- (decode <$> receiveLen 4) >>= either murphy pure :: Zeno () Word32
       receiveMessage (fromIntegral len) >>= handleMessage node nodeId
+      threadDelay 10000 -- rate limit to a generous 100 messages/s
       f
 
   where
