@@ -20,6 +20,7 @@ module Zeno.Process
   , sendSTM
   , sendRemote
   , hashServiceId
+  , renderIp
   , spawn
   , spawnNoHandle
   , subscribe

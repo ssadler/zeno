@@ -4,6 +4,7 @@ module Zeno.Consensus.P2P
   ( startP2P
   , PeerState
   , getPeers
+  , getMyIpFromICanHazIp
   , sendPeers
   , registerOnNewPeer
   -- For testing
@@ -12,11 +13,13 @@ module Zeno.Consensus.P2P
   ) where
 
 import Control.Concurrent.STM.TVar (stateTVar)
+import qualified Data.Attoparsec.ByteString.Char8 as A
+import Data.Bits
 import qualified Data.IntMap.Strict as IntMap
 import qualified Data.Set as Set
-import Data.Serialize
-import Data.Dynamic
 
+import Network.HTTP.Simple
+import Network.Socket (HostAddress)
 import System.Posix.Signals
 import UnliftIO
 
@@ -35,6 +38,7 @@ type Peers = Set.Set NodeId
 data PeerState = PeerState
   { p2pPeers :: TVar Peers
   , p2pPeerNotifier :: PeerNotifier
+  , p2pMyIp :: HostAddress
   }
 
 data PeerNotifierMessage =
@@ -75,8 +79,6 @@ registerOnNewPeer cb = do
     sendSTM pnProc $ SubscribeNewPeers subId $ unliftIO . cb
 
 
--- * Types
-
 -- * Consensus
 
 
@@ -86,6 +88,8 @@ startP2P seeds = do
   pnCount <- newTVarIO 0
   pnProc <- spawn "peerNotifier" peerNotifier
   let p2pPeerNotifier = PeerNotifier{..}
+  p2pMyIp <- liftIO getMyIpFromICanHazIp
+  logInfo $ "My IP from icanhazip.com: " ++ renderIp p2pMyIp
   let state = PeerState{..}
   _ <- spawn "peerController" $ \_ -> peerController state seeds
   withRunInIO \rio ->
@@ -99,13 +103,33 @@ startP2P seeds = do
       logInfo $ show p
 
 
+getMyIpFromICanHazIp :: IO HostAddress
+getMyIpFromICanHazIp = do
+  ipBs <- getResponseBody <$> httpBS "http://icanhazip.com"
+  let bail _ = fail $ "Could not parse IP from icanhazip.com: " <> show ipBs
+  either bail pure $ A.parseOnly parseIp ipBs
+  where
+  oct i = do
+    n <- A.decimal
+    if n > (255 :: Integer)
+       then fail "Invalid IP data"
+       else pure $ fromIntegral $ shift n i
+
+  parseIp = do
+    let parts =
+          [ oct  0 <* "."
+          , oct  8 <* "."
+          , oct 16 <* "."
+          , oct 24 <* A.skipSpace <* A.endOfInput
+          ]
+    sum <$> sequence parts
+
+
 peerControllerPid :: ProcessId
 peerControllerPid = hashServiceId "peerController"
 
 
-data PeerMsg =
-    GetPeers
-  | Peers Peers
+data PeerMsg = GetPeers | Peers Peers
   deriving (Show, Generic)
 
 instance Serialize PeerMsg
@@ -117,8 +141,10 @@ peerController state@PeerState{..} seeds = do
   forever do
     mapM_ doDiscover seeds
     receiveDuringS recv 60 $
-      withRemoteMessage handle
-
+      withRemoteMessage
+        \peer msg -> do
+          when (hostName peer /= renderIp p2pMyIp) do
+            handle peer msg
   where
   handle peer GetPeers = do
     peers <- readTVarIO p2pPeers
@@ -130,8 +156,9 @@ peerController state@PeerState{..} seeds = do
     known <- readTVarIO $ p2pPeers
     mapM_ doDiscover $ Set.toList $ Set.difference peers known
 
-  doDiscover nodeId = do
-    sendRemote nodeId peerControllerPid GetPeers
+  doDiscover peer = do
+    when (hostName peer /= renderIp p2pMyIp) do
+      sendRemote peer peerControllerPid GetPeers
 
   newPeer :: NodeId -> Zeno Node ()
   newPeer nodeId = do
