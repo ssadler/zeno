@@ -12,7 +12,6 @@ import           Data.Typeable
 import           Unsafe.Coerce
 
 import           Network.Ethereum.Crypto
-import           Network.Bitcoin (sha256b)
 import           Zeno.Process
 
 import           Zeno.Prelude

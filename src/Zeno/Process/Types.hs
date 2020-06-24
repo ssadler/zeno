@@ -59,18 +59,15 @@ data Node = Node
   -- it's killed synchronously is because doing it asynchronously (and safely) is a
   -- massive ballache of complexity and STM contention.
   , mreceivers :: ReceiverMap IO
-  , missCache :: TVar ReceiveMissCache
+  -- | The receive cache is wildly inefficient. We want to store 1-10k
+  --   elements that we don't have listeners for, because many nodes will
+  --   send data before others are listening on that key. Appending to this
+  --   map is cheap, but when we get a miss we have to scan it.
+  --   Alternatives would be: eagerly allocating a receiver for a topic we don't
+  --   have a listener for, and some thread to monitor it while there's no consumer,
+  --   or using multiple maps, one for lookup by topic and one for lookup by nonce.
+  , missCache :: TVar (IntMap (ProcessId, NodeId, BS.ByteString))
   }
-
--- | The receive cache is wildly inefficient. We want to store 1-10k
---   elements that we don't have listeners for, because many nodes will
---   send data before others are listening on that key. Appending to this
---   map is cheap, but when we get a miss we have to scan it.
---   Alternatives would be: eagerly allocating a receiver for a topic we don't
---   have a listener for, and some thread to monitor it while there's no consumer,
---   or using multiple maps, one for lookup by topic and one for lookup by nonce.
-type ReceiveMiss = (ProcessId, NodeId, BS.ByteString)
-type ReceiveMissCache = IntMap ReceiveMiss
 
 data WrappedReceiver = WrappedReceiver
   { wrappedWrite :: NodeId -> BS.ByteString -> STM ()
@@ -105,6 +102,10 @@ class HasReceive r i | r -> i where
 instance HasReceive (AsyncProcess i b) i where
   receiveSTM (Process{..}) = readTBQueue procMbox
   receiveMaybeSTM (Process{..}) = tryReadTBQueue procMbox
+
+instance HasReceive (TQueue i) i where
+  receiveSTM = readTQueue
+  receiveMaybeSTM = tryReadTQueue
 
 instance HasReceive (TBQueue i) i where
   receiveSTM = readTBQueue

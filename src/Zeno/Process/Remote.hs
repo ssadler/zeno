@@ -1,7 +1,7 @@
 
 module Zeno.Process.Remote where
 
-import Control.Concurrent.STM (throwSTM)
+import Control.Concurrent.STM (stateTVar, throwSTM)
 import Control.DeepSeq
 import Control.Monad.Catch (MonadThrow, MonadCatch)
 import Control.Monad.Reader
@@ -31,8 +31,7 @@ import Zeno.Prelude hiding (finally)
 sendRemote :: (Serialize a, Has Node r) => NodeId -> ProcessId -> a -> Zeno r ()
 sendRemote nodeId pid msg = do
   let payload = encodeLazy (pid, msg)
-  -- Don't hold on to thunk longer than neccesary
-  BSL.length payload `seq`
+  BSL.length payload `seq`                       -- `seq` avoids holding thunk longer than neccesary
     withRemoteForwarder nodeId \(chan, _) -> do
       writeTQueue chan payload
 
@@ -120,6 +119,14 @@ subscribe procId = do
     allocate
       (atomically $ getReceiverSTM node procId)
       (\_ -> atomically $ STM.delete procId topics)
+
+  -- | TODO: deduplicate misses by nodeId. Not sure if there's a reason they should ever be different
+  --   but just in case.
+  misses <- atomically $ stateTVar missCache $ receiveCacheTake $ (==procId) . view _1
+  spawnNoHandle "miss populater" do
+    forM_ misses
+      \(_, nodeId, bs) -> atomically $ wrappedReceive recv nodeId bs
+
   pure recv
 
 getReceiverSTM :: Serialize i => Node -> ProcessId -> STM (RemoteReceiver i)
@@ -129,22 +136,16 @@ getReceiverSTM Node{..} pid = do
       Just r -> throwSTM $ TopicIsRegistered pid
       Nothing -> do
         recv <- newTBQueue 3
-        populateFromRecvCache recv
         let wrapped = WrappedReceiver $ wrappedReceive recv
         STM.insert wrapped pid topics
         pure recv
-  where
-  wrappedReceive chan nodeId bs = do
-      case decode bs of
-        Right a -> writeTBQueue chan $ RemoteMessage nodeId a
-        _ -> pure ()  -- Could have a "bad queue", ie redirect all decode failures
-                      -- to a thread which monitors for peer mischief
 
-  populateFromRecvCache recv = do
-    (misses, nextCache) <- receiveCacheTake pid <$> readTVar missCache
-    writeTVar missCache nextCache
-    forM_ misses
-      \(_, nodeId, bs) -> wrappedReceive recv nodeId bs
+wrappedReceive :: Serialize i => RemoteReceiver i -> NodeId -> BS.ByteString -> STM ()
+wrappedReceive chan nodeId bs = do
+    case decode bs of
+      Right a -> writeTBQueue chan $ RemoteMessage nodeId a
+      _ -> pure ()  -- Could have a "bad queue", ie redirect all decode failures
+                    -- to a thread which monitors for peer mischief
 
 withRemoteMessage :: (NodeId -> a -> m b) -> RemoteMessage a -> m b
 withRemoteMessage act (RemoteMessage nodeId msg) = act nodeId msg

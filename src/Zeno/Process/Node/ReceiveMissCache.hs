@@ -1,12 +1,11 @@
 
 module Zeno.Process.Node.ReceiveMissCache where
 
+import Lens.Micro.Platform
+import Data.IntMap.Strict as IntMap
 
-import qualified Data.IntMap.Strict as IntMap
-import Zeno.Process.Types
 
-
-receiveCachePut :: ReceiveMiss -> ReceiveMissCache -> ReceiveMissCache
+receiveCachePut :: a -> IntMap a -> IntMap a
 receiveCachePut miss cache
   | length cache == 0 = IntMap.singleton 0 miss
   | length cache == cacheMaxSize =
@@ -19,7 +18,5 @@ receiveCachePut miss cache
   cacheMaxSize = 1000
 
 
-receiveCacheTake :: ProcessId -> ReceiveMissCache -> ([ReceiveMiss], ReceiveMissCache)
-receiveCacheTake pid cache =
-  let (matches, nextCache) = IntMap.partition (\(pid', _, _) -> pid == pid') cache
-   in (IntMap.elems matches, nextCache)
+receiveCacheTake :: (a -> Bool) -> IntMap a -> ([a], IntMap a)
+receiveCacheTake f = over _1 IntMap.elems . IntMap.partition f
