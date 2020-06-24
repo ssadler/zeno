@@ -109,6 +109,7 @@ data KomodoUtxo = Utxo
   , utxoTxid :: H.TxHash
   , utxoVout :: Word32
   , utxoAddress :: RAddress
+  , utxoScriptPubKey :: Hex
   , utxoSpendable :: Bool
   } deriving (Show)
 
@@ -127,6 +128,7 @@ instance FromJSON KomodoUtxo where
          <*> obj .: "txid"
          <*> obj .: "vout"
          <*> obj .: "address"
+         <*> obj .: "scriptPubKey"
          <*> obj .: "spendable"
 
 getOutPoint :: KomodoUtxo -> H.OutPoint

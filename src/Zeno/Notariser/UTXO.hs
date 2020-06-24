@@ -18,6 +18,7 @@ import System.IO.Unsafe
 import UnliftIO
 
 import Zeno.Data.Aeson
+import Zeno.Data.Hex
 import Zeno.Prelude
 import Zeno.Process
 import Zeno.Console
@@ -31,9 +32,8 @@ kmdInputAmount = 9850
 forkMonitorUTXOs :: (Has KomodoIdent r, Has BitcoinConfig r)
                  => Int -> Int -> Zeno r ()
 forkMonitorUTXOs minimum nsplit = do
-  KomodoIdent{..} <- asks has
   run do
-    available <- filter viableUtxo <$> komodoListUnspent [kmdAddress]
+    available <- getSpendableUtxos
     nallocated <- length <$> readMVar allocatedUtxos
 
     when (length available - nallocated < minimum) do
@@ -122,8 +122,7 @@ waitForUtxo = do
 
 getKomodoUtxo :: HasUtxos r => Zeno r (Maybe KomodoUtxo)
 getKomodoUtxo = do
-  kmdAddress <- asks $ kmdAddress . has
-  unspent <- filter viableUtxo <$> komodoListUnspent [kmdAddress]
+  unspent <- getSpendableUtxos
 
   modifyMVar allocatedUtxos \allocated -> do
     let available = toList $ fromList unspent \\ allocated
@@ -136,5 +135,11 @@ getKomodoUtxo = do
   prioritise = reverse . sortOn (\c -> (utxoConfirmations c, utxoTxid c))
 
 
-viableUtxo :: KomodoUtxo -> Bool
-viableUtxo Utxo{..} = utxoAmount == kmdInputAmount && utxoSpendable
+getSpendableUtxos :: HasUtxos r => Zeno r [KomodoUtxo]
+getSpendableUtxos = do
+  KomodoIdent{..} <- asks has
+  let spendable Utxo{..} =
+        utxoAmount == kmdInputAmount &&
+        utxoSpendable &&
+        utxoScriptPubKey == Hex (H.encodeOutputBS (H.PayPK kmdPubKeyI))
+  komodoListUnspent [kmdAddress] <&> filter spendable
