@@ -56,17 +56,17 @@ makeStepContext = do
   pure $ Step processId ioInv members' (Set.fromList members') stepNum
 
 
-spawnStep :: BallotData i => i -> Consensus (Process (Inventory i))
-spawnStep obj = do
+spawnStep :: BallotData i => Maybe i -> Consensus (Process (Inventory i))
+spawnStep mobj = do
   step@Step{..} <- makeStepContext
   let stepName = "step: " ++ show processId
-  ConsensusParams{ident' = EthIdent sk myAddr, ..} <- asks ccParams
-  let sighash = getBallotSighash obj
-  mySig <- signIO sk sighash
-  let ballot = Ballot myAddr mySig obj
-  
+  mballot <- forM mobj \obj -> do
+    ConsensusParams{ident' = EthIdent sk myAddr, ..} <- asks ccParams
+    let sighash = getBallotSighash obj
+    mySig <- signIO sk sighash
+    pure $ Ballot myAddr mySig obj
   spawn stepName \process -> do
-    runStepFree step (send process) $ runStep step ballot
+    runStepFree step (send process) $ runStep step mballot
 
 
 runStepFree :: forall i a. BallotData i
@@ -102,10 +102,11 @@ runStepFree step@Step{..} yield =
 type Base m = (MonadLogger m, MonadIO m)
 
 
-runStep :: (BallotData i, Base m) => Step i -> Ballot i -> ConsensusStep i m ()
-runStep step@Step{..} (Ballot myAddr sig obj) = do
+runStep :: (BallotData i, Base m) => Step i -> Maybe (Ballot i) -> ConsensusStep i m ()
+runStep step@Step{..} mballot = do
   bone $ RegisterOnNewPeerFree $ onNewPeer step
-  onInventoryData step True $ Map.singleton myAddr (sig, obj)
+  forM_ mballot \(Ballot myAddr sig obj) -> do
+    onInventoryData step True $ Map.singleton myAddr (sig, obj)
   buildInventoryLoop step
 
 

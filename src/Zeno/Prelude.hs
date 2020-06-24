@@ -37,12 +37,12 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Base16 as B16
 import Data.ByteString.Lazy as ALL (toStrict, fromStrict)
 import qualified Data.ByteString.Lazy as BSL (ByteString)
-import Data.ByteString.Short as ALL (ShortByteString, toShort, fromShort)
+import Data.ByteString.Short as ALL (ShortByteString, toShort, fromShort, pack, unpack)
 import Data.Either as ALL (fromRight, partitionEithers)
 import Data.Function as ALL (fix)
 import Data.Functor as ALL ((<$), ($>))
 import Data.Foldable as ALL (toList)
-import Data.List as ALL (elemIndex, find, findIndex, sort, sortOn)
+import Data.List as ALL (elemIndex, find, findIndex, sort, sortOn, splitAt)
 import Data.Map as ALL (Map)
 import Data.Maybe as ALL
 import Data.Monoid as ALL
@@ -50,7 +50,7 @@ import Data.Set as ALL (Set)
 import Data.Serialize as ALL (Serialize)
 import Data.String.Conv as ALL
 import Data.String as ALL (IsString, fromString)
-import Data.Text as ALL (Text, unpack)
+import Data.Text as ALL (Text)
 import Data.Text.Encoding as ALL (encodeUtf8, decodeUtf8)
 import Data.Time.Clock as ALL (UTCTime, getCurrentTime, diffUTCTime)
 import Data.Word as ALL (Word8, Word16, Word32, Word64)
@@ -123,7 +123,6 @@ fix1 a f = fix f a
 -- `fix` providing two values.
 fix2 :: a -> b -> ((a -> b -> c) -> a -> b -> c) -> c
 fix2 a b f = fix f a b
-
 
 timeDelta :: MonadIO m => UTCTime -> m Int
 timeDelta t = f <$> liftIO getCurrentTime where

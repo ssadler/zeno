@@ -1,21 +1,9 @@
 
-module Zeno.Consensus.Round
-  ( step
-  , step'
-  , incStep
-  , collectMembers
-  , collectMajority
-  , collectThreshold
-  , collectWith
-  , runConsensus
-  , inventoryIndex
-  , prioritiseRemoteInventory
-  , dedupeInventoryQueries
-  , majorityThreshold
-  ) where
+module Zeno.Consensus.Round where
 
 import           Control.Monad.Reader
 
+import           Data.Bits
 import qualified Data.ByteString as BS
 import qualified Data.Map as Map
 import           Data.Serialize
@@ -24,6 +12,7 @@ import           Data.Typeable
 import           Unsafe.Coerce
 
 import           Network.Ethereum.Crypto
+import           Network.Bitcoin (sha256b)
 import           Zeno.Process
 
 import           Zeno.Prelude
@@ -85,29 +74,23 @@ runConsensus label ccParams@ConsensusParams{..} seed act = do
 
 -- Round Steps ----------------------------------------------------------------
 
-step :: forall a b. BallotData a => String -> Collect a b -> a -> Consensus b
-step name collect obj = do
-  incStep $ "collect " ++ name
-  step' name collect obj
+step :: forall a b. BallotData a => String -> a -> Collect a b -> Consensus b
+step name obj collect = do
+  stepOptData name (Just obj) collect
 
-step' :: forall a b. BallotData a => String -> Collect a b -> a -> Consensus b
-step' name collect obj = do
+stepOptData :: BallotData a => String -> Maybe a -> Collect a b -> Consensus b
+stepOptData name mobj collect = do
+  incStep $ "collect " ++ name
+  step' name mobj collect
+
+step' :: forall a b. BallotData a => String -> Maybe a -> Collect a b -> Consensus b
+step' name mobj collect = do
   -- The step itself is run in a separate thread, and left running even
   -- when it's produced a result
-  recv <- spawnStep obj
-  ConsensusParams{timeout'} <- asks ccParams
-  r <-
-    runExceptT do
-      receiveDuring recv timeout' \inv -> do
-        lift (collect inv) >>=
-          maybe (pure ()) throwError
-  case r of
-    Right () -> throwIO ConsensusTimeout
-    Left r -> do
-      spawnNoHandle ("eater for: " ++ name) do   -- So that the step doesnt get blocked
-        forever $ receiveWait recv
-      pure r
-
+  recv <- spawnStep mobj
+  collect recv <*
+    spawnNoHandle ("eater for: " ++ name) do   -- So that the step doesnt get blocked
+      forever $ receiveWait recv
 
 incStep :: String -> Consensus ()
 incStep label = do
@@ -135,11 +118,20 @@ collectMembers addrs = collectWith \_ inv -> do
   guard $ all (`Map.member` inv) addrs
   pure inv
 
+collectMember :: Serialize a => Address -> Collect a (Ballot a)
+collectMember addr = collectWith \_ inv ->
+  Map.lookup addr inv <&> uncurry (Ballot addr)
+
 collectWith :: Serialize a => (Int -> Inventory a -> Maybe b) -> Collect a b
-collectWith f inv = do
+collectWith f recv = do
   ConsensusParams{..} <- asks has
   let majority = majorityThreshold $ length members'
-  pure $ f majority inv
+
+  either pure (\() -> throwIO ConsensusTimeout) =<<
+    runExceptT do
+      receiveDuring recv timeout' $
+         maybe (pure ()) throwError . f majority
+
 
 
 majorityThreshold :: Int -> Int

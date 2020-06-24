@@ -5,12 +5,12 @@ module Zeno.Consensus
   , startSeedNode
   , withConsensusNode
   , runConsensus
-  , propose
-  , proposeWithAction
   , step
+  , stepOptData
   , incStep
   , collectMajority
   , collectThreshold
+  , collectMember
   , collectMembers
   , collectWith
   , majorityThreshold
@@ -22,7 +22,6 @@ import Zeno.Process
 
 import Zeno.Consensus.Types
 import Zeno.Consensus.Round
-import Zeno.Consensus.Propose
 import Zeno.Consensus.P2P
 import Network.Ethereum.Crypto (Address)
 

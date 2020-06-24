@@ -57,9 +57,9 @@ ethMakeProxyCallData (dest, proxyNonce, proxyCallData) sigs =
   where
   proxySig = "proxy(address,uint256,bytes,bytes32[],bytes32[],bytes)"
 
-type NotarisationParams = (Word32, Bytes32, ByteString)
+type EthNotarisationParams = (Word32, Bytes32, ByteString)
 
-ethMakeNotarisationCallData :: NotarisationParams -> ByteString
+ethMakeNotarisationCallData :: EthNotarisationParams -> ByteString
 ethMakeNotarisationCallData = abi "notarise(uint256,bytes32,bytes)"
 
 
@@ -73,6 +73,7 @@ ethGetLastNotarisationAndSequence notarisationsContract = do
   (r@(NOE h _ _ _), sequence) <- ethCallABI notarisationsContract "getLastNotarisation()" ()
   pure if h == 0 then Nothing else Just (r, fromIntegral $ unU256 sequence)
 
+ethGetLastNotarisation addr = fmap fst <$> ethGetLastNotarisationAndSequence addr
 
 ethMsg :: ByteString -> Bytes32
 ethMsg a = sha3b $ "\x19\&Ethereum Signed Message:\n32" <> sha3' a

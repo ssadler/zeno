@@ -15,7 +15,9 @@ import Network.JsonRpc
 import Zeno.EthGateway
 import Zeno.Notariser.Common
 import Zeno.Notariser.Common.KMD
+import Zeno.Notariser.Collect
 import Zeno.Notariser.KMDDpow
+import Zeno.Notariser.Shuffle
 import Zeno.Notariser.Targets
 import Zeno.Notariser.Types
 import Zeno.Notariser.Synchronous
@@ -76,6 +78,7 @@ runNotariserForever = do
           [ Handler $ \e -> recover logError 10 (e :: RPCException)
           , Handler $ \e -> recover logError 20 (e :: RPCTransportException)
           , Handler $ \e -> recover logError 60 (e :: ConfigException)
+          , Handler $ \e -> recover logWarn   5 (e :: ConsensusInvalidProposal)
           ]
         recover f d e = do
           f $ show e
@@ -106,18 +109,18 @@ runNotariserSync nc@NotariserConfig{sourceChain=s@KMDSource{..}, destChain=d@ETH
     WaitNextDestHeight height :>>= f -> waitNextNotariseHeight d height >>= go . f
 
     GetLastNotarisation :>>= f -> do
-      ethGetLastNotarisationAndSequence ethNotarisationsContract >>= go . f
+      ethGetLastNotarisation ethNotarisationsContract >>= go . f
 
     GetLastNotarisationReceipt :>>= f -> do
       kmdGetLastNotarisationData kmdSymbol >>= go . f
 
-    RunNotarise seq sourceHeight mlastReceipt :>>= f -> do
+    RunNotarise sourceHeight mlastReceipt :>>= f -> do
       blockHash <- queryBitcoin "getblockhash" [sourceHeight]
       let params = (sourceHeight, blockHash, "")
           label = "%s.%i ⇒  %s" % (getSymbol s, sourceHeight, getSymbol d)
-      notariseToETH nc label seq params >>= go . f
+      notariseToETH nc label params >>= go . f
 
-    RunNotariseReceipt seq destHeight NOE{..} :>>= f -> do
+    RunNotariseReceipt destHeight NOE{..} :>>= f -> do
       let
         label = "%s.%i ⇒  %s" % (getSymbol d, destHeight, getSymbol s)
         receipt = NOR
@@ -129,58 +132,58 @@ runNotariserSync nc@NotariserConfig{sourceChain=s@KMDSource{..}, destChain=d@ETH
           , norMomDepth = 0
           , norCcId = 0
           }
-      notariseKmdDpow nc label seq receipt >>= go . f
+      notariseKmdDpow nc label receipt >>= go . f
 
 
-notariseToETH :: NotariserConfig -> String -> ProposerSequence -> NotarisationParams -> Zeno EthNotariser ()
-notariseToETH nc@NotariserConfig{..} label seq notarisationParams = do
-  let ETHDest{..} = destChain
-  let height = fromIntegral $ view _1 notarisationParams
-
-  ident@(EthIdent _ myAddress) <- asks has
-
+notariseToETH :: NotariserConfig -> String -> EthNotarisationParams -> Zeno EthNotariser ()
+notariseToETH nc@NotariserConfig{..} label notarisationParams = do
   r <- ask
   let
-    run :: Zeno EthNotariser a -> Consensus a
+    ETHDest{..} = destChain
+    EthIdent{..} = has r
     run = withContext (const r)
-
-    notariseCallData = ethMakeNotarisationCallData notarisationParams
-    proxyParams = (ethNotarisationsContract, height, notariseCallData)
+    height = fromIntegral $ view _1 notarisationParams
+    proxyParams = (ethNotarisationsContract, height, ethMakeNotarisationCallData notarisationParams)
     proxySigHash = ethMakeProxySigMessage proxyParams
 
   cparams <- getConsensusParams nc KmdToEth
-  runConsensus label cparams proxyParams do
 
-    sigsInv <- step "tx sigs" (collectThreshold threshold) proxySigHash
+  r <- runConsensus label cparams proxyParams do
+      -- First complete an empty step to make sure everyone is on the same page
+      _ <- step "init" () collectMajority
+      dist@(proposer:_) <- roundShuffle members
+      proposal <-
+        step "tx sigs" proxySigHash $
+          \recv -> do
+            if ethAddress == proposer
+               then do
+                 chosen <- collectWeighted dist threshold recv
+                 let proxyCallData = ethMakeProxyCallData proxyParams (bSig <$> unInventory chosen)
+                 tx <- run $ ethMakeNotarisationTx nc proxyCallData
+                 pure $ Just (chosen, tx) -- Send chosen sigs to make it easy to reconstruct tx
+             else do
+               collectWith (\_ _ -> pure Nothing) recv
+      stepOptData "tx sender" proposal $ collectMember proposer
 
-    let chosen = Map.take threshold sigsInv
-        proxyCallData = ethMakeProxyCallData proxyParams (bSig <$> unInventory chosen)
-        proposal = do
-          tx <- run $ ethMakeNotarisationTx nc proxyCallData
-          pure (chosen, tx) -- Send chosen sigs to make it easy to reconstruct tx
 
-    withTimeout (120 * 1000000) do
-      proposeWithAction "tx sender" (Just seq) proposal
-        \(Ballot pAddr sig (chosenSigs, tx)) -> do
-          run do
+  --- Validate the transaction and dispatch to chain
 
-            sigs <- either invalidProposal pure $ validateSigs nc proxySigHash chosenSigs
-            validateProposedTx nc proxyParams sigs pAddr tx
-
-            catch
-              do void $ postTransaction tx
-              \e -> do
-                logTrace debugTraceRPC $ "Got submission error, maybe acceptable: " ++ show (e :: RPCException)
-
-            let txid = hashTx tx
-            waitTransactionConfirmed1 (120 * 1000000) txid >>=
-              \case
-                Nothing -> do
-                  -- This is the fast path fail; we submitted the tx but our node doesn't know
-                  -- about it, so it must be invalid.
-                  invalidProposal $ show tx
-                Just height -> do
-                  logInfo $ "Tx confirmed in block %s: %s" % (show height, show txid)
+  let Ballot proposer _ (chosenSigs, tx) = r
+  sigs <- either invalidProposal pure $ validateSigs nc proxySigHash chosenSigs
+  validateProposedTx nc proxyParams sigs proposer tx
+  catch
+    do void $ postTransaction tx
+    \e -> do
+      logTrace debugTraceRPC $ "Got submission error, maybe acceptable: " ++ show (e :: RPCException)
+  let txid = hashTx tx
+  waitTransactionConfirmed1 (120 * 1000000) txid >>=
+    \case
+      Nothing -> do
+        -- This is the fast path fail; we submitted the tx but our node doesn't know
+        -- about it, so it must be invalid.
+        invalidProposal $ show tx
+      Just height -> do
+        logInfo $ "Tx confirmed in block %s: %s" % (show height, show txid)
 
 
 invalidProposal :: String -> Zeno EthNotariser a

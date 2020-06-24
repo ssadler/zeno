@@ -25,7 +25,6 @@ import Zeno.EthGateway
 -- Synchrnous Notariser interface
 --------------------------------------------------------------------------------
 
-type ProposerSequence = Int
 
 type NotariserSync s d m = Skeleton (NotariserSyncI s d m)
 
@@ -36,10 +35,10 @@ instance MonadIO m => MonadIO (Skeleton (NotariserSyncI a b m)) where
   liftIO = bone . NotariserSyncLift . liftIO
 
 data NotariserSyncI s d m x where
-  GetLastNotarisation         :: NotariserSyncI s d m (Maybe (ChainNotarisation d, ProposerSequence))
+  GetLastNotarisation         :: NotariserSyncI s d m (Maybe (ChainNotarisation d))
   GetLastNotarisationReceipt  :: NotariserSyncI s d m (Maybe (ChainNotarisationReceipt s))
-  RunNotarise                 :: ProposerSequence -> Word32 -> Maybe (ChainNotarisationReceipt s) -> NotariserSyncI s d m ()
-  RunNotariseReceipt          :: ProposerSequence -> Word32 -> ChainNotarisation d -> NotariserSyncI s d m ()
+  RunNotarise                 :: Word32 -> Maybe (ChainNotarisationReceipt s) -> NotariserSyncI s d m ()
+  RunNotariseReceipt          :: Word32 -> ChainNotarisation d -> NotariserSyncI s d m ()
   WaitNextSourceHeight        :: Word32 -> NotariserSyncI s d m (Maybe Word32)
   WaitNextDestHeight          :: Word32 -> NotariserSyncI s d m (Maybe Word32)
   NotariserSyncLift           :: m a -> NotariserSyncI s d m a
@@ -56,12 +55,12 @@ notariserSyncFree nc@NotariserConfig{..} = start
   where
   start = bone GetLastNotarisation >>= go
 
-  go :: Maybe (ChainNotarisation b, ProposerSequence) -> NotariserSync a b m ()
+  go :: Maybe (ChainNotarisation b) -> NotariserSync a b m ()
   go Nothing = do
     logInfo "No prior notarisations found"
-    notarise 0 0 Nothing
+    notarise 0 Nothing
 
-  go (Just (notarisation, sequence)) = do
+  go (Just notarisation) = do
 
     let
       notarisedHeight = foreignHeight notarisation
@@ -71,8 +70,7 @@ notariserSyncFree nc@NotariserConfig{..} = start
           \case
             Nothing -> start
             Just newHeight -> do
-              let seq = sequence + quot (length members) 2
-              bone $ RunNotariseReceipt seq newHeight notarisation
+              bone $ RunNotariseReceipt newHeight notarisation
 
     logDebug $ "Found notarisation on %s for %s.%i" %
                (getSymbol destChain, getSymbol sourceChain, notarisedHeight)
@@ -80,7 +78,7 @@ notariserSyncFree nc@NotariserConfig{..} = start
     bone GetLastNotarisationReceipt >>=
       \case
         Just receipt -> do
-          let fwd = notarise sequence notarisedHeight (Just receipt)
+          let fwd = notarise notarisedHeight (Just receipt)
           case compare (receiptHeight receipt) notarisedHeight of
             LT -> do
               logDebug $ "Posting receipt to %s" % getSymbol sourceChain
@@ -99,10 +97,10 @@ notariserSyncFree nc@NotariserConfig{..} = start
           logDebug "Receipt not found, proceed to backnotarise"
           backnotarise 0
 
-  notarise sequence lastHeight mlastReceipt = do
+  notarise lastHeight mlastReceipt = do
     bone (WaitNextSourceHeight lastHeight) >>=
       \case Nothing -> start
-            Just h -> bone $ RunNotarise sequence h mlastReceipt
+            Just h -> bone $ RunNotarise h mlastReceipt
 
 
 waitNextNotariseHeight :: (MonadIO m, MonadLogger m, BlockchainAPI c m) => c -> Word32 -> m (Maybe Word32)

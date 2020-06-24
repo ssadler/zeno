@@ -1,58 +1,69 @@
 
 module Zeno.Notariser.KMDDpow where
 
-import qualified Data.Map as Map
+import qualified Data.Map.Strict as Map
 import Data.Serialize
+import qualified Data.Set as Set
 
 import qualified Haskoin as H
 
 import Network.Bitcoin
 import Network.Komodo
 import Network.ZCash.Sapling
+import Network.Ethereum (EthIdent(..))
 
 import Zeno.Console
 import Zeno.Consensus
+import Zeno.Notariser.Collect
 import Zeno.Notariser.Common.KMD
 import Zeno.Notariser.Common
+import Zeno.Notariser.Shuffle
 import Zeno.Notariser.Types
 import Zeno.Notariser.UTXO
+import Zeno.Process
 import Zeno.Prelude
 
 
-notariseKmdDpow :: NotariserConfig -> String -> Int -> KomodoNotaryReceiptFromEth -> Zeno EthNotariser ()
-notariseKmdDpow nc@NotariserConfig{..} label seq ndata = do
+notariseKmdDpow :: NotariserConfig -> String -> KomodoNotaryReceiptFromEth -> Zeno EthNotariser ()
+notariseKmdDpow nc@NotariserConfig{..} label ndata = do
   withKomodoUtxo \utxo -> do
     KomodoIdent{..} <- asks has
+    EthIdent{..} <- asks has
     cparams <- getConsensusParams nc EthToKmd
 
     r <- ask :: Zeno EthNotariser EthNotariser
     let run = withContext (const r)
-        outputsCommon = makeOutputs ndata
-        ndataWithMe = set _2 kmdAddress <$> ndata
+        outputs = makeOutputs ndata
 
-    runConsensus label cparams outputsCommon $ do
-    
-      proposal <- step "inputs" (collectWith $ collectInputs (kmdNotarySigs sourceChain))
-                                (kmdPubKeyI, getOutPoint utxo)
+    runConsensus label cparams outputs do
+      
+      -- First complete an empty step to make sure everyone is on the same page
+      _ <- step "init" () collectMajority
 
-      Ballot _ _ (utxos, ndataWithProposer) <-
-        propose "inputs" (Just seq) $ pure (proposal, ndataWithMe)
+      dist@(proposer:_) <- roundShuffle members
+
+      proposal <- step "inputs" (kmdPubKeyI, getOutPoint utxo) $
+          if ethAddress == proposer
+             then collectWeighted dist $ kmdNotarySigs sourceChain
+             else collectWith \_ _ -> Just mempty
+
+
+      Ballot _ _ utxos <- step "proposal" (snd <$> proposal) (collectMember proposer)
     
       let
-        outputsWithProposer = makeOutputs ndataWithProposer
-        partlySignedTx = signMyInput nc kmdSecKeyH utxos outputsWithProposer
+        partlySignedTx = signMyInput nc kmdSecKeyH utxos outputs
         myInput = getMyInput utxo partlySignedTx
         waitCompileTx = collectWith $ collectTx partlySignedTx utxos
 
       -- Sign tx and collect signed inputs
-      finalTx <- step "sigs" waitCompileTx myInput
+      finalTx <- step "sigs" myInput waitCompileTx
 
-      _ <- step "confirm" collectMajority ()
+      _ <- step "confirm" () collectMajority
     
       incStep "wait for tx confirm ..."
       run do
         txhash <- submitNotarisation nc finalTx
-        dpowCheck nc txhash ndataWithProposer
+        dpowCheck nc txhash ndata
 
   where
   makeOutputs = kmdDataOutputs outputAmount dpowRecip . encode
@@ -68,6 +79,8 @@ collectInputs kmdNotaryInputs _threshold ballots =
   if length ballots < kmdNotaryInputs
      then Nothing
      else Just $ snd <$> ballots
+
+
 
 -- | Given selected UTXOs, compile a tx and sign own inputs, if any.
 signMyInput :: NotariserConfig -> H.SecKey -> Map Address UTXO -> [H.TxOut] -> SaplingTx

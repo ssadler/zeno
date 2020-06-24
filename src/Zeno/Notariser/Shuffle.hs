@@ -4,6 +4,7 @@ module Zeno.Notariser.Shuffle where
 import Control.Monad
 import Data.Bits
 import qualified Data.Map as Map
+import qualified Data.Set as Set
 import Data.Word
 import Data.ByteString.Short (unpack)
 import Data.FixedBytes
@@ -20,42 +21,40 @@ roundShuffle items = do
   shuffleWithWords items . infWord16 . infBytes <$> getRoundSeed
 
 
+-- List shuffle that takes a random series of 16 bit words. In order to select
+-- a random element from the list, it skips random inputs that do not produce
+-- indexes within range when truncated. This means that we throw out up to half
+-- of the random inputs, but the selection is unbiased.
+shuffleWithWords :: [a] -> [Word16] -> [a]
+shuffleWithWords [] _ = []
+shuffleWithWords _ [] = error "shuffleWithWords has no more words"
+shuffleWithWords items (word:words) =
+  let limit = length items - 1                          -- valid indexes are 0..n-1
+      mask = 2 ^ hibit limit - 1                        -- mask for neccesary bits
+      idx = fromIntegral $ word .&. mask                -- take neccesary bits from word
+   in if idx > limit
+       then shuffleWithWords items words                -- skip if not within range
+       else
+        let (a, chosen:b) = splitAt idx items
+         in chosen : shuffleWithWords (a ++ b) words
+
+
 -- | Get high bit from a number
 hibit :: (Bits n, Num n) => n -> Int
 hibit 0 = 0
 hibit i = 1 + hibit (shiftR i 1)
 
 
+-- | Generate an infinite series of bytes from hash
+infBytes :: Bytes32 -> [Word8]
+infBytes = concatMap (unpack . unFixed) . f
+  where f s = s : f (sha256b $ fromFixed s)
+
+
 -- | Convert infinite series of bytes to words
 infWord16 :: [Word8] -> [Word16]
 infWord16 = f . map fromIntegral
-  where f (a:b:xs) = shift a 0xff + b : f xs
-
-
--- | Generate an infinite series of bytes from hash
-infBytes :: Bytes32 -> [Word8]
-infBytes seed = f $ unpack $ unFixed seed
-  where
-  f (b:xs) = b : f xs
-  f [] = infBytes $ sha256b $ fromFixed seed
-
-
--- List shuffle that takes a random series of 16 bit words.  In order to select
--- a random element from the list, it skips random inputs that do not produce
--- indexes within range.  This means that we throw out up to half of the random
--- inputs, but the selection is unbiased.
-shuffleWithWords :: [a] -> [Word16] -> [a]
-shuffleWithWords [] _ = []
-shuffleWithWords items (word:words) =
-  let limit = length items - 1                        -- valid indexes are 0..n-1
-      mask = 2 ^ hibit limit - 1                      -- mask for neccesary bits
-      idx = fromIntegral $ word .&. mask              -- take neccesary bits from word
-      (a, chosen:b) = splitAt idx items               -- split the items
-      ok = chosen : shuffleWithWords (a ++ b) words   -- ok branch
-      skip = shuffleWithWords items words             -- skip branch
-   in if idx <= limit then ok else skip               -- ok if index within range
-shuffleWithWords _ [] =
-  error "shuffleWithWords has no more words"
+  where f (a:b:xs) = shift a 8 + b : f xs
 
 
 -- For demonstration purposes -------------------------------------------------------
