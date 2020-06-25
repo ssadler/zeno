@@ -137,7 +137,7 @@ withConsole (useUI, debug) level act = do
        then Just . procMbox <$> spawn "UI" runConsoleUI
        else pure Nothing
 
-  let c = Console level topics ui True stderr
+  let c = Console level topics ui True stdout
   localZeno (console .~ c) act
 
 

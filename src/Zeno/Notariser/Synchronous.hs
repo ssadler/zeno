@@ -83,15 +83,17 @@ notariserSyncFree nc@NotariserConfig{..} = start
             LT -> do
               logDebug $ "Posting receipt to %s" % getSymbol sourceChain
               backnotarise (foreignHeight receipt)
-            EQ -> fwd <* do
+            EQ -> do
               logDebug $ "Found receipt for %s.%i on %s, proceed with next notarisation" %
                          (getSymbol sourceChain, notarisedHeight, getSymbol destChain)
-            GT  -> fwd <* do
+              fwd
+            GT  -> do
               logError $ show notarisation
               logError $ show receipt
               logError $ "The receipt height in %s is higher than the notarised\
                          \ height in %s. Is %s node is lagging? Proceeding anyway." %
                          (getSymbol sourceChain, getSymbol destChain, getSymbol destChain)
+              fwd
  
         _ -> do
           logDebug "Receipt not found, proceed to backnotarise"

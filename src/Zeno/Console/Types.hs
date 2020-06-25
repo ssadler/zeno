@@ -51,9 +51,6 @@ consoleWarn = Console LevelWarn mempty Nothing False stdout
 defaultLog :: Console
 defaultLog = Console LevelDebug mempty Nothing False stdout
 
-stderrLog :: Console
-stderrLog = Console LevelDebug mempty Nothing False stderr
-
 type ConsoleArgs = (Bool, String)
 
 optConsoleArgs = (,) <$> ui <*> debug
