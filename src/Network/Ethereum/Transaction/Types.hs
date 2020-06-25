@@ -13,11 +13,10 @@ import           Data.Serialize
 import           Network.Ethereum.Crypto
 import           Network.Ethereum.Data.Utils
 import           Zeno.Data.Aeson
-import           Zeno.Data.Hex
 import           Zeno.Prelude
 
 
-type EthTxHash = PrefixedHex 32
+type EthTxHash = PrefixedHash 32
 
 data Transaction = Tx
   { _nonce    :: Integer
@@ -28,14 +27,8 @@ data Transaction = Tx
   , _gas      :: Integer
   , _data     :: ByteString
   , _chainId  :: ChainId
-  } deriving (Eq, Show, Generic)
-
-instance Serialize Transaction where
-  put Tx{..} = do
-    putPacked _nonce >> putPacked _value >> put _to >> put _sig >> putPacked _gasPrice
-    putPacked _gas >> put _data >> put _chainId
-  get = do
-    Tx <$> getPacked <*> getPacked <*> get <*> get <*> getPacked <*> getPacked <*> get <*> get
+  } deriving (Eq, Generic)
+    deriving (Show, Read) via (PrefixedHex Transaction)
 
 instance RLPEncodable Transaction where
   rlpEncode tx = RLP.Array (c <> e) where
@@ -92,9 +85,13 @@ decodeSpecialV sv = let c = quot (sv - 35) 2 in (ChainId c, sv - 35 - c * 2)
 
 
 instance ToJSON Transaction where
-  toJSON = toJSON . Hex . rlpSerialize
+  toJSON = toJSON . PrefixedHex . rlpSerialize
 
 instance FromJSON Transaction where
   parseJSON val = do
-    Hex bs <- parseJSON val
+    PrefixedHex bs <- parseJSON val
     either fail pure $ rlpDeserialize bs
+
+instance Serialize Transaction where
+  get = either fail pure . rlpDeserialize =<< get
+  put = put . rlpSerialize

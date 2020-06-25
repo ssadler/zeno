@@ -8,8 +8,6 @@ module Zeno.Prelude
   ( module ALL
   , LazyByteString
   , PercentFormat(..)
-  , fromHex
-  , toHex
   , expandPath
   , fix1
   , fix2
@@ -33,6 +31,7 @@ import GHC.Stack (HasCallStack)
 import Data.Aeson as ALL (Value(..))
 import Data.Aeson.Quick as ALL ((.?))
 import Data.ByteString as ALL (ByteString)
+import Data.Hex as ALL
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Base16 as B16
 import Data.ByteString.Lazy as ALL (toStrict, fromStrict)
@@ -79,16 +78,6 @@ import System.IO.Unsafe as ALL (unsafePerformIO)
 import Debug.Trace as ALL (traceShowId, traceM, traceShowM)
 
 type LazyByteString = BSL.ByteString
-
-fromHex :: ByteString -> ByteString
-fromHex bs =
-  if BS.take 2 bs == "0x"
-     then fromHex $ BS.drop 2 bs
-     else let (b,r) = B16.decode bs
-           in if r /= "" then error "Invalid hex" else b
-
-toHex :: ByteString -> ByteString
-toHex = B16.encode
 
 
 expandPath :: FilePath -> IO FilePath

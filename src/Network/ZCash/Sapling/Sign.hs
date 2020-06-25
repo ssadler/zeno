@@ -9,7 +9,6 @@ import qualified Haskoin.Transaction.Builder as H
 import qualified Haskoin.Transaction.Builder.Sign as H
 
 import Network.ZCash.Sapling.Types
-import Zeno.Data.Hex
 import Zeno.Prelude
 
 

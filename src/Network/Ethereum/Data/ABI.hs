@@ -23,6 +23,7 @@ import           Control.Monad.State
 
 import           Data.Aeson
 import           Data.Bits
+import           Data.Hex
 import qualified Data.ByteArray as BA
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BL
@@ -32,7 +33,6 @@ import           GHC.TypeLits
 
 import           Network.Ethereum.Data.U256
 import           Network.Ethereum.Data.Utils
-import           Zeno.Data.Hex
 import           Zeno.Data.Aeson
 import           Zeno.Prelude
 
@@ -131,8 +131,8 @@ instance PutABI a => PutABI [a] where
 instance forall n. (KnownNat n, n <= 32) => PutABI (FixedBytes n) where
   putABI bs = putData $ bytesPad (fromFixed bs) False
 
-instance forall n. (KnownNat n, n <= 32) => PutABI (PrefixedHex n) where
-  putABI = putABI . unPrefixedHex
+instance forall n. (KnownNat n, n <= 32) => PutABI (PrefixedHash n) where
+  putABI = putABI . unPrefixedHash
 
 instance PutABI Bool where
   putABI = putABI . fromEnum
@@ -204,8 +204,8 @@ instance forall n. (KnownNat n, n <= 32) => GetABI (FixedBytes n) where
     bs <- takeN 32
     pure $ toFixed bs
 
-instance forall n. (KnownNat n, n <= 32) => GetABI (PrefixedHex n) where
-  getABI = PrefixedHex <$> getABI
+instance forall n. (KnownNat n, n <= 32) => GetABI (PrefixedHash n) where
+  getABI = PrefixedHash <$> getABI
 
 instance GetABI a => GetABI [a] where
   getABI =
@@ -245,7 +245,7 @@ newtype ABI a = ABI { unABI :: a }
 
 instance GetABI a => FromJSON (ABI a) where
   parseJSON val = do
-    Hex bs <- parseJSON val
+    PrefixedHex bs <- parseJSON val
     either fail pure $ ABI <$> decodeABI bs
 
 newtype JsonInABI a = JsonInABI { unJsonInABI :: a }

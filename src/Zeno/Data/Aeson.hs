@@ -7,8 +7,6 @@ module Zeno.Data.Aeson
   , withStrictObject
   , (.:-)
   , (.:-?)
-  , fromJsonHex
-  , toJsonHex
   ) where
 
 
@@ -30,16 +28,6 @@ import qualified Data.Serialize as S
 import           Zeno.Data.VarInt
 
 import           System.IO.Unsafe
-
-
-fromJsonHex :: Value -> Parser ByteString
-fromJsonHex v = do
-  t <- parseJSON v
-  case B16.decode (encodeUtf8 t) of (r,"") -> pure r
-                                    _      -> fail "Invalid hex data"
-
-toJsonHex :: ByteString -> Value
-toJsonHex = String . decodeUtf8 . B16.encode
 
 --------------------------------------------------------------------------------
 -- SerializeAeson - A wrapper to provide Serialize via Aeson

@@ -26,11 +26,11 @@ decodeTx :: ByteString -> Either String Transaction
 decodeTx = rlpDeserialize
 
 hashTx :: Transaction -> EthTxHash
-hashTx = PrefixedHex . sha3b . encodeTx
+hashTx = PrefixedHash . sha3b . encodeTx
 
 signTx :: MonadUnliftIO m => SecKey -> Transaction -> m Transaction
 signTx sk tx = do
-  sig <- signIO sk $ unPrefixedHex $ sighashTx tx
+  sig <- signIO sk $ unPrefixedHash $ sighashTx tx
   pure $ tx { _sig = Just sig }
 
 recoverFrom :: MonadUnliftIO m => Transaction -> m (Maybe Address)
@@ -38,7 +38,7 @@ recoverFrom tx =
   case _sig tx of
     Nothing -> pure Nothing
     Just sig -> do
-      recoverAddr (unPrefixedHex $ sighashTx tx) sig >>= pure . Just
+      recoverAddr (unPrefixedHash $ sighashTx tx) sig >>= pure . Just
 
 sighashTx :: Transaction -> EthTxHash
 sighashTx tx = hashTx $ tx { _sig = Nothing }

@@ -57,7 +57,7 @@ getLogMessage loc source level str = do
   pure $ fromLogStr $ toLogStr t <> defaultLogStr loc source level str
 
 logMessage :: ToLogStr msg => Console -> Loc -> LogSource -> LogLevel -> msg -> IO ()
-logMessage (Console lvlFilter debugMask mstatus _ h) loc source level msg = do
+logMessage (Console lvlFilter debugMask mstatus _ h worker) loc source level msg = do
   line <- getLogMessage loc source level (toLogStr msg)
   let
     doLog =

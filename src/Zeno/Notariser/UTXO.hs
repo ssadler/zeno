@@ -18,7 +18,6 @@ import System.IO.Unsafe
 import UnliftIO
 
 import Zeno.Data.Aeson
-import Zeno.Data.Hex
 import Zeno.Prelude
 import Zeno.Process
 import Zeno.Console

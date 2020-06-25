@@ -38,6 +38,7 @@ data Console = Console
   , _statusBar :: Maybe (TBQueue ConsoleCtrl)
   , _writeStatusEvents :: Bool
   , _fileHandle :: Handle
+  , _logWorker :: String
   }
 
 makeLenses ''Console
@@ -46,10 +47,10 @@ debugTraceRPC :: Text
 debugTraceRPC = "rpc"
 
 consoleWarn :: Console
-consoleWarn = Console LevelWarn mempty Nothing False stdout
+consoleWarn = Console LevelWarn mempty Nothing False stdout ""
 
 defaultLog :: Console
-defaultLog = Console LevelDebug mempty Nothing False stdout
+defaultLog = Console LevelDebug mempty Nothing False stdout ""
 
 type ConsoleArgs = (Bool, String)
 

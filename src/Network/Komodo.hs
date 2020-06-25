@@ -14,7 +14,6 @@ import           Haskoin.Constants
 
 import           Zeno.Prelude
 import           Zeno.Data.Aeson
-import           Zeno.Data.Hex
 
 import           UnliftIO
 
@@ -109,7 +108,7 @@ data KomodoUtxo = Utxo
   , utxoTxid :: H.TxHash
   , utxoVout :: Word32
   , utxoAddress :: RAddress
-  , utxoScriptPubKey :: Hex
+  , utxoScriptPubKey :: Hex ByteString
   , utxoSpendable :: Bool
   } deriving (Show)
 

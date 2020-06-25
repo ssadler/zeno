@@ -27,7 +27,6 @@ import           Network.Ethereum.Data.ABI
 
 import           Zeno.Data.Aeson hiding (Key)
 import           Zeno.Prelude
-import           Zeno.Data.Hex
 
 import           UnliftIO
 
@@ -55,7 +54,7 @@ recoverAddr bs crs = do
 --   the Address constructor
 newtype Address = Address { unAddress :: Bytes20 }
   deriving (Eq, Ord, RLPEncodable, Read, Show, Serialize, ToJSON, FromJSON, IsString, Bounded)
-       via (PrefixedHex 20)
+       via (PrefixedHash 20)
 
 -- There could be a FixedBytesR for this
 instance GetABI Address where
@@ -73,7 +72,7 @@ instance StringConv Address ByteString where
 
 
 
-type Sha3 = PrefixedHex 32
+type Sha3 = PrefixedHash 32
 
 
 sha3' :: ByteString -> ByteString

@@ -31,7 +31,7 @@ module Data.FixedBytes
   , Bytes24 , Bytes25 , Bytes26 , Bytes27 , Bytes28 , Bytes29 , Bytes30 , Bytes31
   , Bytes32 , Bytes33
   -- Hex Prefixed version
-  , PrefixedHex(..)
+  , PrefixedHash(..)
   -- Misc
   , intToBytesBE
   , intFromBytesBE
@@ -238,43 +238,43 @@ type Bytes33 = FixedBytes 33
 
 
 
-prefixedFromHex :: forall n. KnownNat n => ByteString -> Either String (PrefixedHex n)
+prefixedFromHex :: forall n. KnownNat n => ByteString -> Either String (PrefixedHash n)
 prefixedFromHex bs =
   let n = if BS.take 2 bs == "0x" then 2 else 0
-   in PrefixedHex <$> bytesFromHex (BS.drop n bs)
+   in PrefixedHash <$> bytesFromHex (BS.drop n bs)
 
-newtype PrefixedHex n = PrefixedHex { unPrefixedHex :: FixedBytes n }
+newtype PrefixedHash n = PrefixedHash { unPrefixedHash :: FixedBytes n }
   deriving (Eq, Ord, Serialize, Bounded, RLP.RLPEncodable, Fixed n)
 
-instance KnownNat n => Show (PrefixedHex n) where
-  show (PrefixedHex a) = "0x" ++ show a
+instance KnownNat n => Show (PrefixedHash n) where
+  show (PrefixedHash a) = "0x" ++ show a
 
-instance forall n. KnownNat n => Read (PrefixedHex n) where
+instance forall n. KnownNat n => Read (PrefixedHash n) where
   readsPrec _ s =
     case prefixedFromHex (toS s) of
       Left _ -> []
       Right o -> [(o, "")]
 
-instance forall n. KnownNat n => FromJSON (PrefixedHex n) where
+instance forall n. KnownNat n => FromJSON (PrefixedHash n) where
   parseJSON val = do
     String s <- parseJSON val
-    PrefixedHex <$> 
+    PrefixedHash <$> 
       case T.take 2 s of
         "0x" -> parseJSON (String (T.drop 2 s))
         _ -> parseJSON val
 
-instance forall n. KnownNat n => ToJSON (PrefixedHex n) where
-  toJSON (PrefixedHex val) =
+instance forall n. KnownNat n => ToJSON (PrefixedHash n) where
+  toJSON (PrefixedHash val) =
     let String s = toJSON val
      in String $ "0x" <> s
 
-instance forall n. KnownNat n => IsString (PrefixedHex n) where
+instance forall n. KnownNat n => IsString (PrefixedHash n) where
   fromString s =
     let s' = if take 2 s == "0x" then drop 2 s else s
-     in PrefixedHex $ fromString s'
+     in PrefixedHash $ fromString s'
 
-instance forall n. KnownNat n => StringConv (PrefixedHex n) (FixedBytes n) where
-  strConv _ = unPrefixedHex
+instance forall n. KnownNat n => StringConv (PrefixedHash n) (FixedBytes n) where
+  strConv _ = unPrefixedHash
 
 
 -- | Misc utils

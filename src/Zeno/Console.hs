@@ -38,7 +38,7 @@ sendUI :: ConsoleEvent -> Zeno r ()
 sendUI evt = do
   getConsole >>=
     \case
-      Console _ _ (Just chan) True _ ->
+      Console _ _ (Just chan) True _ _ ->
         atomically (writeTBQueue chan $ UIEvent evt)
       _ -> pure ()
 
@@ -137,7 +137,7 @@ withConsole (useUI, debug) level act = do
        then Just . procMbox <$> spawn "UI" runConsoleUI
        else pure Nothing
 
-  let c = Console level topics ui True stdout
+  let c = Console level topics ui True stdout ""
   localZeno (console .~ c) act
 
 

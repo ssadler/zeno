@@ -10,7 +10,6 @@ import qualified Haskoin.Transaction.Builder as H
 import qualified Haskoin.Transaction.Builder.Sign as H
 
 import Zeno.Prelude
-import Zeno.Data.Hex
 
 import Unsafe.Coerce
 
