@@ -1,6 +1,7 @@
 
 module TestSapling where
 
+import Data.Hex
 import Data.Serialize
 
 import Network.Bitcoin (parseWifH)
@@ -8,7 +9,6 @@ import Network.ZCash.Sapling
 import Network.Komodo
 import qualified Haskoin as H
 import Haskoin.Test
-import Zeno.Data.Hex
 
 import TestUtils
 

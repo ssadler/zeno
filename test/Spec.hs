@@ -55,7 +55,7 @@ sk = "3131313131313131313131313131313131313131313131313131313131313131"
 address :: Address
 EthIdent _ address = unsafePerformIO $ deriveEthIdent sk
 
-txid_a :: PrefixedHex 32
+txid_a :: PrefixedHash 32
 txid_a = "d018f1502a71f61a00b77546b99f2a647dda07ecb4cf94bd14cd4dbf4337be3d"
 
 txbin_a :: ByteString

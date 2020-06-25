@@ -40,7 +40,7 @@ instance Hexable a => Read (Hex a) where
     | take 2 s == "0x" = readsPrec a $ drop 2 s
     | otherwise = either (\_ -> []) (\a -> [(Hex a, "")]) $ fromBS $ fromHex $ BS.pack s
 
-instance Hexable a => IsString (PrefixedHex a) where
+instance Hexable a => IsString (Hex a) where
   fromString s = read s
 
 instance Hexable a => ToJSON (PrefixedHex a) where

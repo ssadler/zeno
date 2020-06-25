@@ -57,18 +57,18 @@ instance NotarisationReceipt (Word32, Word32) where
 type Bone = NotariserSyncI TestChain TestChain TestBase
 
 
-runStep :: Maybe (ChainNotarisation TestChain, ProposerSequence)
+runStep :: Maybe (ChainNotarisation TestChain)
         -> Maybe (ChainNotarisationReceipt TestChain)
         -> MonadView Bone (Skeleton Bone) a -> TestBase (Skeleton Bone a)
 runStep mdest msource =
   \case
     GetLastNotarisation             :>>= f -> pure $ f mdest
     GetLastNotarisationReceipt      :>>= f -> pure $ f msource
-    WaitNextSourceHeight lastHeight     :>>= f -> pure $ f $ Just $ lastHeight + 1
-    WaitNextDestHeight   lastHeight     :>>= f -> pure $ f $ Just $ lastHeight + 1
-    NotariserSyncLift act               :>>= f -> f <$> act
-    RunNotarise last current mreceipt   :>>= f -> error "exited"
-    RunNotariseReceipt seq bnd lastNota :>>= f -> error "exited"
+    WaitNextSourceHeight lastHeight :>>= f -> pure $ f $ Just $ lastHeight + 1
+    WaitNextDestHeight   lastHeight :>>= f -> pure $ f $ Just $ lastHeight + 1
+    NotariserSyncLift act           :>>= f -> f <$> act
+    RunNotarise current mreceipt    :>>= f -> error "exited"
+    RunNotariseReceipt bnd lastNota :>>= f -> error "exited"
 
 members' = Address . newFixed <$> [1..42]
 nc = NotariserConfig members' (error "threhsold") (error "timeout") (error "proposerRoundRobin") (TestChain "SRC") (TestChain "DEST")
@@ -93,74 +93,47 @@ test_notariser_step = testGroup "notarises"
       GetLastNotarisation :>>= f <- next $ notariserSyncFree nc
       WaitNextSourceHeight nextHeight :>>= f <- next $ f Nothing
       nextHeight `shouldBe` 0
-      RunNotarise seq h Nothing :>>= f <- next $ f $ Just 20
-      seq `shouldBe` 0
+      RunNotarise h Nothing :>>= f <- next $ f $ Just 20
       h `shouldBe` 20
       Return () <- next $ f ()
       pure ()
 
   , testCase "backward when there is no receipt" do
       go \case
-        RunNotariseReceipt _ thisHeight ndata :>>= f -> do
+        RunNotariseReceipt thisHeight ndata :>>= f -> do
           liftIO $ ndata `shouldBe` (1 :: Word32)
           pure $ f ()
-        o -> runStep (Just (1, 98)) Nothing o
+        o -> runStep (Just 1) Nothing o
 
   , testCase "backward when there is a lower receipt" do
       go \case
-        RunNotariseReceipt _ thisHeight ndata :>>= f -> do
+        RunNotariseReceipt thisHeight ndata :>>= f -> do
           ndata `shouldBe` 75
           pure $ f ()
-        o -> runStep (Just (75, 98)) (Just (74, 0)) o
+        o -> runStep (Just 75) (Just (74, 0)) o
         
   , testCase "forward when there is an equal receipt" do
       go \case
         WaitNextSourceHeight nextHeight :>>= f -> do
           nextHeight `shouldBe` 75
           pure $ f $ Just 80
-        RunNotarise seq h (Just _) :>>= f -> do
+        RunNotarise h (Just _) :>>= f -> do
           h `shouldBe` 80
           pure $ f ()
-        o -> runStep (Just (75, 98)) (Just (75, 0)) o
+        o -> runStep (Just 75) (Just (75, 0)) o
 
-  , testCase "repeat when wa, testCase for source block" do
+  , testCase "repeat when waited for source block" do
       GetLastNotarisation :>>= f <- next $ notariserSyncFree nc
       WaitNextSourceHeight nextHeight :>>= f <- next $ f Nothing
       nextHeight `shouldBe` 0
       GetLastNotarisation :>>= f <- next $ f Nothing
       pure ()
 
-  , testCase "repeat when wa, testCase for dest block" do
+  , testCase "repeat when waited for dest block" do
       GetLastNotarisation :>>= f <- next $ notariserSyncFree nc
-      GetLastNotarisationReceipt :>>= f <- next $ f (Just (10, 1))
+      GetLastNotarisationReceipt :>>= f <- next $ f (Just 10)
       WaitNextDestHeight nextHeight :>>= f <- next $ f (Just (1, 1))
       nextHeight `shouldBe` 1
       GetLastNotarisation :>>= f <- next $ f Nothing
       pure ()
-  ]
-
-
-test_notariser_proposer_sequence :: TestTree
-test_notariser_proposer_sequence = testGroup "proposer sequence"
-  [
-    testCase "first" do
-      go \case
-        RunNotarise seq _ _ :>>= f -> do
-          seq `shouldBe` 0
-          pure $ f ()
-        o -> runStep Nothing undefined o
-
-  , testCase "forward" do
-      go \case
-        RunNotarise seq _ _ :>>= f -> do
-          seq `shouldBe` 120
-          pure $ f ()
-        o -> runStep (Just (75, 120)) (Just (75, 75)) o
-
-  , testCase "back" do
-      go \case
-        RunNotariseReceipt seq _ _ :>>= f -> do
-          seq `shouldBe` 141
-          pure $ f ()
-        o -> runStep (Just (10, 120)) Nothing o
   ]
