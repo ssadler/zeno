@@ -30,7 +30,7 @@ import Control.Monad.Trans.Resource as ALL (MonadResource, allocate)
 import GHC.Generics as ALL (Generic)
 import GHC.Stack (HasCallStack)
 
-import Data.Aeson as ALL (Value)
+import Data.Aeson as ALL (Value(..))
 import Data.Aeson.Quick as ALL ((.?))
 import Data.ByteString as ALL (ByteString)
 import qualified Data.ByteString as BS

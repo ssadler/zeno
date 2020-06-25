@@ -1,8 +1,9 @@
 
 module Zeno.Notariser.KMDETH where
 
-import qualified Data.Map.Strict as Map
 import Data.List ((\\))
+import qualified Data.Map.Strict as Map
+import qualified Data.Text as T
 import Data.Serialize
 
 import Network.Bitcoin
@@ -171,10 +172,7 @@ notariseToETH nc@NotariserConfig{..} label notarisationParams = do
   let Ballot proposer _ (chosenSigs, tx) = r
   sigs <- either invalidProposal pure $ validateSigs nc proxySigHash chosenSigs
   validateProposedTx nc proxyParams sigs proposer tx
-  catch
-    do void $ postTransaction tx
-    \e -> do
-      logTrace debugTraceRPC $ "Got submission error, maybe acceptable: " ++ show (e :: RPCException)
+  handle onTransactionPostError $ void $ postTransaction tx
   let txid = hashTx tx
   waitTransactionConfirmed1 (120 * 1000000) txid >>=
     \case
@@ -184,6 +182,13 @@ notariseToETH nc@NotariserConfig{..} label notarisationParams = do
         invalidProposal $ show tx
       Just height -> do
         logInfo $ "Tx confirmed in block %s: %s" % (show height, show txid)
+
+
+onTransactionPostError :: RPCException -> Zeno r ()
+onTransactionPostError (RPCError (String s))
+  | T.isInfixOf "known transaction" (T.toLower s) = pure ()
+  | otherwise = logTrace debugTraceRPC $ "Got submission error, maybe acceptable: " ++ toS s
+onTransactionPostError e = throwIO e
 
 
 invalidProposal :: String -> Zeno EthNotariser a

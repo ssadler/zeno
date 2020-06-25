@@ -49,7 +49,6 @@ data Endpoint = HttpEndpoint Request
 instance Show Endpoint where
   show (HttpEndpoint req) = show $ getUri req
 
-
 createRequest :: ToJSON a => Text -> a -> Value
 createRequest method params =
   object [ "jsonrpc" .= String "2.0"
