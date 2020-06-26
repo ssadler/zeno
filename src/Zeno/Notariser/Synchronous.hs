@@ -13,10 +13,11 @@ import Control.Monad.Skeleton
 
 import Network.Komodo
 
-import Zeno.Prelude
+import Zeno.Consensus.Types
+import Zeno.Console
 import Zeno.Notariser.Types
 import Zeno.Notariser.Targets
-import Zeno.Consensus.Types
+import Zeno.Prelude
 
 import Zeno.EthGateway
 
@@ -84,7 +85,7 @@ notariserSyncFree nc@NotariserConfig{..} = start
               logDebug $ "Posting receipt to %s" % getSymbol sourceChain
               backnotarise (foreignHeight receipt)
             EQ -> do
-              logDebug $ "Found receipt for %s.%i on %s, proceed with next notarisation" %
+              logDebug $ "Found receipt for %s.%i on %s" %
                          (getSymbol sourceChain, notarisedHeight, getSymbol destChain)
               fwd
             GT  -> do
@@ -105,7 +106,7 @@ notariserSyncFree nc@NotariserConfig{..} = start
             Just h -> bone $ RunNotarise h mlastReceipt
 
 
-waitNextNotariseHeight :: (MonadIO m, MonadLogger m, BlockchainAPI c m) => c -> Word32 -> m (Maybe Word32)
+waitNextNotariseHeight :: (MonadIO m, MonadLoggerUI m, BlockchainAPI c m) => c -> Word32 -> m (Maybe Word32)
 waitNextNotariseHeight chain lastHeight = do
   height <- getHeight chain
   let interval = getNotarisationBlockInterval chain
@@ -113,12 +114,14 @@ waitNextNotariseHeight chain lastHeight = do
   if (height >= nextHeight)
      then pure $ Just nextHeight
      else do
-       Nothing <$ do
-          logInfo $ "Waiting for %s height: %i" % (getSymbol chain, nextHeight)
-          fix \f -> do
-            threadDelayS 5
-            height <- getHeight chain
-            when (height < nextHeight) f
+       let s = "Waiting for %s.%i" % (getSymbol chain, nextHeight)
+       logInfo s
+       sendUI $ UI_Process $ Just $ UIOther s
+       fix \f -> do
+         threadDelayS 5
+         height <- getHeight chain
+         when (height < nextHeight) f
+       pure Nothing
 
 
 getNextHeight :: Word32 -> Word32 -> Word32 -> Word32

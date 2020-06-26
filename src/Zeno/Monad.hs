@@ -1,18 +1,13 @@
 
 module Zeno.Monad where
 
-import Data.Text (Text)
-import qualified Data.Set as Set
-import Control.Monad.Catch as Catch hiding (bracket)
-import Control.Monad.Logger
 import Control.Monad.Reader
 import Control.Monad.Trans.Resource as ResourceT
-
+import qualified Data.Set as Set
+import Data.Text (Text)
 import Lens.Micro.Platform hiding (has)
-
 import UnliftIO
-
-import Zeno.Logging
+import Zeno.Console.Types
 
 --------------------------------------------------------------------------------
 -- | Zeno App context
@@ -48,11 +43,6 @@ instance MonadResource (Zeno r) where
   liftResourceT resT = Zeno do
     resources <- asks _resources
     liftIO $ runInternalState resT resources
-
-instance MonadLogger (Zeno r) where
-  monadLoggerLog a b c d = Zeno do
-    console <- asks _console
-    liftIO $ logMessage console a b c d
 
 --------------------------------------------------------------------------------
 -- | Zeno runners

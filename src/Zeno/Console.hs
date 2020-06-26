@@ -1,10 +1,9 @@
 
 module Zeno.Console
   ( Console(..)
+  , MonadLoggerUI(..)
   , UI(..)
   , withConsole
-  , sendUI
-  , withUIProc
   , renderStatus
   ) where
 
@@ -19,6 +18,9 @@ import qualified Data.Set as Set
 import Lens.Micro.Platform
 
 import System.Console.ANSI.Codes
+import System.Console.ANSI
+import System.IO (hPutStr)
+import System.Exit
 
 import Text.Printf
 
@@ -30,36 +32,30 @@ import Zeno.Monad
 import Zeno.Process
 import Zeno.Prelude
 
-import System.Console.ANSI
-import System.Exit
 
+class (MonadUnliftIO m, MonadLogger m) => MonadLoggerUI m where
+  sendUI :: ConsoleEvent -> m ()
 
-sendUI :: ConsoleEvent -> Zeno r ()
-sendUI evt = do
-  getConsole >>=
-    \case
-      Console _ _ (Just chan) True _ _ ->
-        atomically (writeTBQueue chan $ UIEvent evt)
-      _ -> pure ()
-
-withUIProc :: UIProcess -> Zeno r a -> Zeno r a
-withUIProc proc act = do
-  mask $ \unmask -> do
-    sendUI $ UI_Process $ Just proc
-    finally (unmask act)
-            (sendUI $ UI_Process Nothing)
-
+instance MonadLoggerUI (Zeno r) where
+  sendUI evt = do
+    getConsole >>=
+      \case
+        Console _ _ (Just chan) _ _ ->
+          atomically (writeTBQueue chan $ UIEvent evt)
+        _ -> pure ()
 
 
 data UI = UI
   { _numPeers :: Int
   , _cProc :: Maybe UIProcess
   , _cStep :: String
+  , _cMofN :: (Int, Int)
   }
 
 makeLenses ''UI
 
-emptyUIState = UI 0 Nothing ""
+emptyUIState :: UI
+emptyUIState = UI 0 Nothing "" (0, 0)
 
 
 renderStatus :: UI -> String
@@ -72,12 +68,14 @@ renderStatus UI{..} = sPeers ++ sProc
       "" -> ""
       s -> printf "[%s]" s
 
+  sMofN = case _cMofN of (_, 0) -> ""; o -> "[%i of %i]" % o
+
   sProc =
     styleWith [SetConsoleIntensity BoldIntensity] $
       case _cProc of
         Nothing -> ""
-        Just (UIRound label roundId) -> do
-          (printf "[%s: %s]" (roundId) label) ++ sStep ++ " "
+        Just (UIRound label roundId) ->
+          printf "[%s: %s]" (roundId) label ++ sStep ++ sMofN ++ " "
         Just (UIOther s) -> printf "[%s]" s
 
   styleWith style s = setSGRCode style ++ s ++ setSGRCode [Reset]
@@ -99,8 +97,11 @@ runConsoleUI proc = do
 
   where
   go :: ConsoleCtrl -> StateT UI IO ()
-  go (UILog line) = do
-    log line
+  go (UILog act) = do
+    liftIO do
+      clearLine
+      setCursorColumn 0
+      act                  -- Action writing lines with newline
     tick
 
   go UITick = do
@@ -111,13 +112,8 @@ runConsoleUI proc = do
       UI_Peers n -> numPeers .= n
       UI_Process r -> cProc .= r
       UI_Step r  -> cStep .= r
+      UI_MofN m n -> cMofN .= (m, n)
     --tick
-
-  log line = do
-    liftIO do
-      clearLine
-      setCursorColumn 0
-      BS8.putStr line           -- Line is assumed to include newline in this case
 
   tick = do
     s <- renderStatus <$> get
@@ -125,21 +121,20 @@ runConsoleUI proc = do
       showCursor
       clearLine
       setCursorColumn 0
-      putStr s
+      hPutStr stdout s
       hFlush stdout
 
 
 withConsole :: ConsoleArgs -> LogLevel -> Zeno r a -> Zeno r a
-withConsole (useUI, debug) level act = do
+withConsole (useUI, debug, both) level act = do
   let topics = Set.fromList $ T.splitOn "," $ T.toLower $ T.pack debug
   ui <- 
     if useUI
        then Just . procMbox <$> spawn "UI" runConsoleUI
        else pure Nothing
 
-  let c = Console level topics ui True stdout ""
+  let c = Console level topics ui "" both
   localZeno (console .~ c) act
-
 
 
 -- testConsole :: IO ()

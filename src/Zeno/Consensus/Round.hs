@@ -46,17 +46,17 @@ runConsensus label ccParams@ConsensusParams{..} seed act = do
     Process{..} <-
       spawn roundName $ \handoff -> do
 
-        withUIProc (UIRound label roundId) do
+        sendUI $ UI_Process $ Just $ UIRound label roundId
 
-          handleTimeout roundName do     -- We will re-throw this outside but we
-                                         -- don't want it being logged
+        handleTimeout roundName do     -- We will re-throw this outside but we
+                                       -- don't want it being logged
 
-            act >>= send handoff         -- Send result into handoff so runConsensus can return
+          act >>= send handoff         -- Send result into handoff so runConsensus can return
 
-            threadDelay $ 10 * 1000000   -- for stragglers to catch up
+          threadDelay $ 10 * 1000000   -- for stragglers to catch up
 
-            pure murphyNoResult          -- This will not get evaluated unless
-                                         -- nothing is send to the handoff
+          pure murphyNoResult          -- This will not get evaluated unless
+                                       -- nothing is send to the handoff
 
     r <- atomically $ orElse (receiveSTM procMbox) (waitSTM procAsync >>= throwSTM)
     pure r
@@ -67,7 +67,7 @@ runConsensus label ccParams@ConsensusParams{..} seed act = do
     handle \ConsensusTimeout -> do
       logInfo $ "Timeout: " ++ roundName
       sendUI (UI_Step "Timeout")
-      threadDelayS 4
+      threadDelayS 2
       pure ConsensusTimeout
 
 
@@ -79,7 +79,7 @@ step name obj collect = do
 
 stepOptData :: BallotData a => String -> Maybe a -> Collect a b -> Consensus b
 stepOptData name mobj collect = do
-  incStep $ "collect " ++ name
+  incStep name
   step' name mobj collect
 
 step' :: forall a b. BallotData a => String -> Maybe a -> Collect a b -> Consensus b

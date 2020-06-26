@@ -51,7 +51,7 @@ optBind = option (Host <$> str)
    ( long "bind"
   <> metavar "IP"
   <> value HostIPv4
-  <> help "IP to bind to (default: listen on all IPv4 interfaces)" )
+  <> help "IP to bind to (default: 0.0.0.0)" )
 
 optPort = option auto
    ( long "port"

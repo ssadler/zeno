@@ -114,10 +114,10 @@ waitForUtxo = do
     Just u -> pure u
     Nothing -> do
       logWarn "Waiting for UTXOs"
-      withUIProc (UIOther "Waiting for UTXOs") do
-        fix \f -> do
-          threadDelay $ 10 * 1000000
-          getKomodoUtxo >>= maybe f pure
+      sendUI $ UI_Process $ Just $ UIOther "Waiting for UTXOs"
+      fix \f -> do
+        threadDelay $ 10 * 1000000
+        getKomodoUtxo >>= maybe f pure
 
 getKomodoUtxo :: HasUtxos r => Zeno r (Maybe KomodoUtxo)
 getKomodoUtxo = do

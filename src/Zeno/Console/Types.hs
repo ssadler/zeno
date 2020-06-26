@@ -18,17 +18,18 @@ import Data.FixedBytes
 data ConsoleCtrl
   = UITick
   | UIEvent ConsoleEvent
-  | UILog BS8.ByteString
+  | UILog (IO ())
 
 data ConsoleEvent
   = UI_Peers Int
   | UI_Process (Maybe UIProcess)
   | UI_Step String
+  | UI_MofN Int Int
   | UI_Tick
   deriving (Show)
 
 data UIProcess
-  = UIRound String Bytes6 
+  = UIRound String Bytes5
   | UIOther String
   deriving (Show)
 
@@ -36,9 +37,8 @@ data Console = Console
   { _logLevel :: LogLevel
   , _logDebugMask :: Set.Set Text
   , _statusBar :: Maybe (TBQueue ConsoleCtrl)
-  , _writeStatusEvents :: Bool
-  , _fileHandle :: Handle
-  , _logWorker :: String
+  , _logWorker :: String -- unused
+  , _logBothFH :: Bool
   }
 
 makeLenses ''Console
@@ -47,15 +47,16 @@ debugTraceRPC :: Text
 debugTraceRPC = "rpc"
 
 consoleWarn :: Console
-consoleWarn = Console LevelWarn mempty Nothing False stdout ""
+consoleWarn = Console LevelWarn mempty Nothing "" False
 
 defaultLog :: Console
-defaultLog = Console LevelDebug mempty Nothing False stdout ""
+defaultLog = Console LevelDebug mempty Nothing "" False
 
-type ConsoleArgs = (Bool, String)
+type ConsoleArgs = (Bool, String, Bool)
 
-optConsoleArgs = (,) <$> ui <*> pure ""
+optConsoleArgs = (,,) <$> ui <*> pure "" <*> both
   where
-  ui = switch
-     ( long "log-ui"
-    <> help "Enable fancy (but currently buggy) status bar" )
+  ui = switch ( long "log-ui" <> help "Enable ghastly status bar" )
+  both = switch
+     ( long "log-both"
+    <> help "For use with --log-ui so that stderr can be piped, ie: 2>zeno.log" )

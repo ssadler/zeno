@@ -98,7 +98,9 @@ runNotariserForever = do
 runNotariserSync :: NotariserConfig
                  -> NotariserSync KMDSource ETHDest (Zeno EthNotariser) ()
                  -> Zeno EthNotariser ()
-runNotariserSync nc@NotariserConfig{sourceChain=s@KMDSource{..}, destChain=d@ETHDest{..}, ..} = go
+runNotariserSync nc@NotariserConfig{sourceChain=s@KMDSource{..}, destChain=d@ETHDest{..}, ..} skel = do
+  sendUI $ UI_Process $ Just $ UIOther "Inspect chains"
+  go skel
   where
   go = deboneBy \case
 
@@ -150,21 +152,21 @@ notariseToETH nc@NotariserConfig{..} label notarisationParams = do
   cparams <- getConsensusParams nc KmdToEth
 
   r <- runConsensus label cparams proxyParams do
-      -- First complete an empty step to make sure everyone is on the same page
-      _ <- step "init" () collectMajority
-      dist@(proposer:_) <- roundShuffle members
-      proposal <-
-        step "tx sigs" proxySigHash $
-          \recv -> do
-            if ethAddress == proposer
-               then do
-                 chosen <- collectWeighted dist threshold recv
-                 let proxyCallData = ethMakeProxyCallData proxyParams (bSig <$> unInventory chosen)
-                 tx <- run $ ethMakeNotarisationTx nc proxyCallData
-                 pure $ Just (chosen, tx) -- Send chosen sigs to make it easy to reconstruct tx
-             else do
-               collectWith (\_ _ -> pure Nothing) recv
-      stepOptData "tx sender" proposal $ collectMember proposer
+    -- First complete an empty step to make sure everyone is on the same page
+    _ <- step "init" () collectMajority
+    dist@(proposer:_) <- roundShuffle members
+    proposal <-
+      step "sigs" proxySigHash $
+        \recv -> do
+          if ethAddress == proposer
+             then do
+               chosen <- collectWeighted dist threshold recv
+               let proxyCallData = ethMakeProxyCallData proxyParams (bSig <$> unInventory chosen)
+               tx <- run $ ethMakeNotarisationTx nc proxyCallData
+               pure $ Just (chosen, tx) -- Send chosen sigs to make it easy to reconstruct tx
+           else do
+             collectWith (\_ _ -> pure Nothing) recv
+    stepOptData "tx" proposal $ collectMember proposer
 
 
   --- Validate the transaction and dispatch to chain
@@ -174,6 +176,7 @@ notariseToETH nc@NotariserConfig{..} label notarisationParams = do
   validateProposedTx nc proxyParams sigs proposer tx
   handle onTransactionPostError $ void $ eth_sendRawTransaction tx
   let txid = hashTx tx
+  sendUI $ UI_Step "Confirm TX"
   waitTransactionConfirmed1 (120 * 1000000) txid >>=
     \case
       Nothing -> do
@@ -188,7 +191,8 @@ onTransactionPostError :: RPCException -> Zeno r ()
 onTransactionPostError (RPCError (String s))
   | T.isInfixOf "known transaction" (T.toLower s) = pure ()
   | T.isInfixOf "already known" (T.toLower s) = pure ()
-  | otherwise = logTrace debugTraceRPC $ "Got submission error, maybe acceptable: " ++ toS s
+onTransactionPostError (RPCError o)
+  | otherwise = logTrace debugTraceRPC $ "Got submission error, maybe acceptable: " ++ toS o
 onTransactionPostError e = throwIO e
 
 

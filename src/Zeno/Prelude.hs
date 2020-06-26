@@ -31,6 +31,7 @@ import GHC.Stack (HasCallStack)
 
 import Data.Aeson as ALL (Value(..))
 import Data.Aeson.Quick as ALL ((.?))
+import Data.Aeson (encode)
 import Data.ByteString as ALL (ByteString)
 import Data.Hex as ALL
 import qualified Data.ByteString as BS
@@ -84,6 +85,8 @@ expandPath :: FilePath -> IO FilePath
 expandPath ('~':xs) = (++xs) <$> getHomeDirectory
 expandPath p        = pure p
 
+instance StringConv Value String where
+  strConv _ = toS . encode
 
 class PercentFormat a where
   (%%) :: String -> a -> String

@@ -198,7 +198,7 @@ sendInventoryQueries step@Step{..} idxs = do
 --------------------------------------------------------------------------------
 
 -- This thing is a bit terrible. It would be easy to make a mistake using it.
-getBallotSighash :: (BallotData a, Typeable a) => a -> Bytes32
+getBallotSighash :: BallotData a => a -> Bytes32
 getBallotSighash obj = do
   case cast obj of
     Just b -> b

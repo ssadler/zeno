@@ -35,35 +35,36 @@ notariseKmdDpow nc@NotariserConfig{..} label ndata = do
     let run = withContext (const r)
         outputs = makeOutputs ndata
 
-    runConsensus label cparams outputs do
+    join do
+      runConsensus label cparams outputs do
+        
+        -- First complete an empty step to make sure everyone is on the same page
+        _ <- step "init" () collectMajority
+
+        dist@(proposer:_) <- roundShuffle members
+
+        proposal <- step "utxos" (kmdPubKeyI, getOutPoint utxo) $
+            if ethAddress == proposer
+               then collectWeighted dist $ kmdNotarySigs sourceChain
+               else collectWith \_ _ -> Just mempty
+
+
+        Ballot _ _ utxos <- step "propose" (snd <$> proposal) (collectMember proposer)
       
-      -- First complete an empty step to make sure everyone is on the same page
-      _ <- step "init" () collectMajority
+        let
+          partlySignedTx = signMyInput nc kmdSecKeyH utxos outputs
+          myInput = getMyInput utxo partlySignedTx
+          waitCompileTx = collectWith $ collectTx partlySignedTx utxos
 
-      dist@(proposer:_) <- roundShuffle members
+        -- Sign tx and collect signed inputs
+        finalTx <- step "sigs" myInput waitCompileTx
 
-      proposal <- step "inputs" (kmdPubKeyI, getOutPoint utxo) $
-          if ethAddress == proposer
-             then collectWeighted dist $ kmdNotarySigs sourceChain
-             else collectWith \_ _ -> Just mempty
-
-
-      Ballot _ _ utxos <- step "proposal" (snd <$> proposal) (collectMember proposer)
-    
-      let
-        partlySignedTx = signMyInput nc kmdSecKeyH utxos outputs
-        myInput = getMyInput utxo partlySignedTx
-        waitCompileTx = collectWith $ collectTx partlySignedTx utxos
-
-      -- Sign tx and collect signed inputs
-      finalTx <- step "sigs" myInput waitCompileTx
-
-      _ <- step "confirm" () collectMajority
-    
-      incStep "wait for tx confirm ..."
-      run do
-        txhash <- submitNotarisation nc finalTx
-        dpowCheck nc txhash ndata
+        _ <- step "confirm" () collectMajority
+      
+        pure do
+          sendUI $ UI_Step "Confirm TX"
+          txhash <- submitNotarisation nc finalTx
+          dpowCheck nc txhash ndata
 
   where
   makeOutputs = kmdDataOutputs outputAmount dpowRecip . encode

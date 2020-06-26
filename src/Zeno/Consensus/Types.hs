@@ -90,7 +90,7 @@ incMinorStepNum = do
   readTVarIO t <&> view minor
 
 
-type RoundId = Bytes6
+type RoundId = Bytes5
 
 getRoundId :: Consensus RoundId
 getRoundId = do

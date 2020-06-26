@@ -38,10 +38,3 @@ class Show n => Notarisation n where
 
 class Notarisation n => NotarisationReceipt n where
   receiptHeight :: n -> Word32
-
-
-
-
---------------------------------------------------------------------------------
--- Functions using abstract interface
---------------------------------------------------------------------------------

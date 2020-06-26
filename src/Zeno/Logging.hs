@@ -11,7 +11,7 @@ module Zeno.Logging
   , logMessage
   , logTrace
   , whenSlow
-  , getLogMessage
+  , renderLogMessage
   , pf
   , demoLogMessages
   ) where
@@ -21,6 +21,7 @@ import Data.Aeson
 import qualified Data.ByteString.Char8 as BS8
 import Data.ByteString.Lazy (toStrict)
 import Data.String (fromString)
+import Data.String.Conv
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Time.Clock
@@ -33,6 +34,13 @@ import Language.Haskell.TH.Quote
 import Text.Printf
 
 import Zeno.Console.Types as LOG
+import Zeno.Monad
+
+
+instance MonadLogger (Zeno r) where
+  monadLoggerLog a b c d = Zeno do
+    console <- asks _console
+    liftIO $ logMessage console a b c d
 
 
 logDebug :: MonadLogger m => String -> m ()
@@ -54,29 +62,35 @@ logTrace :: MonadLogger m => Text -> String -> m ()
 logTrace level = logOtherN (LevelOther level) . fromString
 
 
-getLogMessage :: Loc -> LogSource -> LogLevel -> LogStr -> IO BS8.ByteString
-getLogMessage loc source level str = do
+renderLogMessage :: Loc -> LogSource -> LogLevel -> LogStr -> IO BS8.ByteString
+renderLogMessage loc source level str = do
   time <- formatTime defaultTimeLocale "[%d/%b/%y %T]" <$> getCurrentTime
-  let s = toLogStr time <> "[" <> levelStr <> sourceStr <> "] " <> toLogStr str <> "\n"
+  let s = toLogStr time <> levelStr <> toLogStr str <> "\n"
   pure $ fromLogStr s
   where
-  sourceStr = toLogStr $ if T.null source then "" else "(" <> source <> ")"
-  levelStr =
-    case level of
-      LevelOther t -> toLogStr t
-      _            -> toLogStr $ BS8.pack $ drop 5 $ show level
+  sourceStr = if T.null source then "" else "(" <> source <> ")"
+  levelStr = toLogStr $
+    let f l = "[" <> l <> sourceStr <> "] " <> T.replicate (5-T.length l) " "
+     in f $ case level of
+          LevelOther t -> t
+          _            -> toS $ drop 5 $ show level
 
 
 logMessage :: ToLogStr msg => Console -> Loc -> LogSource -> LogLevel -> msg -> IO ()
-logMessage (Console lvlFilter _debugMask mstatus _ h worker) loc source level msg = do
-  line <- getLogMessage loc source level (toLogStr msg)
+logMessage (Console lvlFilter _debugMask mstatus _worker both) loc source level msg = do
+  line <- renderLogMessage loc source level (toLogStr msg)
 
-  let doLog = level >= lvlFilter
+  let
+    act = do
+      BS8.hPutStr stdout line *> hFlush stdout
+      when both do
+        BS8.hPutStr stderr line *> hFlush stderr
 
-  when doLog do
+  when (level >= lvlFilter) do
     case mstatus of
-      Just queue -> atomically $ writeTBQueue queue $ UILog line
-      Nothing -> BS8.hPutStr h line *> hFlush stdout
+      Just queue -> atomically $ writeTBQueue queue $ UILog act
+      Nothing -> act
+
 
 
 whenSlow :: MonadIO m => Int -> m a -> (Int -> m ()) -> m a
