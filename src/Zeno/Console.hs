@@ -111,7 +111,7 @@ runConsoleUI proc = do
     case evt of
       UI_Peers n -> numPeers .= n
       UI_Process r -> cProc .= r
-      UI_Step r  -> cStep .= r
+      UI_Step r  -> cStep .= r >> cMofN .= (0, 0)
       UI_MofN m n -> cMofN .= (m, n)
     --tick
 

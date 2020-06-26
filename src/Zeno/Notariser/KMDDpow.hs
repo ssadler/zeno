@@ -46,7 +46,7 @@ notariseKmdDpow nc@NotariserConfig{..} label ndata = do
         proposal <- step "utxos" (kmdPubKeyI, getOutPoint utxo) $
             if ethAddress == proposer
                then collectWeighted dist $ kmdNotarySigs sourceChain
-               else collectWith \_ _ -> Just mempty
+               else collectWith \_ _ -> pure (Just mempty)
 
 
         Ballot _ _ utxos <- step "propose" (snd <$> proposal) (collectMember proposer)
@@ -54,10 +54,10 @@ notariseKmdDpow nc@NotariserConfig{..} label ndata = do
         let
           partlySignedTx = signMyInput nc kmdSecKeyH utxos outputs
           myInput = getMyInput utxo partlySignedTx
-          waitCompileTx = collectWith $ collectTx partlySignedTx utxos
+          waitCompileTx = collectTx partlySignedTx utxos
 
         -- Sign tx and collect signed inputs
-        finalTx <- step "sigs" myInput waitCompileTx
+        finalTx <- stepOptData "sigs" myInput waitCompileTx
 
         _ <- step "confirm" () collectMajority
       
@@ -99,17 +99,14 @@ getMyInput myUtxo SaplingTx{..} =
 
 
 collectTx :: SaplingTx -> Map Address UTXO
-          -> Int -> Inventory (Maybe H.TxIn) -> Maybe SaplingTx
-collectTx tx@SaplingTx{..} utxos threshold inventory = mtx
+          -> Process (Inventory H.TxIn) -> Consensus SaplingTx
+collectTx tx@SaplingTx{..} utxos recv = do
+  let addrsNeeded = lookupAddr <$> txIn
+  ballots <- collectMembers addrsNeeded recv
+  pure $ tx { txIn = bData <$> ballots }
   where
-    mtx = (\ins -> tx { txIn = ins }) <$> mapM f txIn
-    f txin = do
-      -- Why are chosenUTXOs and transaction separated?
-      -- because the transaction txin helpfully has a bytestring script.
-      let addr = maybe (murphy "lookup prevout") id $ Map.lookup (H.prevOutput txin) opIdx
-      (sig, msigned) <- Map.lookup addr inventory
-      msigned
-
+    -- Unfortunate murphy here, because our utxo map should have all the utxos in the tx
+    lookupAddr txin = maybe (murphy "lookup prevout") id $ Map.lookup (H.prevOutput txin) opIdx
     opIdx = Map.fromList [(op, addr) | (addr, (_, op)) <- Map.toList utxos]
 
 

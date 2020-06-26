@@ -100,37 +100,43 @@ incStep label = do
 -- Check Majority -------------------------------------------------------------
 
 collectMajority :: Serialize a => Collect a (Inventory a)
-collectMajority = collectWith \majority inv -> do
-  guard $ length inv >= majority
-  pure inv
+collectMajority = collectWith \t inv -> do
+  let l = length inv
+  sendUI $ UI_MofN l t
+  pure $ if l >= t then Just inv else Nothing
 
 -- | collectThreshold collects at least n ballots.
 --   At least, because it collects the greater of the given n and
 --   the majority threshold.
 collectThreshold :: Serialize a => Int -> Collect a (Inventory a)
 collectThreshold n = collectWith \t inv -> do
-  guard $ length inv >= max n t
-  pure inv
+  let l = length inv
+  sendUI $ UI_MofN l t
+  pure $ if l >= t then Just inv else Nothing
 
-collectMembers :: Serialize a => [Address] -> Collect a (Inventory a)
+collectMembers :: Serialize a => [Address] -> Collect a [Ballot a]
 collectMembers addrs = collectWith \_ inv -> do
-  guard $ all (`Map.member` inv) addrs
-  pure inv
+  let n = length addrs
+      r = catMaybes [Map.lookup a inv | a <- addrs]
+      m = length r
+  sendUI $ UI_MofN m n
+  pure $
+    if m == n
+       then Just [Ballot a s o | (a, (s, o)) <- zip addrs r]
+       else Nothing
 
 collectMember :: Serialize a => Address -> Collect a (Ballot a)
-collectMember addr = collectWith \_ inv ->
-  Map.lookup addr inv <&> uncurry (Ballot addr)
+collectMember addr = fmap head . collectMembers [addr]
 
-collectWith :: Serialize a => (Int -> Inventory a -> Maybe b) -> Collect a b
+collectWith :: Serialize a => (Int -> Inventory a -> Consensus (Maybe b)) -> Collect a b
 collectWith f recv = do
   ConsensusParams{..} <- asks has
   let majority = majorityThreshold $ length members'
 
   either pure (\() -> throwIO ConsensusTimeout) =<<
     runExceptT do
-      receiveDuring recv timeout' $
-         maybe (pure ()) throwError . f majority
-
+      receiveDuring recv timeout' $ \inv ->
+         maybe (pure ()) throwError =<< lift (f majority inv)
 
 
 majorityThreshold :: Int -> Int
