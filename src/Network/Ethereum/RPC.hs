@@ -22,7 +22,7 @@ queryEthereum method params = do
 
 readCall :: (Has GethConfig r, FromJSON a) => Address -> ByteString -> Zeno r a
 readCall addr callData =
-  queryEthereum "eth_call" ["{to,data}" .% (addr, Hex callData), "latest"]
+  queryEthereum "eth_call" ["{to,data}" .% (addr, PrefixedHex callData), "latest"]
 
 ethCallABI :: (Has GethConfig r, GetABI a, PutABI p, Show p) => Address -> String -> p -> Zeno r a
 ethCallABI addr sig params = do
