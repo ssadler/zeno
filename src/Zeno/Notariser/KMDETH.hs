@@ -172,7 +172,7 @@ notariseToETH nc@NotariserConfig{..} label notarisationParams = do
   let Ballot proposer _ (chosenSigs, tx) = r
   sigs <- either invalidProposal pure $ validateSigs nc proxySigHash chosenSigs
   validateProposedTx nc proxyParams sigs proposer tx
-  handle onTransactionPostError $ void $ postTransaction tx
+  handle onTransactionPostError $ void $ eth_sendRawTransaction tx
   let txid = hashTx tx
   waitTransactionConfirmed1 (120 * 1000000) txid >>=
     \case
@@ -202,7 +202,7 @@ ethMakeNotarisationTx nc@NotariserConfig{..} callData = do
   EthIdent sk myAddress <- asks has
   U256 gasPriceRec <- queryEthereum "eth_gasPrice" ()
   let gasPrice = gasPriceRec + quot gasPriceRec 2         -- Fixed gas price increase
-  nonce <- queryAccountNonce myAddress
+  nonce <- eth_getTransactionCount myAddress
   tx <- ethMakeNotarisationTxPartial nc callData <&>
     \tx -> tx { _nonce = nonce, _gasPrice = gasPrice }
   signTx sk tx

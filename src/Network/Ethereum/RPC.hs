@@ -31,17 +31,6 @@ ethCallABI addr sig params = do
     (logError $ printf "Error in eth_call: %s with %s" sig (show params))
 
 
-queryAccountNonce :: Has GethConfig r => Address -> Zeno r Integer
-queryAccountNonce addr =
-  unU256 <$> queryEthereum "eth_getTransactionCount" [toJSON addr, "latest"]
-
-
-postTransaction :: Has GethConfig r => Transaction -> Zeno r Sha3
-postTransaction tx = do
-  logInfo $ "Sending transaction: " ++ (show $ hashTx tx)
-  queryEthereum "eth_sendRawTransaction" [tx]
-
-
 -- Waits for a transaction to be confirmed with 1 extra block
 -- There's a detail here - we should probably wait for it to be confirmed with one
 -- or two extra blocks, but, testing is being done with ganache which mines blocks on demand.
@@ -59,13 +48,10 @@ waitTransactionConfirmed1 timeout txid = do
             waitTransactionConfirmed1 (timeout - delay) txid
 
 
-data RPCMaybe a = RPCMaybe (Maybe a)
-  deriving (Show)
-
-instance FromJSON a => FromJSON (RPCMaybe a) where
-  parseJSON (String "0x") = pure $ RPCMaybe Nothing
-  parseJSON val = RPCMaybe . Just <$> parseJSON val
-
+eth_sendRawTransaction :: Has GethConfig r => Transaction -> Zeno r Sha3
+eth_sendRawTransaction tx = do
+  logInfo $ "Sending transaction: " ++ (show $ hashTx tx)
+  queryEthereum "eth_sendRawTransaction" [tx]
 
 eth_getTransactionReceipt :: Has GethConfig r => EthTxHash -> Zeno r TransactionReceipt
 eth_getTransactionReceipt h = queryEthereum "eth_getTransactionReceipt" [h]
@@ -81,3 +67,7 @@ eth_getBlockByNumber n = queryEthereum "eth_getBlockByNumber" (n, False)
 
 eth_gasPrice :: Has GethConfig r => Zeno r Integer
 eth_gasPrice = unU256 <$> queryEthereum "eth_gasPrice" ()
+
+eth_getTransactionCount :: Has GethConfig r => Address -> Zeno r Integer
+eth_getTransactionCount addr =
+  unU256 <$> queryEthereum "eth_getTransactionCount" [toJSON addr, "latest"]
