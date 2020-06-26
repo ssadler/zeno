@@ -187,6 +187,7 @@ notariseToETH nc@NotariserConfig{..} label notarisationParams = do
 onTransactionPostError :: RPCException -> Zeno r ()
 onTransactionPostError (RPCError (String s))
   | T.isInfixOf "known transaction" (T.toLower s) = pure ()
+  | T.isInfixOf "already known" (T.toLower s) = pure ()
   | otherwise = logTrace debugTraceRPC $ "Got submission error, maybe acceptable: " ++ toS s
 onTransactionPostError e = throwIO e
 
