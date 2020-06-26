@@ -90,9 +90,13 @@ runNotariserForever = do
       fix1 0 \f i -> do
         when (i < maxCount) do
           join do
-            catch
-              do act            >> pure (f (i + 1))           -- Config reload every n notarisations
-              \ConsensusTimeout -> pure (f (i + 3))           -- Faster if there are timeouts
+            catches
+              do act >> pure (f $ i+1)
+              [ Handler $ \ConsensusTimeout -> pure $ f $ i+3
+              , Handler $ \e@(ConsensusInvalidProposal s) -> do
+                  logWarn $ show e
+                  pure $ f $ i+1
+              ]
 
 
 runNotariserSync :: NotariserConfig
