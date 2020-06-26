@@ -41,6 +41,7 @@ runConsensus label ccParams@ConsensusParams{..} seed act = do
   withContext toCC do
     roundId <- getRoundId
     let roundName = "Round %s (%s)" % (roundId, label)
+    logInfo $ "Starting: " ++ roundName
   
     Process{..} <-
       spawn roundName $ \handoff -> do
@@ -58,7 +59,6 @@ runConsensus label ccParams@ConsensusParams{..} seed act = do
                                          -- nothing is send to the handoff
 
     r <- atomically $ orElse (receiveSTM procMbox) (waitSTM procAsync >>= throwSTM)
-    logInfo $ "Finished: " ++ roundName
     pure r
 
   where

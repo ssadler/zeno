@@ -7,6 +7,7 @@
 module Zeno.Prelude
   ( module ALL
   , LazyByteString
+  , (%)
   , PercentFormat(..)
   , expandPath
   , fix1
@@ -55,7 +56,6 @@ import Data.Time.Clock as ALL (UTCTime, getCurrentTime, diffUTCTime)
 import Data.Word as ALL (Word8, Word16, Word32, Word64)
 
 import Lens.Micro.Platform as ALL hiding ((.=), has)
-
 import UnliftIO
 import UnliftIO.Concurrent as ALL (threadDelay, forkIO)
 import UnliftIO.Exception as ALL
@@ -86,24 +86,26 @@ expandPath p        = pure p
 
 
 class PercentFormat a where
-  (%) :: String -> a -> String
-  default (%) :: PrintfArg a => String -> a -> String
-  s % a = printf s a
+  (%%) :: String -> a -> String
+  default (%%) :: PrintfArg a => String -> a -> String
+  s %% a = printf s a
 
 instance PercentFormat String
 instance PercentFormat Word32
 instance PercentFormat Integer
 instance PercentFormat Int
 
+(%) :: (PercentFormat a, StringConv String s) => String -> a -> s
+s % a = toS $ s %% a
 
 instance (PrintfArg a, PrintfArg b) => PercentFormat (a, b) where
-  s % (a, b) = printf s a b
+  s %% (a, b) = printf s a b
 
 instance (PrintfArg a, PrintfArg b, PrintfArg c) => PercentFormat (a, b, c) where
-  s % (a, b, c) = printf s a b c
+  s %% (a, b, c) = printf s a b c
 
 instance (PrintfArg a, PrintfArg b, PrintfArg c, PrintfArg d) => PercentFormat (a, b, c, d) where
-  s % (a, b, c, d) = printf s a b c d
+  s %% (a, b, c, d) = printf s a b c d
 
 -- `fix` providing a value.
 fix1 :: a -> ((a -> b) -> a -> b) -> b

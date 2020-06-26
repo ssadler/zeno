@@ -84,7 +84,7 @@ queryJsonRpc endpoint method params = do
             Just r -> pure r
             Nothing -> throwIO $ RPCUnexpectedResult res
 
-  onException go $ logTrace debugTraceRPC $ "Error during request: %s %s" % (show endpoint, jsonString body)
+  onException go $ logWarnNS "rpc" $ "Error during request: %s %s" % (show endpoint, jsonString body)
 
 
 jsonString :: Value -> String

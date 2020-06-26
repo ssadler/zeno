@@ -13,6 +13,7 @@ module Zeno.Logging
   , whenSlow
   , getLogMessage
   , pf
+  , demoLogMessages
   ) where
 
 import Control.Monad (when)
@@ -21,8 +22,10 @@ import qualified Data.ByteString.Char8 as BS8
 import Data.ByteString.Lazy (toStrict)
 import Data.String (fromString)
 import Data.Text (Text)
+import qualified Data.Text as T
 import Data.Time.Clock
 import Data.Time.Format
+import Control.Monad.Reader
 import Control.Monad.Logger as LOG hiding (logDebug, logInfo, logError, logWarn)
 import UnliftIO
 import qualified Language.Haskell.Printf as Printf
@@ -53,17 +56,22 @@ logTrace level = logOtherN (LevelOther level) . fromString
 
 getLogMessage :: Loc -> LogSource -> LogLevel -> LogStr -> IO BS8.ByteString
 getLogMessage loc source level str = do
-  t <- formatTime defaultTimeLocale "[%T]" <$> getCurrentTime
-  pure $ fromLogStr $ toLogStr t <> defaultLogStr loc source level str
+  time <- formatTime defaultTimeLocale "[%d/%b/%y %T]" <$> getCurrentTime
+  let s = toLogStr time <> "[" <> levelStr <> sourceStr <> "] " <> toLogStr str <> "\n"
+  pure $ fromLogStr s
+  where
+  sourceStr = toLogStr $ if T.null source then "" else "(" <> source <> ")"
+  levelStr =
+    case level of
+      LevelOther t -> toLogStr t
+      _            -> toLogStr $ BS8.pack $ drop 5 $ show level
+
 
 logMessage :: ToLogStr msg => Console -> Loc -> LogSource -> LogLevel -> msg -> IO ()
-logMessage (Console lvlFilter debugMask mstatus _ h worker) loc source level msg = do
+logMessage (Console lvlFilter _debugMask mstatus _ h worker) loc source level msg = do
   line <- getLogMessage loc source level (toLogStr msg)
-  let
-    doLog =
-      case level of
-        LevelOther debuglvl -> elem debuglvl debugMask
-        _ -> level >= lvlFilter
+
+  let doLog = level >= lvlFilter
 
   when doLog do
     case mstatus of
@@ -86,3 +94,20 @@ whenSlow threshold act log = do
 
 pf :: QuasiQuoter
 pf = Printf.s
+
+newtype TestLogger a = TestLogger (ReaderT Console IO a)
+  deriving (Functor, Applicative, Monad, MonadIO)
+
+runTestLogger (TestLogger r) = runReaderT r
+
+instance MonadLogger TestLogger where
+  monadLoggerLog a b c d = TestLogger do
+    console <- ask
+    liftIO $ logMessage console a b c d
+
+demoLogMessages :: IO ()
+demoLogMessages = do
+  flip runTestLogger defaultLog do
+    logInfo "hi"
+    logError "hi"
+    logWarnNS "rpc" "wat"

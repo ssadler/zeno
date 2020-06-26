@@ -54,13 +54,8 @@ defaultLog = Console LevelDebug mempty Nothing False stdout ""
 
 type ConsoleArgs = (Bool, String)
 
-optConsoleArgs = (,) <$> ui <*> debug
+optConsoleArgs = (,) <$> ui <*> pure ""
   where
   ui = switch
      ( long "log-ui"
     <> help "Enable fancy (but currently buggy) status bar" )
-  debug = option str
-     ( long "log-debug"
-    <> value mempty
-    <> help "comma separated list of topics to debug i.e: rpc" )
-
