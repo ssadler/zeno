@@ -109,8 +109,9 @@ collectMajority = collectWith \t inv -> do
 --   At least, because it collects the greater of the given n and
 --   the majority threshold.
 collectThreshold :: Serialize a => Int -> Collect a (Inventory a)
-collectThreshold n = collectWith \t inv -> do
+collectThreshold n = collectWith \t' inv -> do
   let l = length inv
+      t = max n t
   sendUI $ UI_MofN l t
   pure $ if l >= t then Just inv else Nothing
 
