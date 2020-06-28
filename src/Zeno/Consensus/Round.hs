@@ -86,7 +86,7 @@ step' :: forall a b. BallotData a => String -> Maybe a -> Collect a b -> Consens
 step' name mobj collect = do
   -- The step itself is run in a separate thread, and left running even
   -- when it's produced a result
-  recv <- spawnStep mobj
+  recv <- spawnStep (error "yield in round") mobj
   collect recv <*
     spawnNoHandle ("eater for: " ++ name) do   -- So that the step doesnt get blocked
       forever $ receiveWait recv
@@ -109,9 +109,9 @@ collectMajority = collectWith \t inv -> do
 --   At least, because it collects the greater of the given n and
 --   the majority threshold.
 collectThreshold :: Serialize a => Int -> Collect a (Inventory a)
-collectThreshold n = collectWith \t' inv -> do
+collectThreshold threshold = collectWith \majority inv -> do
+  let t = max threshold majority
   let l = length inv
-      t = max n t
   sendUI $ UI_MofN l t
   pure $ if l >= t then Just inv else Nothing
 

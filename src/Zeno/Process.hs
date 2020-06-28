@@ -16,6 +16,7 @@ module Zeno.Process
   , receiveMaybe
   , receiveTimeout
   , receiveWait
+  , request
   , send
   , sendSTM
   , sendRemote
