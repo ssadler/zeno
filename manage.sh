@@ -31,6 +31,11 @@ function dot () {
     # --collapse=Module
 }
 
+function update-fast() {
+  git pull
+  build-fast
+}
+
 function install-fast() {
   build-fast
   stack install
