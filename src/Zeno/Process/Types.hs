@@ -41,7 +41,7 @@ instance IsString NodeId where
 
 data Node = Node
   { myNodeId :: NodeId
-  , capabilities :: STM.Map Word8 (RemoteMessage BS.ByteString -> IO ())
+  , capabilities :: STM.Map Word8 (RemoteMessage BSL.ByteString -> IO ())
   , mforwarders :: STM.Map NodeId Forwarder
   , mreceivers :: ReceiverMap IO
   }

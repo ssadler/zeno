@@ -69,7 +69,7 @@ import UnliftIO.Exception as ALL
   )
 
 import Zeno.Data.Aeson as ALL (ToJSON(..), FromJSON(..), SerializeAeson(..))
-import Zeno.Data.VarInt as ALL
+import Data.VarInt as ALL
 import Data.FixedBytes as ALL
 import Zeno.Monad as ALL
 import Zeno.Logging as ALL

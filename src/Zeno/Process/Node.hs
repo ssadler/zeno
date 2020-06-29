@@ -112,45 +112,38 @@ runConnection node@Node{..} conn ip = do
     -- Memory leaks in monadic loops have been encountered in Haskell but they are supposed
     -- to be all fixed by now.
     fix \f -> do
-      capid <- (decode <$> receiveLen 1) >>= either murphy pure
-      traceShowM capid
-      len <- (decode <$> receiveLen 4) >>= either murphy pure :: Zeno () Word32
-      traceShowM len
-      receiveMessage (fromIntegral len) >>= handleMessage node nodeId capid
+      len <- (decodeLazy <$> receiveLen 4) >>= either murphy pure :: Zeno () Word32
+      receiveMessage (fromIntegral len) >>= handleMessage node nodeId
       threadDelay 10000 -- rate limit to a generous 100 messages/s
       f
 
   where
-  murphy :: String -> Zeno () a
-  murphy s = throwIO $ NetworkMurphy $ desc ip s
-    where desc = [pf|Invariant violation error somehow triggered by: %?: %s|]
-
   receiveMessage len = do
     when (len > 10000) do
       throwIO $ NetworkMischief $ [pf|%? sent oversize message: %?|] (renderIp ip) len
     receiveLen len
 
-  receiveLen :: Int -> Zeno () ByteString
+  receiveLen :: Int -> Zeno () LazyByteString
   receiveLen 0 = pure ""
   receiveLen len = do
     fix2 "" len \f xs rem -> do
       s <- recv conn rem >>= maybe (throwIO ConnectionClosed) pure
-      let newbs = xs <> BSL.fromStrict s
+      let newbs = xs <> fromStrict s
           newrem = rem - BS.length s
       case compare newrem 0 of
-        EQ -> pure $ BSL.toStrict newbs
+        EQ -> pure newbs
         GT -> f newbs newrem
         LT -> murphy "More data received than expected"
 
   readHeader = do
     header <- receiveLen 3
-    case decode header of
+    case decodeLazy header of
       Right ('\0', port) -> pure $ NodeId (renderIp ip) port
       Left s -> murphy s -- How can we fail to decode exactly 3 bytes into a (Word8, Word16)
       Right (_, _) -> do
         -- Someone is port scanning, or running incorrect version
         more <- recv conn 20 >>= maybe mempty pure
-        let (line: _) = lines $ toS $ header <> more
+        let (line: _) = lines $ toS $ header <> fromStrict more
         if take 4 line == "GET" || take 4 line == "POST"
            then logInfo $ "%s :eyes: %s" % (renderIp ip, show line)
            else logDebug $ [pf|Unsupported protocol (%s)|] (show line)
@@ -159,13 +152,12 @@ runConnection node@Node{..} conn ip = do
 renderIp :: HostAddress -> String
 renderIp ip = "%i.%i.%i.%i" % hostAddressToTuple ip
 
-handleMessage :: Node -> NodeId -> Word8 -> BS.ByteString -> Zeno () ()
-handleMessage _ _ 0 "" = pure ()
-handleMessage Node{..} nodeId capid bs = do
+handleMessage :: Node -> NodeId -> LazyByteString -> Zeno () ()
+handleMessage _ _ "" = pure ()
+handleMessage Node{..} nodeId bs = do
+  let capid = BSL.head bs
   atomically (STM.lookup capid capabilities) >>=
     \case
-      Nothing -> do
-        traceM "miss"
+      Nothing -> pure ()
       Just recv -> do
-        traceM "hit"
-        liftIO $ recv (RemoteMessage nodeId bs)
+        liftIO $ recv (RemoteMessage nodeId $ BSL.tail bs)

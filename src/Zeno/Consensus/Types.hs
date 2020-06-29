@@ -114,7 +114,7 @@ type Collect i m o = TMVar (Inventory i) -> Consensus m o
 
 data StepInput
   = StepTick
-  | StepData (RemoteMessage ByteString)
+  | StepData (RemoteMessage LazyByteString)
   | StepNewPeer NodeId
 
 type ConsensusStep m = Skeleton (ConsensusStepI m)
@@ -138,7 +138,7 @@ data ConsensusControlMsg
   = NewStep RoundId (ConsensusStep (Zeno (Node, PeerState)) Void)
   | NewPeer NodeId
   | GetRoundSize RoundId (MVar Int)
-  | PeerMessage (RemoteMessage ByteString)
+  | PeerMessage (RemoteMessage LazyByteString)
   | ReleaseRound RoundId
   | DumpStatus
 

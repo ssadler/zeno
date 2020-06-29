@@ -30,7 +30,6 @@ import Zeno.Prelude hiding (finally)
 sendRemote :: (Serialize a, Has Node r) => NodeId -> CapabilityId -> a -> Zeno r ()
 sendRemote nodeId capid msg = do
   let payload = encodeLazy (capid, msg)
-  traceM "send remote"
   BSL.length payload `seq`                       -- `seq` avoids holding thunk longer than neccesary
     withRemoteForwarder nodeId \(chan, _) -> do
       writeTQueue chan payload
@@ -112,7 +111,7 @@ runForwarder nodeId@NodeId{..} chan = do
     logInfo $ "Forwarder thread died with: %s" % show e
 
 
-registerCapability :: Has Node r => Word8 -> (RemoteMessage BS.ByteString -> IO ()) -> Zeno r ()
+registerCapability :: Has Node r => Word8 -> (RemoteMessage BSL.ByteString -> IO ()) -> Zeno r ()
 registerCapability capid handler = do
   node@Node{..} <- asks has
   void $
@@ -125,6 +124,6 @@ registerCapability capid handler = do
       (\_ -> atomically $ STM.delete capid capabilities)
 
 
-withRemoteMessage :: (Monad m, Serialize a) => (NodeId -> a -> m ()) -> RemoteMessage BS.ByteString -> m ()
+withRemoteMessage :: (Monad m, Serialize a) => (NodeId -> a -> m ()) -> RemoteMessage LazyByteString -> m ()
 withRemoteMessage act (RemoteMessage nodeId bs) = do
-  either (\_ -> traceM "could not decode" >> pure ()) (act nodeId) $ decode bs
+  either (\_ -> traceM "could not decode" >> pure ()) (act nodeId) $ decodeLazy bs

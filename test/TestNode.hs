@@ -6,6 +6,7 @@ import TestUtils
 import Zeno.Process
 import Zeno.Prelude
 
+import UnliftIO
 
 
 testLog = consoleWarn
@@ -23,9 +24,11 @@ test_node_messaging = testGroup "node messaging"
     testCase "sends and receives messages in single node" do
       withTestNode do
         myNid <- asks myNodeId
-        mbox <- subscribe "a"
+        mbox <- newEmptyMVar
+        registerCapability 10 $ putMVar mbox
         forM_ [0..10] \_ -> do
-          sendRemote myNid "a" EQ
-          RemoteMessage thatNid EQ <- receiveWait mbox
+          sendRemote myNid 10 (2 :: Word8)
+          RemoteMessage thatNid msg <- takeMVar mbox
+          msg @?= "\2"
           liftIO $ thatNid @?= myNid
   ]

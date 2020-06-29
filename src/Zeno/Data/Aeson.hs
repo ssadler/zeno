@@ -25,7 +25,7 @@ import qualified Data.Set as Set
 import           Data.Text
 import           Data.Text.Encoding
 import qualified Data.Serialize as S
-import           Zeno.Data.VarInt
+import           Data.VarInt
 
 import           System.IO.Unsafe
 

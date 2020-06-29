@@ -1,5 +1,5 @@
 
-module Zeno.Data.VarInt where
+module Data.VarInt where
 
 import Control.Monad
 import Data.Aeson
@@ -11,7 +11,6 @@ import Data.RLP
 import Data.Serialize
 import Data.Word
 import Text.Printf
-import Network.Ethereum.Data.Utils
 import qualified Haskoin as H
 
 

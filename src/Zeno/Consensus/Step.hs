@@ -180,9 +180,9 @@ sendAuthenticated Step{..} peers obj = do
 decodeAuthenticated
   :: (BallotData i, StepBase m)
   => Step i -> (NodeId -> StepMessage i -> ConsensusStep m ())
-  -> RemoteMessage ByteString -> ConsensusStep m ()
+  -> RemoteMessage LazyByteString -> ConsensusStep m ()
 decodeAuthenticated step@Step{..} act (RemoteMessage nodeId bs) = do
-  forM_ (decode bs) \wsm -> do
+  forM_ (decodeLazy bs) \wsm -> do
     let WrappedStepMessage theirSig sn obj = wsm
     let sighash = getMessageSigHash step (sn, obj)
     addr <- recoverAddr sighash theirSig

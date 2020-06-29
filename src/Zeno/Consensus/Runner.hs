@@ -8,7 +8,7 @@ import Control.Monad.STM (orElse)
 
 import Data.IntMap.Strict as IntMap
 import qualified Data.Map as Map
-import Data.Serialize (encode, decode)
+import Data.Serialize (encode, decodeLazy)
 import Data.Time.Clock.POSIX
 
 import Lens.Micro.Platform ((.=))
@@ -34,7 +34,7 @@ type RoundsMap = Map RoundId [Resume]
 type RunnerState = (RoundsMap, Map POSIXTime RunnerAction, MissCache)
 type Resume = StepInput -> ConsensusStep ConsensusRunnerBase Void
 newtype RunnerAction = RunnerAction (Runner ())
-type MissCache = IntMap.IntMap ((RoundId, Int), RemoteMessage ByteString)
+type MissCache = IntMap.IntMap ((RoundId, Int), RemoteMessage LazyByteString)
 
 startConsensusRunner :: Zeno (Node, PeerState) ConsensusRunner
 startConsensusRunner = do
@@ -86,7 +86,7 @@ handleEvent =
       _1 . ix roundId .= (before ++ [resume])
 
     PeerMessage rm@(RemoteMessage nodeId bs) -> do
-      case decode bs of
+      case decodeLazy bs of
         Right (roundId, stepId, msg) -> do
           steps <- use $ _1 . ix roundId
           case steps ^? ix stepId of
