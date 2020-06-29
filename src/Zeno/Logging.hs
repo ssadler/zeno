@@ -82,9 +82,9 @@ logMessage (Console lvlFilter _debugMask mstatus _worker both) loc source level 
 
   let
     act = do
-      BS8.hPutStr stdout line *> hFlush stdout
+      BS8.hPutStr stderr line *> hFlush stderr
       when both do
-        BS8.hPutStr stderr line *> hFlush stderr
+        BS8.hPutStr stdout line *> hFlush stdout
 
   when (level >= lvlFilter) do
     case mstatus of

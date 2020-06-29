@@ -19,7 +19,6 @@ import UnliftIO.Concurrent
 import Zeno.Prelude hiding (finally)
 import Zeno.Process.Spawn
 import Zeno.Process.Types
-import Zeno.Process.Node.ReceiveMissCache
 import Zeno.Process.Node.InboundRateLimit
 import Zeno.Process.Remote
 
@@ -45,8 +44,7 @@ withNode (NetworkConfig host port) act = do
     myNodeId <- fromString . show <$> getSocketName serverSock -- flimsy?
     mforwarders <- STM.newIO
     mreceivers <- newReceiverMap
-    topics <- STM.newIO
-    missCache <- newTVarIO mempty
+    capabilities <- STM.newIO
     pure Node{..}
 
   acceptForkAsync :: MonadUnliftIO m => Socket -> ((Socket, SockAddr) -> ClassyAsync () -> m ()) -> m ()
@@ -114,8 +112,11 @@ runConnection node@Node{..} conn ip = do
     -- Memory leaks in monadic loops have been encountered in Haskell but they are supposed
     -- to be all fixed by now.
     fix \f -> do
+      capid <- (decode <$> receiveLen 1) >>= either murphy pure
+      traceShowM capid
       len <- (decode <$> receiveLen 4) >>= either murphy pure :: Zeno () Word32
-      receiveMessage (fromIntegral len) >>= handleMessage node nodeId
+      traceShowM len
+      receiveMessage (fromIntegral len) >>= handleMessage node nodeId capid
       threadDelay 10000 -- rate limit to a generous 100 messages/s
       f
 
@@ -155,24 +156,16 @@ runConnection node@Node{..} conn ip = do
            else logDebug $ [pf|Unsupported protocol (%s)|] (show line)
         throwIO ConnectionClosed
 
-
-
 renderIp :: HostAddress -> String
 renderIp ip = "%i.%i.%i.%i" % hostAddressToTuple ip
 
-handleMessage :: Node -> NodeId -> BS.ByteString -> Zeno () ()
-handleMessage _ _ "" = mempty
-handleMessage Node{..} nodeId bs = do
-  let (toB, rem) = BS.splitAt 16 bs
-  if BS.length toB /= 16
-     then logDebug $ [pf|Could not decode packet from: %?|] nodeId
-     else do
-       let to = ProcessId $ toFixed toB
-       atomically do
-         STM.lookup to topics >>=
-           \case
-             Nothing -> do
-               let miss = (to, nodeId, rem)
-               modifyTVar missCache $ receiveCachePut miss
-             Just (WrappedReceiver write) -> do
-               write nodeId rem
+handleMessage :: Node -> NodeId -> Word8 -> BS.ByteString -> Zeno () ()
+handleMessage _ _ 0 "" = pure ()
+handleMessage Node{..} nodeId capid bs = do
+  atomically (STM.lookup capid capabilities) >>=
+    \case
+      Nothing -> do
+        traceM "miss"
+      Just recv -> do
+        traceM "hit"
+        liftIO $ recv (RemoteMessage nodeId bs)

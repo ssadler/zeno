@@ -21,15 +21,6 @@ import UnliftIO
 import Data.FixedBytes
 import Zeno.Process.Node.InboundRateLimit
 
-newtype ProcessId = ProcessId { unProcessId :: Bytes16 }
-  deriving (Eq, Ord, Generic, Hashable, Serialize)
-
-instance Show ProcessId where
-  show pid = "ProcessId " ++ show (unProcessId pid)
-
-instance IsString ProcessId where
-  fromString = hashServiceId . fromString
-
 data NodeId = NodeId
   { hostName :: !HostName
   , hostPort :: !Word16
@@ -50,27 +41,9 @@ instance IsString NodeId where
 
 data Node = Node
   { myNodeId :: NodeId
-  , topics :: STM.Map ProcessId WrappedReceiver
+  , capabilities :: STM.Map Word8 (RemoteMessage BS.ByteString -> IO ())
   , mforwarders :: STM.Map NodeId Forwarder
-  -- The receivers map is so that we can limit the number of incoming connections for
-  -- a host. The thread reference is a mutex so that it can be synchronously killed.
-  -- The reason that we kill the old connection is in case a legitimate node is
-  -- reconnecting and there's a dangling TCP connection of some kind. The reason that
-  -- it's killed synchronously is because doing it asynchronously (and safely) is a
-  -- massive ballache of complexity and STM contention.
   , mreceivers :: ReceiverMap IO
-  -- | The receive cache is wildly inefficient. We want to store 1-10k
-  --   elements that we don't have listeners for, because many nodes will
-  --   send data before others are listening on that key. Appending to this
-  --   map is cheap, but when we get a miss we have to scan it.
-  --   Alternatives would be: eagerly allocating a receiver for a topic we don't
-  --   have a listener for, and some thread to monitor it while there's no consumer,
-  --   or using multiple maps, one for lookup by topic and one for lookup by nonce.
-  , missCache :: TVar (IntMap (ProcessId, NodeId, BS.ByteString))
-  }
-
-data WrappedReceiver = WrappedReceiver
-  { wrappedWrite :: NodeId -> BS.ByteString -> STM ()
   }
 
 type Forwarder = (TQueue ForwardMessage, TVar (IO ()))
@@ -86,6 +59,9 @@ data RemoteMessage i = RemoteMessage
   , remoteMessage :: i
   } deriving (Typeable)
 
+
+newtype CapabilityId = CapabilityId Word8
+  deriving (Show, Eq, Ord, Num, Serialize)
 
 type Process i = AsyncProcess i ()
 
@@ -115,20 +91,8 @@ instance HasReceive (TMVar i) i where
   receiveSTM = takeTMVar
   receiveMaybeSTM = tryTakeTMVar
 
-data TopicIsRegistered = TopicIsRegistered ProcessId
-  deriving (Show, Eq)
-
-instance Exception TopicIsRegistered
-
 
 data NetworkConfig = NetworkConfig
   { hostPref :: HostPreference
   , port :: Word16
   } deriving (Show)
-
-
-blake2b_160 :: BS.ByteString -> BS.ByteString
-blake2b_160 b = BS.pack (BA.unpack (hash b :: Digest Blake2b_160))
-
-hashServiceId :: BS.ByteString -> ProcessId
-hashServiceId = ProcessId . toFixed . blake2b_160 

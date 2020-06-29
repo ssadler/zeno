@@ -17,6 +17,7 @@ module Zeno.Prelude
   , timeoutSTMS
   , threadDelayS
   , murphy
+  , unconsMap
   ) where
 
 import Control.Applicative as ALL
@@ -44,7 +45,8 @@ import Data.Function as ALL (fix)
 import Data.Functor as ALL ((<$), ($>))
 import Data.Foldable as ALL (toList)
 import Data.List as ALL (elemIndex, find, findIndex, sort, sortOn, splitAt)
-import Data.Map as ALL (Map)
+import Data.Map.Strict as ALL (Map)
+import qualified Data.Map.Strict as Map
 import Data.Maybe as ALL
 import Data.Monoid as ALL
 import Data.Set as ALL (Set)
@@ -55,6 +57,7 @@ import Data.Text as ALL (Text)
 import Data.Text.Encoding as ALL (encodeUtf8, decodeUtf8)
 import Data.Time.Clock as ALL (UTCTime, getCurrentTime, diffUTCTime)
 import Data.Word as ALL (Word8, Word16, Word32, Word64)
+import Data.Void as ALL
 
 import Lens.Micro.Platform as ALL hiding ((.=), has)
 import UnliftIO
@@ -141,3 +144,9 @@ murphy s = error $ "Invariant violation: " ++ show s
 
 threadDelayS :: MonadIO m => Int -> m ()
 threadDelayS = threadDelay . (*1000000)
+
+
+unconsMap :: Map k a -> Maybe ((k, a), Map k a)
+unconsMap m
+  | Map.null m = Nothing
+  | otherwise = Just $ Map.deleteFindMin m

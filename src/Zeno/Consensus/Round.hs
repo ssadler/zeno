@@ -6,6 +6,7 @@ import           Control.Monad.Reader
 import           Data.Bits
 import qualified Data.ByteString as BS
 import qualified Data.Map as Map
+import qualified Data.Set as Set
 import           Data.Serialize
 import           Data.Time.Clock
 import           Data.Typeable
@@ -18,118 +19,100 @@ import           Zeno.Prelude
 import           Zeno.Consensus.P2P
 import           Zeno.Consensus.Step
 import           Zeno.Consensus.Types
+import           Zeno.Consensus.Runner
 import           Zeno.Console
+
+import           UnliftIO
 
 import           UnliftIO.STM
 import           Control.Monad.STM (orElse, throwSTM)
 import           UnliftIO.Async (waitCatchSTM, waitSTM)
 
 
-
-
--- Run round ------------------------------------------------------------------
-
-runConsensus :: (Serialize a, Has ConsensusNode r)
-             => String -> ConsensusParams -> a -> Consensus b -> Zeno r b
-runConsensus label ccParams@ConsensusParams{..} seed act = do
-
-  ccStepNum <- newTVarIO $ StepNum roundTypeId 0 0
-  ccChildren <- newTVarIO []
-  let ccSeed = sha3b $ encode (seed, members')
-      toCC r = let ccNode = has r in ConsensusContext{..}
-
-  withContext toCC do
-    roundId <- getRoundId
-    let roundName = "Round %s (%s)" % (roundId, label)
-    logInfo $ "Starting: " ++ roundName
-  
-    Process{..} <-
-      spawn roundName $ \handoff -> do
-
-        sendUI $ UI_Process $ Just $ UIRound label roundId
-
-        handleTimeout roundName do     -- We will re-throw this outside but we
-                                       -- don't want it being logged
-
-          act >>= send handoff         -- Send result into handoff so runConsensus can return
-
-          threadDelay $ 10 * 1000000   -- for stragglers to catch up
-
-          pure murphyNoResult          -- This will not get evaluated unless
-                                       -- nothing is send to the handoff
-
-    r <- atomically $ orElse (receiveSTM procMbox) (waitSTM procAsync >>= throwSTM)
-    pure r
-
-  where
-  murphyNoResult = murphy "Round finished without a result - this should not happen"
-  handleTimeout roundName = do
-    handle \ConsensusTimeout -> do
-      logInfo $ "Timeout: " ++ roundName
-      sendUI (UI_Step "Timeout")
-      threadDelayS 2
-      pure ConsensusTimeout
+runConsensus :: forall a o m r.  (Has ConsensusNode r, Serialize a)
+             => String -> ConsensusParams -> a -> Consensus (Zeno r) o -> Zeno r o
+runConsensus label params@ConsensusParams{..} seedData act = do
+  let seed = sha3b $ encode (members', seedData)
+  manager <- asks $ cpRunner . has
+  let roundId = toFixedR $ fromFixed seed
+  let roundName = "Round %s (%s)" % (roundId, label)
+  logInfo $ "Starting: " ++ roundName
+  sendUI $ UI_Process $ Just $ UIRound label roundId
+  let round = RoundData manager seed params mempty
+  finally
+    do runReaderT act round
+    do send manager $ ReleaseRound roundId
 
 
 -- Round Steps ----------------------------------------------------------------
 
-step :: forall a b. BallotData a => String -> a -> Collect a b -> Consensus b
+step :: BallotData a => String -> a -> Collect a (Zeno r) b -> Consensus (Zeno r) b
 step name obj collect = do
   stepOptData name (Just obj) collect
 
-stepOptData :: BallotData a => String -> Maybe a -> Collect a b -> Consensus b
-stepOptData name mobj collect = do
-  incStep name
-  step' name mobj collect
+stepOptData :: (BallotData i, MonadLoggerUI m)
+        => String -> Maybe i -> Collect i m o -> Consensus m o
+stepOptData label i collect = do
+  r@RoundData{..} <- ask
+  let ident = has params
+  let roundId = toFixedR $ fromFixed seed
+  roundSize <- request manager (GetRoundSize roundId)
+  lift $ sendUI $ UI_Step $ "%i: %s" % (roundSize+1, label)
 
-step' :: forall a b. BallotData a => String -> Maybe a -> Collect a b -> Consensus b
-step' name mobj collect = do
-  -- The step itself is run in a separate thread, and left running even
-  -- when it's produced a result
-  recv <- spawnStep (error "yield in round") mobj
-  collect recv <*
-    spawnNoHandle ("eater for: " ++ name) do   -- So that the step doesnt get blocked
-      forever $ receiveWait recv
+  let ConsensusParams{..} = params
+  let stepNum = StepNum roundTypeId (fromIntegral roundSize) 0
+  invRef <- newIORef (0, mempty :: Inventory i)
+  let phash = sha3b $ encode (seed, stepNum)
 
-incStep :: String -> Consensus ()
-incStep label = do
-  major <- incMajorStepNum
-  sendUI $ UI_Step $ "%i: %s" % (major, label)
+  recv <- newEmptyTMVarIO
+  wrapper <- newMVar recv
+  let
+    yield inv = do
+      tryReadMVar wrapper >>=
+        \case
+          Nothing -> pure ()
+          Just recv -> atomically $ putTMVar recv inv
+
+  let step = Step invRef members' (Set.fromList members') roundId stepNum ident yield
+  send manager $ NewStep roundId $ createStep params step i
+  collect recv <* takeMVar wrapper
 
 
 -- Check Majority -------------------------------------------------------------
 
-collectMajority :: Serialize a => Collect a (Inventory a)
+type Base m = (MonadLoggerUI m)
+
+collectMajority :: (Base m, Serialize a) => Collect a m (Inventory a)
 collectMajority = collectWith \t inv -> do
   let l = length inv
-  sendUI $ UI_MofN l t
+  lift $ sendUI $ UI_MofN l t
   pure $ if l >= t then Just inv else Nothing
 
 -- | collectThreshold collects at least n ballots.
 --   At least, because it collects the greater of the given n and
 --   the majority threshold.
-collectThreshold :: Serialize a => Int -> Collect a (Inventory a)
+collectThreshold :: (Base m, Serialize a) => Int -> Collect a m (Inventory a)
 collectThreshold threshold = collectWith \majority inv -> do
   let t = max threshold majority
   let l = length inv
-  sendUI $ UI_MofN l t
+  -- sendUI $ UI_MofN l t
   pure $ if l >= t then Just inv else Nothing
 
-collectMembers :: Serialize a => [Address] -> Collect a [Ballot a]
+collectMembers :: (Base m, Serialize a) => [Address] -> Collect a m [Ballot a]
 collectMembers addrs = collectWith \_ inv -> do
   let n = length addrs
       r = catMaybes [Map.lookup a inv | a <- addrs]
       m = length r
-  sendUI $ UI_MofN m n
+  -- sendUI $ UI_MofN m n
   pure $
     if m == n
        then Just [Ballot a s o | (a, (s, o)) <- zip addrs r]
        else Nothing
 
-collectMember :: Serialize a => Address -> Collect a (Ballot a)
+collectMember :: (Base m, Serialize a) => Address -> Collect a m (Ballot a)
 collectMember addr = fmap head . collectMembers [addr]
 
-collectWith :: Serialize a => (Int -> Inventory a -> Consensus (Maybe b)) -> Collect a b
+collectWith :: (Base m, Serialize a) => (Int -> Inventory a -> Consensus m (Maybe b)) -> Collect a m b
 collectWith f recv = do
   ConsensusParams{..} <- asks has
   let majority = majorityThreshold $ length members'

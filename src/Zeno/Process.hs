@@ -1,12 +1,12 @@
 
 module Zeno.Process
   ( AsyncProcess(..)
+  , CapabilityId
   , HasReceive(..)
   , Receiver
   , RemoteReceiver
   , RemoteMessage(..)
   , Process
-  , ProcessId(..) -- This is a misnomer, it refers to remote process IDs.
   , NetworkConfig(..)
   , NodeId(..)
   , Node(myNodeId)
@@ -16,19 +16,16 @@ module Zeno.Process
   , receiveMaybe
   , receiveTimeout
   , receiveWait
+  , registerCapability
   , request
   , send
   , sendSTM
   , sendRemote
-  , hashServiceId
   , renderIp
   , spawn
   , spawnNoHandle
-  , subscribe
   , withNode
   , withRemoteMessage
-  -- Utility
-  , blake2b_160
   ) where
 
 

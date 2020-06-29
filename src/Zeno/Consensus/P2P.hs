@@ -9,7 +9,7 @@ module Zeno.Consensus.P2P
   , registerOnNewPeer
   -- For testing
   , PeerMsg(..)
-  , peerControllerPid
+  , peerCapabilityId
   ) where
 
 import Control.Concurrent.STM.TVar (stateTVar)
@@ -60,10 +60,10 @@ getPeers = do
   PeerState{..} <- asks has
   Set.toList <$> readTVarIO p2pPeers
 
-sendPeers :: (Has PeerState r, Has Node r, Serialize o) => ProcessId -> o -> Zeno r ()
-sendPeers pid msg = do
+sendPeers :: (Has PeerState r, Has Node r, Serialize o) => CapabilityId -> o -> Zeno r ()
+sendPeers capid msg = do
   peers <- getPeers
-  forM_ peers $ \peer -> sendRemote peer pid msg
+  forM_ peers $ \peer -> sendRemote peer capid msg
 
 registerOnNewPeer :: Has PeerState r => (NodeId -> Zeno r ()) -> Zeno r ()
 registerOnNewPeer cb = do
@@ -91,7 +91,7 @@ startP2P seeds = do
   p2pMyIp <- liftIO getMyIpFromICanHazIp
   logInfo $ "My IP from icanhazip.com: " ++ renderIp p2pMyIp
   let state = PeerState{..}
-  _ <- spawn "peerController" $ \_ -> peerController state seeds
+  _ <- startPeerController state seeds
   withRunInIO \rio ->
     installHandler sigUSR1 (Catch $ rio $ dumpPeers state) Nothing
   pure state
@@ -125,8 +125,8 @@ getMyIpFromICanHazIp = do
     sum <$> sequence parts
 
 
-peerControllerPid :: ProcessId
-peerControllerPid = hashServiceId "peerController"
+peerCapabilityId :: CapabilityId
+peerCapabilityId = 1
 
 
 data PeerMsg = GetPeers | Peers Peers
@@ -135,21 +135,23 @@ data PeerMsg = GetPeers | Peers Peers
 instance Serialize PeerMsg
 
 
-peerController :: PeerState -> [NodeId] -> Zeno Node ()
-peerController state@PeerState{..} seeds = do
-  recv <- subscribe peerControllerPid
-  forever do
-    mapM_ doDiscover seeds
-    receiveDuringS recv 60 $
-      withRemoteMessage
-        \peer msg -> do
-          when (hostName peer /= renderIp p2pMyIp) do
-            handle peer msg
+startPeerController :: PeerState -> [NodeId] -> Zeno Node ()
+startPeerController state@PeerState{..} seeds = do
+  void $ spawn "peerController" \chan -> do
+    registerCapability 1 $ send chan
+    forever do
+      mapM_ doDiscover seeds
+      receiveDuringS (procMbox chan) 60 $
+        withRemoteMessage
+          \peer msg -> do
+            traceShowM peer
+            when (hostName peer /= renderIp p2pMyIp) do
+              handle peer msg
   where
   handle peer GetPeers = do
     peers <- readTVarIO p2pPeers
     let peersWithoutCaller = Peers $ Set.delete peer peers
-    sendRemote peer peerControllerPid peersWithoutCaller
+    sendRemote peer peerCapabilityId peersWithoutCaller
     newPeer peer
 
   handle peer (Peers peers) = do
@@ -158,7 +160,8 @@ peerController state@PeerState{..} seeds = do
 
   doDiscover peer = do
     when (hostName peer /= renderIp p2pMyIp) do
-      sendRemote peer peerControllerPid GetPeers
+      traceShowM peer
+      sendRemote peer peerCapabilityId GetPeers
 
   newPeer :: NodeId -> Zeno Node ()
   newPeer nodeId = do
@@ -171,7 +174,7 @@ peerController state@PeerState{..} seeds = do
       sendUI $ UI_Peers nPeers
       monitorRemote nodeId $ dropPeer nodeId
       send pnProc $ NewPeer nodeId
-      sendRemote nodeId peerControllerPid GetPeers
+      sendRemote nodeId peerCapabilityId GetPeers
 
   dropPeer nodeId = do
     atomically do

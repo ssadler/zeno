@@ -147,7 +147,6 @@ notariseToETH nc@NotariserConfig{..} label notarisationParams = do
   let
     ETHDest{..} = destChain
     EthIdent{..} = has r
-    run = withContext (const r)
     height = fromIntegral $ view _1 notarisationParams
     proxyParams = (ethNotarisationsContract, height, ethMakeNotarisationCallData notarisationParams)
     proxySigHash = ethMakeProxySigMessage proxyParams
@@ -165,7 +164,7 @@ notariseToETH nc@NotariserConfig{..} label notarisationParams = do
              then do
                chosen <- collectWeighted dist threshold recv
                let proxyCallData = ethMakeProxyCallData proxyParams (bSig <$> unInventory chosen)
-               tx <- run $ ethMakeNotarisationTx nc proxyCallData
+               tx <- lift $ ethMakeNotarisationTx nc proxyCallData
                pure $ Just (chosen, tx) -- Send chosen sigs to make it easy to reconstruct tx
            else do
              collectWith (\_ _ -> pure Nothing) recv

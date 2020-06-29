@@ -1,8 +1,8 @@
-{-# LANGUAGE DeriveGeneric #-}
-{-# LANGUAGE ConstraintKinds #-}
-{-# LANGUAGE Strict #-}
 
 module Zeno.Consensus.Types where
+
+import           Control.Monad.Reader
+import           Control.Monad.Skeleton
 
 import           Data.Bits
 import qualified Data.ByteString as BS
@@ -44,62 +44,14 @@ instance FromJSON StepNum where
 
 makeLensesWith abbreviatedFields ''StepNum
 
-
 data ConsensusNode = ConsensusNode
   { cpNode :: Node
   , cpPeers :: PeerState
+  , cpRunner :: ConsensusRunner
   }
 instance Has Node ConsensusNode where has = cpNode 
 instance Has PeerState ConsensusNode where has = cpPeers
-
-data ConsensusContext = ConsensusContext
-  { ccNode     :: ConsensusNode
-  , ccParams   :: ConsensusParams
-  , ccSeed     :: Bytes32
-  , ccStepNum  :: TVar StepNum        -- TODO: Not so sure it's smart for the step
-                                      -- to have access to this, since it's mutable
-                                      -- and shared.
-  }
-
-instance Has ConsensusNode ConsensusContext where has = ccNode
-instance Has Node ConsensusContext where has = has . ccNode
-instance Has PeerState ConsensusContext where has = has . ccNode
-instance Has ConsensusParams ConsensusContext where has = ccParams
-instance Has EthIdent ConsensusContext where has = has . ccParams
-
-getRoundSeed :: Consensus Bytes32
-getRoundSeed = asks ccSeed
-
-getStepSeed :: Consensus Bytes32
-getStepSeed = do
-  (,) <$> getRoundSeed <*> getStepNum <&> sha3b . encode
-
-getStepNum :: Consensus StepNum
-getStepNum = asks ccStepNum >>= readTVarIO
-
-incMajorStepNum :: Consensus VarInt
-incMajorStepNum = do
-  t <- asks ccStepNum
-  atomically $ modifyTVar t $ (major +~ 1) . (minor .~ 0)
-  readTVarIO t <&> view major
-
-incMinorStepNum :: Consensus VarInt
-incMinorStepNum = do
-  t <- asks ccStepNum
-  atomically $ modifyTVar t $ minor +~ 1
-  readTVarIO t <&> view minor
-
-
-type RoundId = Bytes5
-
-getRoundId :: Consensus RoundId
-getRoundId = do
-  seed <- asks ccSeed
-  pure $ toFixedR $ fromFixed seed
-
-getMyAddress :: Consensus Address
-getMyAddress = asks $ ethAddress . ident' . ccParams
-
+instance Has ConsensusRunner ConsensusNode where has = cpRunner
 
 data Ballot a = Ballot
   { bMember :: Address
@@ -113,7 +65,6 @@ instance Serialize a => Serialize (Ballot a)
 
 type Authenticated a = (RecSig, a)
 type Inventory a = Map Address (RecSig, a)
-type Collect i o = Process (Inventory i) -> Consensus o
 
 unInventory :: Inventory a -> [Ballot a]
 unInventory inv = [Ballot a s o | (a, (s, o)) <- Map.toAscList inv]
@@ -155,14 +106,54 @@ data ConsensusNetworkConfig = CNC
 newtype RoundProtocol = RoundProtocol Word64
   deriving Serialize via H.VarInt
 
-withTimeout :: Int -> Consensus a -> Consensus a
-withTimeout t = 
-  local \c -> c { ccParams = (ccParams c) { timeout' = t } }
-
 
 -- Monad ----------------------------------------------------------------------
+--
 
-type Consensus = Zeno ConsensusContext
+type Collect i m o = TMVar (Inventory i) -> Consensus m o
+
+data StepInput
+  = StepTick
+  | StepData (RemoteMessage ByteString)
+  | StepNewPeer NodeId
+
+type ConsensusStep m = Skeleton (ConsensusStepI m)
+
+data ConsensusStepI m x where
+  ReceiveFree        :: ConsensusStepI m StepInput
+  RegisterTickFree   :: Int -> ConsensusStepI m ()
+  GetPeersFree       :: ConsensusStepI m [NodeId]
+  SendRemoteFree     :: BallotData a => NodeId -> a -> ConsensusStepI m ()
+  ConsensusStepLift  :: m a -> ConsensusStepI m a
+
+instance MonadIO m => MonadIO (ConsensusStep m) where
+  liftIO = bone . ConsensusStepLift . liftIO
+
+instance MonadLogger m => MonadLogger (ConsensusStep m) where
+  monadLoggerLog a b c d = bone $ ConsensusStepLift $ monadLoggerLog a b c d
+
+type RoundId = Bytes5
+
+data ConsensusControlMsg
+  = NewStep RoundId (ConsensusStep (Zeno (Node, PeerState)) Void)
+  | NewPeer NodeId
+  | GetRoundSize RoundId (MVar Int)
+  | PeerMessage (RemoteMessage ByteString)
+  | ReleaseRound RoundId
+
+type ConsensusRunner = Process ConsensusControlMsg
+type ConsensusRunnerBase = Zeno (Node, PeerState)
+
+data RoundData = RoundData
+  { manager :: ConsensusRunner
+  , seed    :: Bytes32
+  , params  :: ConsensusParams
+  , steps   :: [ConsensusStep ConsensusRunnerBase ()]
+  }
+
+instance Has ConsensusParams RoundData where has = params
+
+type Consensus m a = ReaderT RoundData m a
 
 data ConsensusTimeout = ConsensusTimeout deriving (Show)
 instance Exception ConsensusTimeout

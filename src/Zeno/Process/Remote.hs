@@ -24,13 +24,13 @@ import UnliftIO.Concurrent
 
 import Zeno.Process.Spawn hiding (send)
 import Zeno.Process.Types
-import Zeno.Process.Node.ReceiveMissCache
 import Zeno.Prelude hiding (finally)
 
 
-sendRemote :: (Serialize a, Has Node r) => NodeId -> ProcessId -> a -> Zeno r ()
-sendRemote nodeId pid msg = do
-  let payload = encodeLazy (pid, msg)
+sendRemote :: (Serialize a, Has Node r) => NodeId -> CapabilityId -> a -> Zeno r ()
+sendRemote nodeId capid msg = do
+  let payload = encodeLazy (capid, msg)
+  traceM "send remote"
   BSL.length payload `seq`                       -- `seq` avoids holding thunk longer than neccesary
     withRemoteForwarder nodeId \(chan, _) -> do
       writeTQueue chan payload
@@ -112,40 +112,19 @@ runForwarder nodeId@NodeId{..} chan = do
     logInfo $ "Forwarder thread died with: %s" % show e
 
 
-subscribe :: (Has Node r, Serialize i) => ProcessId -> Zeno r (RemoteReceiver i)
-subscribe procId = do
+registerCapability :: Has Node r => Word8 -> (RemoteMessage BS.ByteString -> IO ()) -> Zeno r ()
+registerCapability capid handler = do
   node@Node{..} <- asks has
-  (_, recv) <-
+  void $
     allocate
-      (atomically $ getReceiverSTM node procId)
-      (\_ -> atomically $ STM.delete procId topics)
+      do atomically do
+          STM.lookup capid capabilities >>=
+             \case
+               Nothing -> STM.insert handler capid capabilities
+               Just _ -> error $ "Capability registered: %s" % show capid
+      (\_ -> atomically $ STM.delete capid capabilities)
 
-  -- | TODO: deduplicate misses by nodeId. Not sure if there's a reason they should ever be different
-  --   but just in case.
-  misses <- atomically $ stateTVar missCache $ receiveCacheTake $ (==procId) . view _1
-  spawnNoHandle "miss populater" do
-    forM_ misses
-      \(_, nodeId, bs) -> atomically $ wrappedReceive recv nodeId bs
 
-  pure recv
-
-getReceiverSTM :: Serialize i => Node -> ProcessId -> STM (RemoteReceiver i)
-getReceiverSTM Node{..} pid = do
-  STM.lookup pid topics >>=
-    \case
-      Just r -> throwSTM $ TopicIsRegistered pid
-      Nothing -> do
-        recv <- newTBQueue 3
-        let wrapped = WrappedReceiver $ wrappedReceive recv
-        STM.insert wrapped pid topics
-        pure recv
-
-wrappedReceive :: Serialize i => RemoteReceiver i -> NodeId -> BS.ByteString -> STM ()
-wrappedReceive chan nodeId bs = do
-    case decode bs of
-      Right a -> writeTBQueue chan $ RemoteMessage nodeId a
-      _ -> pure ()  -- Could have a "bad queue", ie redirect all decode failures
-                    -- to a thread which monitors for peer mischief
-
-withRemoteMessage :: (NodeId -> a -> m b) -> RemoteMessage a -> m b
-withRemoteMessage act (RemoteMessage nodeId msg) = act nodeId msg
+withRemoteMessage :: (Monad m, Serialize a) => (NodeId -> a -> m ()) -> RemoteMessage BS.ByteString -> m ()
+withRemoteMessage act (RemoteMessage nodeId bs) = do
+  either (\_ -> traceM "could not decode" >> pure ()) (act nodeId) $ decode bs

@@ -79,8 +79,9 @@ withHideTrace lvl = localZeno $ console . logDebugMask %~ Set.delete lvl
 class Has r a where
   has :: a -> r
 
-instance Has r r where
-  has = id
+instance Has r r      where has = id
+instance Has a (a, b) where has = fst
+instance Has b (a, b) where has = snd
 
 hasReader :: Has r' r => Zeno r' a -> Zeno r a
 hasReader = withContext has

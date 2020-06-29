@@ -96,16 +96,23 @@ runConsoleUI proc = do
       forever $ atomically (receiveSTM proc) >>= go
 
   where
+  handle = stderr
   go :: ConsoleCtrl -> StateT UI IO ()
   go (UILog act) = do
     liftIO do
-      clearLine
-      setCursorColumn 0
+      hClearLine handle
+      hSetCursorColumn handle 0
       act                  -- Action writing lines with newline
-    tick
+    go UITick
 
   go UITick = do
-    tick
+    s <- renderStatus <$> get
+    liftIO do
+      -- showCursor
+      hClearLine handle
+      hSetCursorColumn handle 0
+      hPutStr handle s
+      hFlush handle
 
   go (UIEvent evt) = do
     case evt of
@@ -113,16 +120,6 @@ runConsoleUI proc = do
       UI_Process r -> cProc .= r
       UI_Step r  -> cStep .= r >> cMofN .= (0, 0)
       UI_MofN m n -> cMofN .= (m, n)
-    --tick
-
-  tick = do
-    s <- renderStatus <$> get
-    liftIO do
-      showCursor
-      clearLine
-      setCursorColumn 0
-      hPutStr stdout s
-      hFlush stdout
 
 
 withConsole :: ConsoleArgs -> LogLevel -> Zeno r a -> Zeno r a

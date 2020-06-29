@@ -2,6 +2,7 @@
 module Zeno.Notariser.Shuffle where
 
 import Control.Monad
+import Control.Monad.Reader
 import Data.Bits
 import qualified Data.Map as Map
 import qualified Data.Set as Set
@@ -13,12 +14,12 @@ import Zeno.Consensus
 
 
 -- | Shuffle a list using the round seed
-roundShuffle :: [a] -> Consensus [a]
+roundShuffle :: Monad m => [a] -> Consensus m [a]
 roundShuffle items = do
   when (length (take 0x10000 items) == 0x10000) do
     error "distribute: items too long"
 
-  shuffleWithWords items . infWord16 . infBytes <$> getRoundSeed
+  shuffleWithWords items . infWord16 . infBytes <$> asks seed
 
 
 -- List shuffle that takes a random series of 16 bit words. In order to select

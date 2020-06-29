@@ -30,10 +30,7 @@ notariseKmdDpow nc@NotariserConfig{..} label ndata = do
     KomodoIdent{..} <- asks has
     EthIdent{..} <- asks has
     cparams <- getConsensusParams nc EthToKmd
-
-    r <- ask :: Zeno EthNotariser EthNotariser
-    let run = withContext (const r)
-        outputs = makeOutputs ndata
+    let outputs = makeOutputs ndata
 
     join do
       runConsensus label cparams outputs do
@@ -98,8 +95,7 @@ getMyInput myUtxo SaplingTx{..} =
   find (\txIn -> H.prevOutput txIn == getOutPoint myUtxo) txIn
 
 
-collectTx :: SaplingTx -> Map Address UTXO
-          -> Process (Inventory H.TxIn) -> Consensus SaplingTx
+collectTx :: SaplingTx -> Map Address UTXO -> Collect H.TxIn (Zeno r) SaplingTx
 collectTx tx@SaplingTx{..} utxos recv = do
   let addrsNeeded = lookupAddr <$> txIn
   ballots <- collectMembers addrsNeeded recv

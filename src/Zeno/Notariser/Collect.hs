@@ -11,7 +11,8 @@ import Zeno.Prelude
 import Zeno.Process
 
 
-collectWeighted :: forall i. [Address] -> Int -> Collect i (Inventory i)
+collectWeighted :: forall i m. MonadLoggerUI m
+                => [Address] -> Int -> Collect i m (Inventory i)
 collectWeighted distribution n recv = do
 
   -- The distribution defines a priority order for UTXO input preference.
@@ -54,7 +55,7 @@ collectWeighted distribution n recv = do
           \case
             Nothing -> pure oldInv
             Just inv -> do
-              sendUI $ UI_MofN (length inv) n
+              lift $ sendUI $ UI_MofN (length inv) n
               pure inv
 
         if
@@ -65,5 +66,5 @@ collectWeighted distribution n recv = do
           | otherwise -> do                    -- Timeout and don't have enough sigs
               throwIO ConsensusTimeout
 
-    do sendUI $ UI_MofN 0 0
+    do lift $ sendUI $ UI_MofN 0 0
 
