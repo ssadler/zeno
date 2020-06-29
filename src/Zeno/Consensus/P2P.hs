@@ -144,7 +144,6 @@ startPeerController state@PeerState{..} seeds = do
       receiveDuringS (procMbox chan) 60 $
         withRemoteMessage
           \peer msg -> do
-            traceShowM peer
             when (hostName peer /= renderIp p2pMyIp) do
               handle peer msg
   where
@@ -160,7 +159,6 @@ startPeerController state@PeerState{..} seeds = do
 
   doDiscover peer = do
     when (hostName peer /= renderIp p2pMyIp) do
-      traceShowM peer
       sendRemote peer peerCapabilityId GetPeers
 
   newPeer :: NodeId -> Zeno Node ()
