@@ -132,7 +132,7 @@ instance MonadIO m => MonadIO (ConsensusStep m) where
 instance MonadLogger m => MonadLogger (ConsensusStep m) where
   monadLoggerLog a b c d = bone $ ConsensusStepLift $ monadLoggerLog a b c d
 
-type RoundId = Bytes5
+type RoundId = Bytes10
 
 data ConsensusControlMsg
   = NewStep RoundId (ConsensusStep (Zeno (Node, PeerState)) Void)
@@ -140,6 +140,7 @@ data ConsensusControlMsg
   | GetRoundSize RoundId (MVar Int)
   | PeerMessage (RemoteMessage ByteString)
   | ReleaseRound RoundId
+  | DumpStatus
 
 type ConsensusRunner = Process ConsensusControlMsg
 type ConsensusRunnerBase = Zeno (Node, PeerState)

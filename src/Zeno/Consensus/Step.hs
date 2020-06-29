@@ -64,6 +64,7 @@ runStepSkel :: (BallotData i, StepBase m) => Step i -> Maybe (Ballot i) -> Conse
 runStepSkel step@Step{..} mballot = do
   forM_ mballot \(Ballot myAddr sig obj) -> do
     onInventoryData step True $ Map.singleton myAddr (sig, obj)
+  bone $ RegisterTickFree inventoryQueryInterval
   buildInventoryLoop step
 
 buildInventoryLoop :: StepBase m => BallotData i => Step i -> ConsensusStep m Void
@@ -72,6 +73,7 @@ buildInventoryLoop step@Step{..} = do
     fix1 mempty $ \go !idxs -> do
       bone ReceiveFree >>=
         \case
+          StepNewPeer peer -> onNewPeer step peer
           StepTick -> do
             sendInventoryQueries step $ Map.toList idxs
             bone $ RegisterTickFree inventoryQueryInterval
@@ -81,8 +83,6 @@ buildInventoryLoop step@Step{..} = do
                  onInventoryData step False theirData
                  onInventoryRequest step peer theirReq
                  go $ Map.insert peer theirIdx idxs
-
-          StepNewPeer peer -> onNewPeer step peer
 
 onNewPeer :: (BallotData i, StepBase m) => Step i -> NodeId -> ConsensusStep m ()
 onNewPeer Step{..} peer = do

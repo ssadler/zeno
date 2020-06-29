@@ -29,7 +29,7 @@ data ConsoleEvent
   deriving (Show)
 
 data UIProcess
-  = UIRound String Bytes5
+  = UIRound String Bytes10
   | UIOther String
   deriving (Show)
 

@@ -75,7 +75,8 @@ renderStatus UI{..} = sPeers ++ sProc
       case _cProc of
         Nothing -> ""
         Just (UIRound label roundId) ->
-          printf "[%s: %s]" (roundId) label ++ sStep ++ sMofN ++ " "
+          let roundIdShort = take 7 $ show roundId
+           in printf "[%s: %s]" roundIdShort label ++ sStep ++ sMofN ++ " "
         Just (UIOther s) -> printf "[%s]" s
 
   styleWith style s = setSGRCode style ++ s ++ setSGRCode [Reset]
