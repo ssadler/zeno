@@ -29,16 +29,18 @@ import           Control.Monad.STM (orElse, throwSTM)
 import           UnliftIO.Async (waitCatchSTM, waitSTM)
 
 
-runConsensus :: forall a o m r.  (Has ConsensusNode r, Serialize a)
+runConsensus :: (Has ZenoConsensusNode r, Serialize a)
              => String -> ConsensusParams -> a -> Consensus (Zeno r) o -> Zeno r o
 runConsensus label params@ConsensusParams{..} seedData act = do
   let seed = sha3b $ encode (members', seedData)
   manager <- asks $ cpRunner . has
-  let roundId = toFixedR $ fromFixed seed
+  let roundId10 = toFixedR $ fromFixed seed :: Bytes10
+  let roundId = roundId10 `bappend` newFixed roundTypeId
+
   let roundName = "Round %s (%s)" % (roundId, label)
   logInfo $ "Starting: " ++ roundName
   sendUI $ UI_Process $ Just $ UIRound label roundId
-  let round = RoundData manager seed params mempty
+  let round = RoundData manager params seed roundId
   finally
     do runReaderT act round
     do send manager $ ReleaseRound roundId
@@ -50,19 +52,19 @@ step :: BallotData a => String -> a -> Collect a (Zeno r) b -> Consensus (Zeno r
 step name obj collect = do
   stepOptData name (Just obj) collect
 
-stepOptData :: (BallotData i, MonadLoggerUI m)
-        => String -> Maybe i -> Collect i m o -> Consensus m o
+stepOptData :: BallotData i => String -> Maybe i -> Collect i (Zeno r) o -> Consensus (Zeno r) o
 stepOptData label i collect = do
   r@RoundData{..} <- ask
   let ident = has params
-  let roundId = toFixedR $ fromFixed seed
-  roundSize <- request manager (GetRoundSize roundId)
+  roundSize <- do
+    m <- newEmptyMVar
+    send manager $ GetRoundSize roundId $ putMVar m
+    takeMVar m
   lift $ sendUI $ UI_Step $ "%i: %s" % (roundSize+1, label)
 
   let ConsensusParams{..} = params
-  let stepNum = StepNum roundTypeId (fromIntegral roundSize) 0
+  let stepId = StepId roundId (fromIntegral roundSize)
   invRef <- newIORef (0, mempty :: Inventory i)
-  let phash = sha3b $ encode (seed, stepNum)
 
   recv <- newEmptyTMVarIO
   wrapper <- newMVar recv
@@ -73,8 +75,8 @@ stepOptData label i collect = do
           Nothing -> pure ()
           Just recv -> atomically $ putTMVar recv inv
 
-  let step = Step invRef members' (Set.fromList members') roundId stepNum ident yield
-  send manager $ NewStep roundId $ createStep params step i
+  let step = Step invRef members' (Set.fromList members') stepId ident yield
+  send manager $ NewStep roundId $ createStep step i
   collect recv <* takeMVar wrapper
 
 

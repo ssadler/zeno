@@ -16,7 +16,7 @@ import           Network.Socket hiding (send, recv)
 import           Data.Aeson (encode)
 import           Zeno.Data.Aeson
 import           Zeno.Monad
-import           Zeno.Prelude
+import           Zeno.Prelude hiding ((.=))
 
 
 class ToJSON a => JsonRPCArgs a

@@ -6,7 +6,6 @@ module TestNotariserSynchronous where
 import TestUtils
 
 import Control.Monad.Except
-import Control.Monad.Identity
 import Control.Monad.Logger
 import Control.Monad.Skeleton
 
@@ -21,25 +20,20 @@ import Zeno.Notariser.Targets
 import Zeno.Notariser.Synchronous
 import Zeno.Prelude
 
-type TestBase = IO
-runTestBase = id
-instance MonadLogger Identity where monadLoggerLog a b c d = pure ()
-instance MonadLogger IO where monadLoggerLog a b c d = pure ()
-
 
 data TestChain = TestChain { unTestChain :: String }
 instance BlockchainConfig TestChain where
   getSymbol = unTestChain
   getNotarisationBlockInterval _ = 5
 
-instance BlockchainAPI TestChain TestBase where
+instance BlockchainAPI TestChain TestIO where
   getHeight = error "testchainwaitheight"
 
-instance SourceChain TestChain TestBase where
+instance SourceChain TestChain TestIO where
   type (ChainNotarisationReceipt TestChain) = (Word32, Word32)
   getLastNotarisationReceipt = error "getLastNotarisationReceipt"
 
-instance DestChain TestChain TestBase where
+instance DestChain TestChain TestIO where
   type (ChainNotarisation TestChain) = Word32
   getLastNotarisationAndSequence = error "getLastNotarisationAndSequence"
 
@@ -54,12 +48,12 @@ instance NotarisationReceipt (Word32, Word32) where
  
 
 
-type Bone = NotariserSyncI TestChain TestChain TestBase
+type Bone = NotariserSyncI TestChain TestChain TestIO
 
 
 runStep :: Maybe (ChainNotarisation TestChain)
         -> Maybe (ChainNotarisationReceipt TestChain)
-        -> MonadView Bone (Skeleton Bone) a -> TestBase (Skeleton Bone a)
+        -> MonadView Bone (Skeleton Bone) a -> TestIO (Skeleton Bone a)
 runStep mdest msource =
   \case
     GetLastNotarisation             :>>= f -> pure $ f mdest
@@ -72,13 +66,13 @@ runStep mdest msource =
 
 members' = Address . newFixed <$> [1..42]
 nc = NotariserConfig members' (error "threhsold") (error "timeout") (error "proposerRoundRobin") (TestChain "SRC") (TestChain "DEST")
-go :: (MonadView Bone (Skeleton Bone) () -> TestBase (Skeleton Bone ())) -> TestBase ()
+go :: (MonadView Bone (Skeleton Bone) () -> TestIO (Skeleton Bone ())) -> TestIO ()
 go f = inner $ debone $ notariserSyncFree nc
   where
     inner (Return ()) = pure ()
     inner o = f o >>= inner . debone
 
-next :: Skeleton Bone a -> TestBase (MonadView Bone (Skeleton Bone) a)
+next :: Skeleton Bone a -> TestIO (MonadView Bone (Skeleton Bone) a)
 next skel =
   case debone skel of
     NotariserSyncLift act :>>= f -> act >>= next . f
@@ -88,52 +82,52 @@ next skel =
 test_notariser_step :: TestTree
 test_notariser_step = testGroup "notarises"
   [
-    testCase "forward when there are no notarisations" do
+    testIOCase "forward when there are no notarisations" do
 
       GetLastNotarisation :>>= f <- next $ notariserSyncFree nc
       WaitNextSourceHeight nextHeight :>>= f <- next $ f Nothing
-      nextHeight `shouldBe` 0
+      nextHeight @?= 0
       RunNotarise h Nothing :>>= f <- next $ f $ Just 20
-      h `shouldBe` 20
+      h @?= 20
       Return () <- next $ f ()
       pure ()
 
-  , testCase "backward when there is no receipt" do
+  , testIOCase "backward when there is no receipt" do
       go \case
         RunNotariseReceipt thisHeight ndata :>>= f -> do
-          liftIO $ ndata `shouldBe` (1 :: Word32)
+          liftIO $ ndata @?= (1 :: Word32)
           pure $ f ()
         o -> runStep (Just 1) Nothing o
 
-  , testCase "backward when there is a lower receipt" do
+  , testIOCase "backward when there is a lower receipt" do
       go \case
         RunNotariseReceipt thisHeight ndata :>>= f -> do
-          ndata `shouldBe` 75
+          ndata @?= 75
           pure $ f ()
         o -> runStep (Just 75) (Just (74, 0)) o
         
-  , testCase "forward when there is an equal receipt" do
+  , testIOCase "forward when there is an equal receipt" do
       go \case
         WaitNextSourceHeight nextHeight :>>= f -> do
-          nextHeight `shouldBe` 75
+          nextHeight @?= 75
           pure $ f $ Just 80
         RunNotarise h (Just _) :>>= f -> do
-          h `shouldBe` 80
+          h @?= 80
           pure $ f ()
         o -> runStep (Just 75) (Just (75, 0)) o
 
-  , testCase "repeat when waited for source block" do
+  , testIOCase "repeat when waited for source block" do
       GetLastNotarisation :>>= f <- next $ notariserSyncFree nc
       WaitNextSourceHeight nextHeight :>>= f <- next $ f Nothing
-      nextHeight `shouldBe` 0
+      nextHeight @?= 0
       GetLastNotarisation :>>= f <- next $ f Nothing
       pure ()
 
-  , testCase "repeat when waited for dest block" do
+  , testIOCase "repeat when waited for dest block" do
       GetLastNotarisation :>>= f <- next $ notariserSyncFree nc
       GetLastNotarisationReceipt :>>= f <- next $ f (Just 10)
       WaitNextDestHeight nextHeight :>>= f <- next $ f (Just (1, 1))
-      nextHeight `shouldBe` 1
+      nextHeight @?= 1
       GetLastNotarisation :>>= f <- next $ f Nothing
       pure ()
   ]

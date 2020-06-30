@@ -1,3 +1,4 @@
+{-# LANGUAGE UndecidableInstances #-}
 
 module Zeno.Process.Remote where
 
@@ -27,12 +28,28 @@ import Zeno.Process.Types
 import Zeno.Prelude hiding (finally)
 
 
-sendRemote :: (Serialize a, Has Node r) => NodeId -> CapabilityId -> a -> Zeno r ()
-sendRemote nodeId capid msg = do
-  let payload = encodeLazy (capid, msg)
-  BSL.length payload `seq`                       -- `seq` avoids holding thunk longer than neccesary
+sendRemote :: (Serialize a, HasNode m) => NodeId -> CapabilityId -> a -> m ()
+sendRemote nodeId capid obj = do
+  let payload = encodeLazy (capid, obj)
+  BSL.length payload `seq`             -- `seq` avoids holding thunk longer than neccesary
+    sendRemoteBS nodeId capid payload
+
+instance Has Node r => HasNode (Zeno r) where
+  type HandlerMonad (Zeno r) = IO
+  sendRemoteBS nodeId capid bs = do
     withRemoteForwarder nodeId \(chan, _) -> do
-      writeTQueue chan payload
+      writeTQueue chan bs
+
+  registerCapability capid handler = do
+    node@Node{..} <- asks has
+    void $
+      allocate
+        do atomically do
+            STM.lookup capid capabilities >>=
+               \case
+                 Nothing -> STM.insert handler capid capabilities
+                 Just _ -> error $ "Capability registered: %s" % show capid
+        (\_ -> atomically $ STM.delete capid capabilities)
 
 
 monitorRemote :: Has Node r => NodeId -> Zeno r () -> Zeno r ()
@@ -109,19 +126,6 @@ runForwarder nodeId@NodeId{..} chan = do
   logTerminated :: SomeException -> Zeno r ()
   logTerminated e = do
     logInfo $ "Forwarder thread died with: %s" % show e
-
-
-registerCapability :: Has Node r => Word8 -> (RemoteMessage BSL.ByteString -> IO ()) -> Zeno r ()
-registerCapability capid handler = do
-  node@Node{..} <- asks has
-  void $
-    allocate
-      do atomically do
-          STM.lookup capid capabilities >>=
-             \case
-               Nothing -> STM.insert handler capid capabilities
-               Just _ -> error $ "Capability registered: %s" % show capid
-      (\_ -> atomically $ STM.delete capid capabilities)
 
 
 withRemoteMessage :: (Monad m, Serialize a) => (NodeId -> a -> m ()) -> RemoteMessage LazyByteString -> m ()

@@ -64,12 +64,6 @@ send proc i = atomically $ sendSTM proc i
 sendSTM :: AsyncProcess i b -> i -> STM ()
 sendSTM Process{..} = writeTBQueue procMbox
 
-request :: MonadIO m => AsyncProcess i b -> (MVar o -> i) -> m o
-request proc f = do
-  m <- newEmptyMVar
-  send proc $ f m
-  takeMVar m
-
 receiveWait :: (HasReceive r i, MonadIO m) => r -> m i
 receiveWait = atomically . receiveSTM
 

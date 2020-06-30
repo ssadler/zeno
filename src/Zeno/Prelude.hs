@@ -9,6 +9,7 @@ module Zeno.Prelude
   , LazyByteString
   , (%)
   , PercentFormat(..)
+  , decodeLazyState
   , expandPath
   , fix1
   , fix2
@@ -51,6 +52,7 @@ import Data.Maybe as ALL
 import Data.Monoid as ALL
 import Data.Set as ALL (Set)
 import Data.Serialize as ALL (Serialize)
+import qualified Data.Serialize as S
 import Data.String.Conv as ALL
 import Data.String as ALL (IsString, fromString)
 import Data.Text as ALL (Text)
@@ -59,7 +61,7 @@ import Data.Time.Clock as ALL (UTCTime, getCurrentTime, diffUTCTime)
 import Data.Word as ALL (Word8, Word16, Word32, Word64)
 import Data.Void as ALL
 
-import Lens.Micro.Platform as ALL hiding ((.=), has)
+import Lens.Micro.Platform as ALL hiding (has)
 import UnliftIO
 import UnliftIO.Concurrent as ALL (threadDelay, forkIO)
 import UnliftIO.Exception as ALL
@@ -150,3 +152,6 @@ unconsMap :: Map k a -> Maybe ((k, a), Map k a)
 unconsMap m
   | Map.null m = Nothing
   | otherwise = Just $ Map.deleteFindMin m
+
+decodeLazyState :: Serialize a => BSL.ByteString -> Either String (a, BSL.ByteString)
+decodeLazyState = S.runGetLazyState S.get

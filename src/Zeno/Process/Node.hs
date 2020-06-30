@@ -155,7 +155,7 @@ renderIp ip = "%i.%i.%i.%i" % hostAddressToTuple ip
 handleMessage :: Node -> NodeId -> LazyByteString -> Zeno () ()
 handleMessage _ _ "" = pure ()
 handleMessage Node{..} nodeId bs = do
-  let capid = BSL.head bs
+  let capid = CapabilityId $ BSL.head bs
   atomically (STM.lookup capid capabilities) >>=
     \case
       Nothing -> pure ()

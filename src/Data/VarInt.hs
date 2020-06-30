@@ -15,7 +15,7 @@ import qualified Haskoin as H
 
 
 newtype VarInt = VarInt { unVarInt :: Word64 }
-  deriving (Eq, Ord, Num, ToJSON, FromJSON, PrintfArg)
+  deriving (Eq, Ord, Num, ToJSON, FromJSON, PrintfArg, Enum, Real, Integral)
   deriving Serialize via H.VarInt
   deriving Show via Word64
 

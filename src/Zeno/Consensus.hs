@@ -2,17 +2,18 @@
 module Zeno.Consensus
   ( module Zeno.Consensus.Types
   , Address
-  , startSeedNode
-  , withConsensusNode
-  , runConsensus
-  , step
-  , stepOptData
   , collectMajority
-  , collectThreshold
   , collectMember
   , collectMembers
+  , collectThreshold
   , collectWith
   , majorityThreshold
+  , runConsensus
+  , startSeedNode
+  , step
+  , stepOptData
+  , withConsensusNode
+  , withConsensusRunnerContext
   ) where
 
 import qualified Data.ByteString as BS
@@ -32,15 +33,19 @@ import Zeno.Console
 
 -- Node -----------------------------------------------------------------------
 
-withConsensusNode :: ConsensusNetworkConfig -> Zeno ConsensusNode a -> Zeno () a
-withConsensusNode CNC{..} act = do
+withConsensusNode :: ConsensusNetworkConfig -> Zeno (ConsensusNode ZenoRunnerBase) a -> Zeno () a
+withConsensusNode netconf act = do
+  withConsensusRunnerContext netconf do
+    runner <- startConsensusRunner
+    withContext (\(node, p2p) -> ConsensusNode node p2p runner) act
+
+withConsensusRunnerContext :: ConsensusNetworkConfig -> Zeno (Node, PeerState) a -> Zeno () a
+withConsensusRunnerContext CNC{..} act = do
   withNode netConf do
     p2p <- startP2P seeds
     node <- ask
     let runnerCtx = (node, p2p)
-    runner <- withContext (const runnerCtx) startConsensusRunner
-    let ctx = ConsensusNode node p2p runner
-    withContext (const ctx) act
+    withContext (const runnerCtx) act
 
 
 startSeedNode :: NetworkConfig -> ConsoleArgs -> IO ()

@@ -1,9 +1,10 @@
 {-# LANGUAGE KindSignatures #-}
+{-# LANGUAGE UndecidableInstances #-}
 
 module Zeno.Consensus.P2P
-  ( startP2P
+  ( HasP2P(..)
+  , startP2P
   , PeerState
-  , getPeers
   , getMyIpFromICanHazIp
   , sendPeers
   , registerOnNewPeer
@@ -52,15 +53,17 @@ data PeerNotifier = PeerNotifier
   }
 
 
-
 -- * Peer-to-peer API
 
-getPeers :: Has PeerState r => Zeno r [NodeId]
-getPeers = do
-  PeerState{..} <- asks has
-  Set.toList <$> readTVarIO p2pPeers
+class (Monad m, HasNode m) => HasP2P m where
+  getPeers :: m [NodeId]
 
-sendPeers :: (Has PeerState r, Has Node r, Serialize o) => CapabilityId -> o -> Zeno r ()
+instance (HasNode (Zeno r), Has PeerState r) => HasP2P (Zeno r) where
+  getPeers = do
+    PeerState{..} <- asks has
+    Set.toList <$> readTVarIO p2pPeers
+
+sendPeers :: (HasP2P m, Serialize o) => CapabilityId -> o -> m ()
 sendPeers capid msg = do
   peers <- getPeers
   forM_ peers $ \peer -> sendRemote peer capid msg

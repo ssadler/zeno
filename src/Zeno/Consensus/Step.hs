@@ -3,9 +3,10 @@
 module Zeno.Consensus.Step where
 
 -- This module deals with exchanging messages and building inventory.
--- The entry point is `runStep`. Each step has a topic, and each member
--- will provide an input. Messages are exhanged until all participants
--- have a full inventory or the step is cancelled.
+-- The entry point is `runStepSkel`. Each step has a number and is
+-- associated with a round that has a unique ID.
+-- Input is optional, messages are continually exchanged and each
+-- time the local inventory is modified it is yielded to a listener.
 
 import           Control.DeepSeq
 import           Control.Monad
@@ -40,8 +41,7 @@ data Step i = Step
   { ioInv      :: IORef (PackedInteger, Inventory i)
   , members    :: [Address]
   , membersSet :: Set Address
-  , roundId    :: RoundId
-  , stepNum    :: StepNum
+  , stepId     :: StepId
   , ident      :: EthIdent
   , yield      :: Inventory i -> IO ()
   }
@@ -50,14 +50,13 @@ type StepBase m = (MonadLogger m, MonadIO m)
 
 
 createStep :: (BallotData i, StepBase m)
-           => ConsensusParams -> Step i -> Maybe i -> ConsensusStep m Void
-createStep cparams step@Step{..} = runStepSkel step . fmap signObj
-  where
-  signObj obj =
-    let ConsensusParams{ident' = EthIdent sk myAddr, ..} = cparams
+           => Step i -> Maybe i -> ConsensusStep m Void
+createStep step@Step{..} =
+  runStepSkel step . fmap \obj ->
+    let EthIdent sk addr = ident
         sighash = getBallotSighash obj
         mySig = unsafePerformIO $ signIO sk sighash
-     in Ballot myAddr mySig obj
+     in Ballot addr mySig obj
 
 
 runStepSkel :: (BallotData i, StepBase m) => Step i -> Maybe (Ballot i) -> ConsensusStep m Void
@@ -78,7 +77,7 @@ buildInventoryLoop step@Step{..} = do
             sendInventoryQueries step $ Map.toList idxs
             bone $ RegisterTickFree inventoryQueryInterval
           StepData msg -> msg &
-            decodeAuthenticated step
+            withDecodeAuthenticated step
                \peer (StepMessage theirIdx theirReq theirData) -> do
                  onInventoryData step False theirData
                  onInventoryRequest step peer theirReq
@@ -162,33 +161,41 @@ getBallotSighash obj = do
     Just b -> b
     Nothing -> sha3b $ encode obj
 
-getMessageSigHash :: BallotData i => Step i -> (Maybe StepNum, StepMessage i) -> Bytes32
-getMessageSigHash Step{..} obj = sha3b $ encode (roundId, stepNum, obj)
+getMessageSigHash :: BallotData i => Step i -> StepMessage i -> Bytes32
+getMessageSigHash Step{..} obj = sha3b $ encode (stepId, obj)
 
-sendAuthenticated :: (BallotData i, StepBase m)
-                  => Step i -> [NodeId] -> StepMessage i -> ConsensusStep m ()
+sendAuthenticated
+  :: (BallotData i, StepBase m)
+  => Step i -> [NodeId] -> StepMessage i -> ConsensusStep m ()
 sendAuthenticated Step{..} peers obj = do
   let EthIdent{..} = ident
-  let payload = (Just stepNum, obj)
-  let sighash = getMessageSigHash Step{..} payload
+  let sighash = getMessageSigHash Step{..} obj
   sig <- signIO ethSecKey sighash
   forM_ peers $ \peer -> do
-    bone $ SendRemoteFree peer (sig, payload)
+    bone $ SendRemoteFree peer $ encodeLazy (sig, obj)
 
 
 -- TODO: Track who sends bad data
-decodeAuthenticated
+withDecodeAuthenticated
   :: (BallotData i, StepBase m)
   => Step i -> (NodeId -> StepMessage i -> ConsensusStep m ())
   -> RemoteMessage LazyByteString -> ConsensusStep m ()
-decodeAuthenticated step@Step{..} act (RemoteMessage nodeId bs) = do
-  forM_ (decodeLazy bs) \wsm -> do
-    let WrappedStepMessage theirSig sn obj = wsm
-    let sighash = getMessageSigHash step (sn, obj)
-    addr <- recoverAddr sighash theirSig
-    if elem addr members
-       then act nodeId obj
-       else logWarn $ "Not member or wrong step: " ++ show addr
+withDecodeAuthenticated step@Step{..} act msg = do
+  let RemoteMessage nodeId _ = msg
+  either logWarn (act nodeId) $ decodeAuthenticated step msg
+
+decodeAuthenticated
+  :: BallotData i
+  => Step i -> RemoteMessage LazyByteString -> Either String (StepMessage i)
+decodeAuthenticated step@Step{..} (RemoteMessage nodeId bs) = do
+  case decodeLazy bs of
+    Right (theirSig, obj) -> do
+      let sighash = getMessageSigHash step obj
+          addr = unsafePerformIO $ recoverAddr sighash theirSig
+      if elem addr members
+         then Right obj
+         else Left $ "Not member or wrong step from: " ++ show nodeId
+    Left e -> Left $ "Could not decode message from: " ++ show nodeId
 
 --------------------------------------------------------------------------------
 -- | Pure functions for inventory building

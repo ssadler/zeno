@@ -15,8 +15,6 @@ import qualified Data.ByteString.Char8 as BS8
 import qualified Data.Text as T
 import qualified Data.Set as Set
 
-import Lens.Micro.Platform
-
 import System.Console.ANSI.Codes
 import System.Console.ANSI
 import System.IO (hPutStr)

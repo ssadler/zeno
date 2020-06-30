@@ -1,3 +1,4 @@
+{-# LANGUAGE RankNTypes #-}
 
 module Zeno.Consensus.Runner where
 
@@ -8,10 +9,8 @@ import Control.Monad.STM (orElse)
 
 import Data.IntMap.Strict as IntMap
 import qualified Data.Map as Map
-import Data.Serialize (encode, decodeLazy)
+import Data.Serialize (encode, encodeLazy, decodeLazy, runGetLazyState)
 import Data.Time.Clock.POSIX
-
-import Lens.Micro.Platform ((.=))
 
 import Network.Ethereum (EthIdent(..), sha3b)
 
@@ -29,23 +28,27 @@ import Zeno.Process
 consensusCapId :: CapabilityId
 consensusCapId = 2
 
-type Runner = StateT RunnerState ConsensusRunnerBase
-type RoundsMap = Map RoundId [Resume]
-type RunnerState = (RoundsMap, Map POSIXTime RunnerAction, MissCache)
-type Resume = StepInput -> ConsensusStep ConsensusRunnerBase Void
-newtype RunnerAction = RunnerAction (Runner ())
+type Runner m = StateT (RunnerState m) m
+type RoundsMap m = Map RoundId [Resume m]
+type RunnerState m = (RoundsMap m, Map POSIXTime (RunnerAction m), MissCache)
+type Resume m = StepInput -> ConsensusStep m Void
+newtype RunnerAction m = RunnerAction (Runner m ())
 type MissCache = IntMap.IntMap ((RoundId, Int), RemoteMessage LazyByteString)
+type RunnerBase m = (Monad m, HasP2P m, MonadIO m, MonadLogger m)
 
-startConsensusRunner :: Zeno (Node, PeerState) ConsensusRunner
+emptyRunnerState :: RunnerState m
+emptyRunnerState = (mempty, mempty, mempty)
+
+startConsensusRunner :: Zeno (Node, PeerState) (ConsensusRunner ZenoRunnerBase)
 startConsensusRunner = do
   spawn "Consensus manager" \chan -> do
     registerCapability 2 $ send chan . PeerMessage
     registerOnNewPeer $ send chan . NewPeer
     liftIO $ installHandler sigUSR2 (Catch $ send chan DumpStatus) Nothing
-    void $ runStateT (forever $ stepConsensusEvent chan) (mempty, mempty, mempty)
+    void $ runStateT (forever $ stepConsensusEvent chan) emptyRunnerState
 
 
-stepConsensusEvent :: Process ConsensusControlMsg -> Runner ()
+stepConsensusEvent :: Process (ConsensusControlMsg ZenoRunnerBase) -> Runner ZenoRunnerBase ()
 stepConsensusEvent recv = do
   delays <- use _2
   case unconsMap delays of
@@ -66,7 +69,7 @@ stepConsensusEvent recv = do
                     pure doTimeout
 
 
-handleEvent :: ConsensusControlMsg -> Runner ()
+handleEvent :: RunnerBase m => ConsensusControlMsg m -> Runner m ()
 handleEvent =
   \case
     NewPeer nodeId -> do
@@ -74,7 +77,7 @@ handleEvent =
 
     GetRoundSize roundId reply -> do
       l <- use $ _1 . at roundId . to (maybe 0 length)
-      putMVar reply l
+      lift $ reply l
 
     NewStep roundId skel -> do
       before <- use $ _1 . ix roundId
@@ -83,60 +86,63 @@ handleEvent =
       let inputs = StepData . snd <$> hits
       let addCachedInputs r = foldM (\r -> execToWait roundId stepId . r) r inputs
       resume <- execToWait roundId stepId skel >>= addCachedInputs
-      _1 . ix roundId .= (before ++ [resume])
+      _1 . at roundId .= Just (before ++ [resume])
 
     PeerMessage rm@(RemoteMessage nodeId bs) -> do
-      case decodeLazy bs of
-        Right (roundId, stepId, msg) -> do
+      case decodeLazyState bs of
+        Right (StepId roundId stepIdVar, msg) -> do
+          let stepId = fromIntegral stepIdVar
           steps <- use $ _1 . ix roundId
           case steps ^? ix stepId of
             Just _ -> do
               advanceOne roundId stepId $ StepData $ RemoteMessage nodeId msg
             Nothing -> do
               _3 %= receiveCachePut ((roundId, stepId), rm)
-        Left _ -> pure ()  -- TODO: handle this
+        Left s -> traceM s -- TODO: handle this
 
     ReleaseRound roundId -> do
       t <- liftIO getPOSIXTime <&> (+60)
       _2 %= Map.insert t (RunnerAction $ _1 . at roundId .= Nothing)
 
     DumpStatus -> do
-      logInfo "Got signal USR2"
+      let log = logInfo
+      log "Got signal USR2"
       (rounds, delays, rmcache) <- get
-      logInfo $ "%i rounds, %i delays, %i cached misses" % (length rounds, length delays, length rmcache)
-      logInfo "Rounds:"
+      log $ "%i rounds, %i delays, %i cached misses" % (length rounds, length delays, length rmcache)
       forM_ (Map.toList rounds) \(roundId, steps) -> do
-        logInfo $ "%s: %i steps" % (show roundId, length steps)
+        log $ "%s: %i steps" % (show roundId, length steps)
 
 
-execToWait :: RoundId -> Int -> ConsensusStep ConsensusRunnerBase Void -> Runner Resume
+execToWait :: RunnerBase m => RoundId -> Int -> ConsensusStep m Void -> Runner m (Resume m)
 execToWait roundId stepId =
   fix \go op -> do
     case debone op of
       Return a                         -> absurd a
       ReceiveFree               :>>= f -> pure f
       GetPeersFree              :>>= f -> lift getPeers >>= go . f
-      SendRemoteFree nid a      :>>= f -> lift (sendRemote nid consensusCapId a) >>= go . f
       ConsensusStepLift act     :>>= f -> lift act >>= go . f
+      SendRemoteFree nid bs     :>>= f -> go . f =<< lift do
+        let msg = encodeLazy (StepId roundId (fromIntegral stepId)) <> bs
+        sendRemoteBS nid consensusCapId msg
       RegisterTickFree us       :>>= f -> do
         now <- liftIO getPOSIXTime
         let timeout = now + realToFrac us / 1000000
         _2 %= Map.insert timeout (RunnerAction $ advanceOne roundId stepId StepTick)
         go $ f ()
 
-advanceOne :: RoundId -> Int -> StepInput -> Runner ()
+advanceOne :: RunnerBase m => RoundId -> Int -> StepInput -> Runner m ()
 advanceOne roundId stepId msg = do
   updateRounds $
     traverseOf (ix roundId . ix stepId) (execToWait roundId stepId . ($ msg))
 
-advanceAll :: StepInput -> Runner ()
+advanceAll :: RunnerBase m => StepInput -> Runner m ()
 advanceAll msg = do
   updateRounds $
     Map.traverseWithKey \roundId steps -> do
       forM (zip [0..] steps) \(stepId, f) -> do
         execToWait roundId stepId $ f msg
 
-updateRounds :: (RoundsMap -> Runner RoundsMap) -> Runner ()
+updateRounds :: RunnerBase m => (RoundsMap m -> Runner m (RoundsMap m)) -> Runner m ()
 updateRounds f = do
   use _1 >>= f >>= assign _1
 

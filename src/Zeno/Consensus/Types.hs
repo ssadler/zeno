@@ -25,33 +25,14 @@ import           Zeno.Consensus.P2P
 
 -- TODO: Clean all this up and organise into sections.
 
-
-data StepNum = StepNum
-  { stRound  :: VarInt
-  , stMajor  :: VarInt
-  , stMinor  :: VarInt
-  } deriving (Show, Generic)
-
-instance Serialize StepNum
-
-instance ToJSON StepNum where
-  toJSON (StepNum a b c) = toJSON (a, b, c)
-
-instance FromJSON StepNum where
-  parseJSON val = do
-    (a, b, c) <- parseJSON val
-    pure $ StepNum a b c
-
-makeLensesWith abbreviatedFields ''StepNum
-
-data ConsensusNode = ConsensusNode
+data ConsensusNode m = ConsensusNode
   { cpNode :: Node
   , cpPeers :: PeerState
-  , cpRunner :: ConsensusRunner
+  , cpRunner :: ConsensusRunner m
   }
-instance Has Node ConsensusNode where has = cpNode 
-instance Has PeerState ConsensusNode where has = cpPeers
-instance Has ConsensusRunner ConsensusNode where has = cpRunner
+instance Has Node (ConsensusNode m) where has = cpNode 
+instance Has PeerState (ConsensusNode m) where has = cpPeers
+instance Has (ConsensusRunner m) (ConsensusNode m) where has = cpRunner
 
 data Ballot a = Ballot
   { bMember :: Address
@@ -75,24 +56,26 @@ data StepMessage a = StepMessage
   { msgIndex   :: PackedInteger
   , msgRequest :: PackedInteger
   , msgInvData :: Inventory a
-  } deriving (Generic, Show)
+  } deriving (Eq, Generic, Show)
 
 instance Serialize a => Serialize (StepMessage a)
-data WrappedStepMessage i = WrappedStepMessage RecSig (Maybe StepNum) (StepMessage i)
-  deriving (Generic)
-instance Serialize i => Serialize (WrappedStepMessage i)
 
-type AuthenticatedStepMessage i = RemoteMessage (WrappedStepMessage i)
+data StepId = StepId
+  { stRoundId   :: RoundId
+  , stStepNum   :: VarInt
+  } deriving (Show, Generic)
+
+instance Serialize StepId
 
 -- Params ---------------------------------------------------------------------
 
 type Timeout = Int
 
 data ConsensusParams = ConsensusParams
-  { members'           :: [Address]
-  , ident'             :: EthIdent
-  , timeout'           :: Timeout
-  , roundTypeId        :: VarInt
+  { members'     :: [Address]
+  , ident'       :: EthIdent
+  , timeout'     :: Timeout
+  , roundTypeId  :: Word8
   }
 
 instance Has EthIdent ConsensusParams where has = ident'
@@ -123,7 +106,7 @@ data ConsensusStepI m x where
   ReceiveFree        :: ConsensusStepI m StepInput
   RegisterTickFree   :: Int -> ConsensusStepI m ()
   GetPeersFree       :: ConsensusStepI m [NodeId]
-  SendRemoteFree     :: BallotData a => NodeId -> a -> ConsensusStepI m ()
+  SendRemoteFree     :: NodeId -> LazyByteString -> ConsensusStepI m ()
   ConsensusStepLift  :: m a -> ConsensusStepI m a
 
 instance MonadIO m => MonadIO (ConsensusStep m) where
@@ -132,29 +115,37 @@ instance MonadIO m => MonadIO (ConsensusStep m) where
 instance MonadLogger m => MonadLogger (ConsensusStep m) where
   monadLoggerLog a b c d = bone $ ConsensusStepLift $ monadLoggerLog a b c d
 
-type RoundId = Bytes10
+type RoundId = Bytes11
 
-data ConsensusControlMsg
-  = NewStep RoundId (ConsensusStep (Zeno (Node, PeerState)) Void)
+data ConsensusControlMsg m
+  = NewStep RoundId (ConsensusStep m Void)
   | NewPeer NodeId
-  | GetRoundSize RoundId (MVar Int)
+  | GetRoundSize RoundId (Int -> m ())
   | PeerMessage (RemoteMessage LazyByteString)
   | ReleaseRound RoundId
   | DumpStatus
 
-type ConsensusRunner = Process ConsensusControlMsg
-type ConsensusRunnerBase = Zeno (Node, PeerState)
+type ConsensusRunner m = Process (ConsensusControlMsg m)
+type ZenoRunnerBase = Zeno (Node, PeerState)
 
-data RoundData = RoundData
-  { manager :: ConsensusRunner
-  , seed    :: Bytes32
+data RoundData m = RoundData
+  { manager :: ConsensusRunner m
   , params  :: ConsensusParams
-  , steps   :: [ConsensusStep ConsensusRunnerBase ()]
+  , seed    :: Bytes32
+  , roundId :: RoundId
   }
 
-instance Has ConsensusParams RoundData where has = params
+instance Has ConsensusParams (RoundData m) where has = params
 
-type Consensus m a = ReaderT RoundData m a
+type Consensus m a = ReaderT (RoundData (ConsensusBackend m)) m a
+
+class Monad m => ConsensusFrontend m where
+  type ConsensusBackend m :: * -> *
+
+instance ConsensusFrontend (Zeno r) where
+  type ConsensusBackend (Zeno r) = ZenoRunnerBase
+
+type ZenoConsensusNode = ConsensusNode ZenoRunnerBase
 
 data ConsensusTimeout = ConsensusTimeout deriving (Show)
 instance Exception ConsensusTimeout

@@ -29,7 +29,7 @@ data RoundType              -- Don't go changing this willy nilly
 
 data EthNotariser = EthNotariser
   { getKomodoConfig :: BitcoinConfig
-  , getNode :: ConsensusNode
+  , getNode :: ZenoConsensusNode
   , gethConfig :: GethConfig
   , getEthGateway :: Address
   , getSecret :: SecKey
@@ -37,11 +37,11 @@ data EthNotariser = EthNotariser
   , getKomodoIdent :: KomodoIdent
   }
 
-instance Has BitcoinConfig EthNotariser where has = getKomodoConfig
-instance Has ConsensusNode EthNotariser where has = getNode
-instance Has GethConfig    EthNotariser where has = gethConfig
-instance Has EthIdent      EthNotariser where has = getEthIdent
-instance Has KomodoIdent   EthNotariser where has = getKomodoIdent
+instance Has BitcoinConfig     EthNotariser where has = getKomodoConfig
+instance Has ZenoConsensusNode EthNotariser where has = getNode
+instance Has GethConfig        EthNotariser where has = gethConfig
+instance Has EthIdent          EthNotariser where has = getEthIdent
+instance Has KomodoIdent       EthNotariser where has = getKomodoIdent
 
 
 data AbstractNotariserConfig source dest = NotariserConfig

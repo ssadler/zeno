@@ -41,7 +41,7 @@ instance IsString NodeId where
 
 data Node = Node
   { myNodeId :: NodeId
-  , capabilities :: STM.Map Word8 (RemoteMessage BSL.ByteString -> IO ())
+  , capabilities :: STM.Map CapabilityId (RemoteMessage BSL.ByteString -> IO ())
   , mforwarders :: STM.Map NodeId Forwarder
   , mreceivers :: ReceiverMap IO
   }
@@ -57,11 +57,11 @@ type RemoteReceiver i = Receiver (RemoteMessage i)
 data RemoteMessage i = RemoteMessage
   { remoteNodeId :: NodeId
   , remoteMessage :: i
-  } deriving (Typeable)
+  } deriving (Functor, Show, Typeable)
 
 
 newtype CapabilityId = CapabilityId Word8
-  deriving (Show, Eq, Ord, Num, Serialize)
+  deriving (Show, Eq, Ord, Num, Serialize, Hashable)
 
 type Process i = AsyncProcess i ()
 
@@ -96,3 +96,9 @@ data NetworkConfig = NetworkConfig
   { hostPref :: HostPreference
   , port :: Word16
   } deriving (Show)
+
+
+class Monad m => HasNode m where
+  type HandlerMonad m :: * -> *
+  sendRemoteBS :: NodeId -> CapabilityId -> BSL.ByteString -> m ()
+  registerCapability :: CapabilityId -> (RemoteMessage BSL.ByteString -> (HandlerMonad m) ()) -> m ()

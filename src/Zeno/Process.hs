@@ -3,6 +3,7 @@ module Zeno.Process
   ( AsyncProcess(..)
   , CapabilityId
   , HasReceive(..)
+  , HasNode(..)
   , Receiver
   , RemoteReceiver
   , RemoteMessage(..)
@@ -16,8 +17,6 @@ module Zeno.Process
   , receiveMaybe
   , receiveTimeout
   , receiveWait
-  , registerCapability
-  , request
   , send
   , sendSTM
   , sendRemote
