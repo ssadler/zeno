@@ -55,7 +55,7 @@ createStep step@Step{..} =
   runStepSkel step . fmap \obj ->
     let EthIdent sk addr = ident
         sighash = getBallotSighash obj
-        mySig = unsafePerformIO $ signIO sk sighash
+        mySig = sign sk sighash
      in Ballot addr mySig obj
 
 
@@ -130,10 +130,10 @@ mergeInventory membersSet ours theirs = do
     let sighash = getBallotSighash val
     when (Set.notMember addr membersSet) do
       throwError "Got ballot data for non member"
-    let r = unsafePerformIO $ recoverAddr sighash sig
-    when (r /= addr) do
-      throwError "Got ballot data with invalid signature"
-    pure (sig, val)
+    case recoverAddr sighash sig of
+      Right r | r == addr -> pure (sig, val)
+      Right r -> throwError "Got ballot data with invalid signature"
+      Left e -> throwError $ "Could not recover pubkey: " ++ show e
     
   -- We shouldn't be receiving data that we already have for a key, ever, ideally.
   -- If anything, maybe we should flag the sender.
@@ -170,7 +170,7 @@ sendAuthenticated
 sendAuthenticated Step{..} peers obj = do
   let EthIdent{..} = ident
   let sighash = getMessageSigHash Step{..} obj
-  sig <- signIO ethSecKey sighash
+  let sig = sign ethSecKey sighash
   forM_ peers $ \peer -> do
     bone $ SendRemoteFree peer $ encodeLazy (sig, obj)
 
@@ -191,10 +191,10 @@ decodeAuthenticated step@Step{..} (RemoteMessage nodeId bs) = do
   case decodeLazy bs of
     Right (theirSig, obj) -> do
       let sighash = getMessageSigHash step obj
-          addr = unsafePerformIO $ recoverAddr sighash theirSig
-      if elem addr members
-         then Right obj
-         else Left $ "Not member or wrong step from: " ++ show nodeId
+      case recoverAddr sighash theirSig of
+        Right addr | elem addr members -> Right obj
+        Right addr -> Left $ "Not member or wrong step from: " ++ show nodeId
+        Left e -> Left $ "Could not recover pubkey from: %s: %s" % (show nodeId, e)
     Left e -> Left $ "Could not decode message from: " ++ show nodeId
 
 --------------------------------------------------------------------------------

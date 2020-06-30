@@ -25,12 +25,14 @@ import Zeno.Prelude
 import Zeno.Process
 
 
-consensusCapId :: CapabilityId
-consensusCapId = 2
+consensusCap :: CapabilityId
+consensusCap = 2
 
 type Runner m = StateT (RunnerState m) m
 type RoundsMap m = Map RoundId [Resume m]
 type RunnerState m = (RoundsMap m, Map POSIXTime (RunnerAction m), MissCache)
+_missCache :: Lens' (RunnerState m) MissCache
+_missCache = _3
 type Resume m = StepInput -> ConsensusStep m Void
 newtype RunnerAction m = RunnerAction (Runner m ())
 type MissCache = IntMap.IntMap ((RoundId, Int), RemoteMessage LazyByteString)
@@ -42,7 +44,7 @@ emptyRunnerState = (mempty, mempty, mempty)
 startConsensusRunner :: Zeno (Node, PeerState) (ConsensusRunner ZenoRunnerBase)
 startConsensusRunner = do
   spawn "Consensus manager" \chan -> do
-    registerCapability 2 $ send chan . PeerMessage
+    registerCapability consensusCap $ send chan . PeerMessage
     registerOnNewPeer $ send chan . NewPeer
     liftIO $ installHandler sigUSR2 (Catch $ send chan DumpStatus) Nothing
     void $ runStateT (forever $ stepConsensusEvent chan) emptyRunnerState
@@ -79,29 +81,36 @@ handleEvent =
       l <- use $ _1 . at roundId . to (maybe 0 length)
       lift $ reply l
 
+    -- TODO: there is a problem here, in the case of re-starting a round, it will append more
+    -- steps and step numbers will be totally wrong. Fix: On exceptional exit of round, it
+    -- should be cleared immediately, and there should be round registration so that if a
+    -- round repeats for any reason, it gets blocked.
     NewStep roundId skel -> do
       before <- use $ _1 . ix roundId
       let stepId = length before
-      hits <- zoom _3 $ state $ receiveCacheTake ((== (roundId, stepId)) . fst)
-      let inputs = StepData . snd <$> hits
-      let addCachedInputs r = foldM (\r -> execToWait roundId stepId . r) r inputs
+      let addCachedInputs r = do
+            hits <- zoom _missCache $ state $ receiveCacheTake ((== (roundId, stepId)) . fst)
+            let inputs = StepData . snd <$> hits
+            foldM (\r -> execToWait roundId stepId . r) r inputs
       resume <- execToWait roundId stepId skel >>= addCachedInputs
       _1 . at roundId .= Just (before ++ [resume])
 
-    PeerMessage rm@(RemoteMessage nodeId bs) -> do
+    PeerMessage (RemoteMessage nodeId bs) -> do
       case decodeLazyState bs of
         Right (StepId roundId stepIdVar, msg) -> do
+          let rm = RemoteMessage nodeId msg
           let stepId = fromIntegral stepIdVar
           steps <- use $ _1 . ix roundId
           case steps ^? ix stepId of
             Just _ -> do
-              advanceOne roundId stepId $ StepData $ RemoteMessage nodeId msg
+              advanceOne roundId stepId $ StepData rm
             Nothing -> do
-              _3 %= receiveCachePut ((roundId, stepId), rm)
+              _missCache %= receiveCachePut ((roundId, stepId), rm)
         Left s -> traceM s -- TODO: handle this
 
-    ReleaseRound roundId -> do
-      t <- liftIO getPOSIXTime <&> (+60)
+    ReleaseRound    0 roundId ->  _1 . at roundId .= Nothing
+    ReleaseRound secs roundId -> do
+      t <- liftIO getPOSIXTime <&> (+fromIntegral secs)
       _2 %= Map.insert t (RunnerAction $ _1 . at roundId .= Nothing)
 
     DumpStatus -> do
@@ -123,7 +132,7 @@ execToWait roundId stepId =
       ConsensusStepLift act     :>>= f -> lift act >>= go . f
       SendRemoteFree nid bs     :>>= f -> go . f =<< lift do
         let msg = encodeLazy (StepId roundId (fromIntegral stepId)) <> bs
-        sendRemoteBS nid consensusCapId msg
+        sendRemoteBS nid consensusCap msg
       RegisterTickFree us       :>>= f -> do
         now <- liftIO getPOSIXTime
         let timeout = now + realToFrac us / 1000000

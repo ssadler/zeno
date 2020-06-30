@@ -23,15 +23,15 @@ fromPubMethod = runFromPub <$> strArgument ( metavar "PUB" )
 
 runFromSec :: SecKey -> IO ()
 runFromSec sk = do
-  pk <- derivePubKeyIO sk
+  let pk = derivePubKey sk
   putStrLn $ printf "SecKey:    %s" (stripQuotes $ show sk)
   putStrLn $ printf "PubKey:    %s" (stripQuotes $ show pk)
   runFromPub pk
 
 runFromPub :: PubKey -> IO ()
 runFromPub pk = do
-  kmdAddress <- deriveKomodoAddress pk
-  ethAddress <- deriveEthAddress pk
+  let kmdAddress = deriveKomodoAddress pk
+  let ethAddress = deriveEthAddress pk
   putStrLn $ printf "KMD addr:  %s" (show kmdAddress)
   putStrLn $ printf "ETH addr:  %s" (show ethAddress)
 

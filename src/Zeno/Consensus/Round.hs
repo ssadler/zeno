@@ -41,9 +41,11 @@ runConsensus label params@ConsensusParams{..} seedData act = do
   logInfo $ "Starting: " ++ roundName
   sendUI $ UI_Process $ Just $ UIRound label roundId
   let round = RoundData manager params seed roundId
-  finally
-    do runReaderT act round
-    do send manager $ ReleaseRound roundId
+  onException
+    do runReaderT act round <*
+         send manager (ReleaseRound 60 roundId)
+    do send manager (ReleaseRound 0 roundId)
+
 
 
 -- Round Steps ----------------------------------------------------------------
@@ -77,7 +79,9 @@ stepOptData label i collect = do
 
   let step = Step invRef members' (Set.fromList members') stepId ident yield
   send manager $ NewStep roundId $ createStep step i
-  collect recv <* takeMVar wrapper
+  withException
+    do collect recv <* takeMVar wrapper
+    \ConsensusTimeout -> logInfo "Timeout"
 
 
 -- Check Majority -------------------------------------------------------------

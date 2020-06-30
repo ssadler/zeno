@@ -14,7 +14,7 @@ import Zeno.Prelude
 
 unit_merge_inventory :: IO ()
 unit_merge_inventory = do
-  sig <- signIO sk (minBound :: Bytes32)
+  let sig = sign sk (minBound :: Bytes32)
   let theirs = Map.fromList [(minBound, (sig, ())), (maxBound, (sig, ()))]
 
   let r = mergeInventory mempty mempty theirs

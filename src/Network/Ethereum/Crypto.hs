@@ -38,15 +38,15 @@ data EthIdent = EthIdent
   , ethAddress :: Address
   } deriving (Show)
 
-deriveEthIdent :: MonadIO m => SecKey -> m EthIdent
-deriveEthIdent sk = EthIdent sk <$> (deriveEthAddress =<< derivePubKeyIO sk)
+deriveEthIdent :: SecKey -> EthIdent
+deriveEthIdent sk = EthIdent sk $ deriveEthAddress $ derivePubKey sk
 
-deriveEthAddress :: MonadIO m => PubKey -> m Address
-deriveEthAddress pk = Address . toFixedR . sha3' . BS.drop 1 <$> exportPubKeyIO False pk
+deriveEthAddress :: PubKey -> Address
+deriveEthAddress pk = Address . toFixedR . sha3' . BS.drop 1 $ exportPubKey False pk
 
-recoverAddr :: (MonadIO m, Fixed 32 s) => s -> RecSig -> m Address
+recoverAddr :: Fixed 32 s => s -> RecSig -> Either String Address
 recoverAddr bs crs = do
-  recoverIO crs bs >>= deriveEthAddress
+  recover crs bs <&> deriveEthAddress
 
 
 

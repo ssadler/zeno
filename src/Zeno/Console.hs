@@ -95,7 +95,7 @@ runConsoleUI proc = do
       forever $ atomically (receiveSTM proc) >>= go
 
   where
-  handle = stderr
+  handle = stdout
   go :: ConsoleCtrl -> StateT UI IO ()
   go (UILog act) = do
     liftIO do

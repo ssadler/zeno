@@ -25,19 +25,9 @@ import Zeno.Prelude
 
 unit_test_sync :: IO ()
 unit_test_sync = do
+  [step0, step1] <- testSteps idents0
 
-  idents <- mapM deriveEthIdent [ "dc1a9f817d7c865db1ee50473b67db147b13f0b2b8ae12e4c876c74cc7285d5c"
-                                , "12d338400e8e5a91375e29c65c8bbff73f48d47bd24abf21bea8dc49c6a18531"
-                                ]
-
-  let targetInv = (3, inv)
-        where inv = [ ("0x970c57f44720e0ab7730132b03ab641475a6c102", 0)
-                    , ("0xb49bc7852acbff6040787a3f4b735508215555e5", 1)
-                    ]
-
-  [step0, step1] <- testSteps idents
-
-  runTestNode 2 do
+  void $ runTestNode 2 do
     flip runStateT (replicate 2 emptyRunnerState) do
       node 0 do
         handleEvent $ NewStep minBound $ createStep step0 $ Just 0
@@ -47,8 +37,8 @@ unit_test_sync = do
       node 0 $ getMsg >>= handleEvent . PeerMessage
       node 1 $ getMsg >>= handleEvent . PeerMessage
       
-      dumpInv step0 >>= (@?= targetInv)
-      dumpInv step1 >>= (@?= targetInv)
+      dumpInv step0 >>= (@?= targetInv0)
+      dumpInv step1 >>= (@?= targetInv0)
 
     msgMap <- use _2 <&> over (each . each) (decodeAuthenticated step0 . fmap (BSL.drop 12))
     msgMap @?=
@@ -56,12 +46,39 @@ unit_test_sync = do
                    , ("1:1", [Right (StepMessage 3 0 mempty)])
                    ]
 
-  pure ()
+
+unit_test_miss_cache :: IO ()
+unit_test_miss_cache = do
+  [step0, step1] <- testSteps idents0
+
+  void $ runTestNode 2 do
+    flip runStateT (replicate 2 emptyRunnerState) do
+
+      node 0 $ handleEvent $ NewStep minBound $ createStep step0 $ Just 0
+      node 1 do
+        getMsg >>= handleEvent . PeerMessage
+        use (_missCache . to length) >>= (@?= 1)
+        handleEvent $ NewStep minBound $ createStep step1 $ Just 1
+        use (_missCache . to length) >>= (@?= 0)
+      dumpInv step1 >>= (@?= targetInv0)
+
+
+idents0 = map deriveEthIdent sks where
+  sks = [ "dc1a9f817d7c865db1ee50473b67db147b13f0b2b8ae12e4c876c74cc7285d5c"
+        , "12d338400e8e5a91375e29c65c8bbff73f48d47bd24abf21bea8dc49c6a18531"
+        ]
+
+targetInv0 = (3, inv) where
+  inv = [ ("0x970c57f44720e0ab7730132b03ab641475a6c102", 0)
+        , ("0xb49bc7852acbff6040787a3f4b735508215555e5", 1)
+        ]
+
 
 dumpInv :: MonadIO m => Step i -> m (PackedInteger, [(Address, i)])
 dumpInv step = do
   (mask, invMap) <- readIORef $ ioInv step
   pure $ (mask, over (each . _2) snd $ Map.toList invMap)
+
 
 testSteps :: MonadIO m => [EthIdent] -> m [Step Int]
 testSteps idents = do

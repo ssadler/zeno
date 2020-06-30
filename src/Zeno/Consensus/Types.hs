@@ -122,7 +122,7 @@ data ConsensusControlMsg m
   | NewPeer NodeId
   | GetRoundSize RoundId (Int -> m ())
   | PeerMessage (RemoteMessage LazyByteString)
-  | ReleaseRound RoundId
+  | ReleaseRound Int RoundId
   | DumpStatus
 
 type ConsensusRunner m = Process (ConsensusControlMsg m)
@@ -133,6 +133,7 @@ data RoundData m = RoundData
   , params  :: ConsensusParams
   , seed    :: Bytes32
   , roundId :: RoundId
+  -- , nSteps  :: IORef Int
   }
 
 instance Has ConsensusParams (RoundData m) where has = params

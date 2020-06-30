@@ -6,10 +6,10 @@ module Crypto.Secp256k1.Recoverable
   ( PubKey(unPubKey)
   , RecSig(unRecSig)
   , SecKey(unSecKey)
-  , derivePubKeyIO
-  , exportPubKeyIO
-  , signIO
-  , recoverIO
+  , derivePubKey
+  , exportPubKey
+  , sign
+  , recover
   , fromRSV
   , toRSV
   ) where
@@ -28,6 +28,7 @@ import Foreign
 import Foreign.C.Types
 import Data.Serialize
 import Lens.Micro.Platform
+import System.IO.Unsafe
 import Test.QuickCheck (Arbitrary)
 
 
@@ -53,9 +54,9 @@ fromRSV (r, s, v) = RecSig $ f r `bappend` f s `bappend` newFixed v
 foreign import ccall unsafe "secp256k1_recoverable_sign"
   c_secp256k1_recoverable_sign :: Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO CInt
 
-signIO :: (Fixed 32 msg, MonadIO m) => SecKey -> msg -> m RecSig
-signIO sk msg =
-  liftIO do
+sign :: Fixed 32 msg => SecKey -> msg -> RecSig
+sign sk msg =
+  unsafePerformIO do
     fmap toFixed do
       withByteArray sk \psk -> do
         withByteArray (asFixed msg) $ \pmsg -> do
@@ -66,22 +67,24 @@ signIO sk msg =
 foreign import ccall unsafe "secp256k1_recoverable_recover"
   c_secp256k1_recoverable_recover :: Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO CInt
 
-recoverIO :: (Fixed 32 msg, MonadIO m) => RecSig -> msg -> m PubKey
-recoverIO sig msg =
-  liftIO do
-    fmap toFixed do
-      withByteArray sig \psig -> do
-        withByteArray (asFixed msg) $ \pmsg -> do
-          alloc 33 \ppk -> do
-            ret <- c_secp256k1_recoverable_recover ppk psig pmsg
-            unless (ret == 1) $ error $ "recover returned: " ++ show ret
+recover :: Fixed 32 msg => RecSig -> msg -> Either String PubKey
+recover sig msg =
+  unsafePerformIO do
+    withByteArray sig \psig -> do
+      withByteArray (asFixed msg) $ \pmsg -> do
+        ba <- alloc 33 mempty
+        withByteArray ba \ppk -> do
+          ret <- c_secp256k1_recoverable_recover ppk psig pmsg
+          case ret of
+            1 -> pure $ Right $ toFixed ba
+            n -> pure $ Left $ "recover returned: " ++ show ret
 
 foreign import ccall unsafe "secp256k1_recoverable_derive_pubkey"
   c_secp256k1_recoverable_derive_pubkey :: Ptr Word8 -> Ptr Word8 -> IO CInt
 
-derivePubKeyIO :: MonadIO m => SecKey -> m PubKey
-derivePubKeyIO sk =
-  liftIO do
+derivePubKey :: SecKey -> PubKey
+derivePubKey sk =
+  unsafePerformIO do
     fmap toFixed do
       withByteArray sk \psk -> do
         alloc 33 \ppk -> do
@@ -91,10 +94,10 @@ derivePubKeyIO sk =
 foreign import ccall unsafe "secp256k1_recoverable_pubkey_serialize_der"
   c_secp256k1_recoverable_pubkey_serialize_der :: Ptr Word8 -> Ptr Word8 -> IO CInt
 
-exportPubKeyIO :: MonadIO m => Bool -> PubKey -> m ByteString
-exportPubKeyIO True pk = pure $ fromFixed pk
-exportPubKeyIO False pk = do
-  liftIO do
+exportPubKey :: Bool -> PubKey -> ByteString
+exportPubKey True pk = fromFixed pk
+exportPubKey False pk = do
+  unsafePerformIO do
     withByteArray pk \ppk -> do
       alloc 65 \pout -> do
         ret <- c_secp256k1_recoverable_pubkey_serialize_der pout ppk

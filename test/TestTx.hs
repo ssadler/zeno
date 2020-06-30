@@ -27,8 +27,8 @@ unit_large_tx_id = do
 
 unit_large_tx_recover :: IO ()
 unit_large_tx_recover = do
-  signed <- signTx sk $ largeTx { _sig = Nothing }
-  recoverFrom signed >>= (@?= Just addr)
+  let signed = signTx sk $ largeTx { _sig = Nothing }
+  recoverFrom signed @?= Right addr
 
 unit_correct_addr :: IO ()
 unit_correct_addr =
@@ -39,7 +39,7 @@ sk :: SecKey
 sk = "afdf0310c3feab2378267034604525c6adbca360630e187ae79eb534698145cd"
 
 addr :: Address
-EthIdent _ addr = unsafePerformIO $ deriveEthIdent sk
+EthIdent _ addr = deriveEthIdent sk
 
 smallTxBin :: ByteString
 smallTxBin = unHex "0xf86c0a85046c7cfe0083016dea94d1310c1e038bc12865d3d3997275b3e4737c6302880b503be34d9fe80080269fc7eaaa9c21f59adf8ad43ed66cf5ef9ee1c317bd4d32cd65401e7aaca47cfaa0387d79c65b90be6260d09dcfb780f29dd8133b9b1ceb20b83b7e442b4bfc30cb"

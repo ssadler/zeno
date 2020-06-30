@@ -61,8 +61,8 @@ stringToRAddress s =
     Just (H.PubKeyAddress h160) -> Just (RAddress h160)
     _ -> Nothing
 
-deriveKomodoAddress :: MonadUnliftIO m => PubKey -> m RAddress
-deriveKomodoAddress pk = RAddress . H.addressHash <$> exportPubKeyIO True pk
+deriveKomodoAddress :: PubKey -> RAddress
+deriveKomodoAddress pk = RAddress . H.addressHash $ exportPubKey True pk
 
 nullRAddress = RAddress "0000000000000000000000000000000000000000"
 
@@ -77,13 +77,13 @@ data KomodoIdent = KomodoIdent
   , kmdAddress :: RAddress
   } deriving (Show)
 
-deriveKomodoIdent :: MonadUnliftIO m => SecKey -> m KomodoIdent
+deriveKomodoIdent :: SecKey -> KomodoIdent
 deriveKomodoIdent kmdSecKey = do
-  kmdPubKey <- derivePubKeyIO kmdSecKey
-  kmdAddress <- deriveKomodoAddress kmdPubKey
-  let Just kmdSecKeyH = H.secKey $ fromFixed kmdSecKey
-  let kmdPubKeyI = H.wrapPubKey True $ H.derivePubKey kmdSecKeyH
-  kmdPubKeyI `seq` kmdSecKeyH `seq` pure KomodoIdent{..}
+  let kmdPubKey = derivePubKey kmdSecKey
+      kmdAddress = deriveKomodoAddress kmdPubKey
+      Just kmdSecKeyH = H.secKey $ fromFixed kmdSecKey
+      kmdPubKeyI = H.wrapPubKey True $ H.derivePubKey kmdSecKeyH
+   in kmdPubKeyI `seq` kmdSecKeyH `seq` KomodoIdent{..}
 
 
 -- UTXOs ----------------------------------------------------------------------

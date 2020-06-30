@@ -33,11 +33,11 @@ runNotariseKmdToEth pk gateway networkConfig gethConfig kmdConfPath consoleArgs 
     withConsole consoleArgs LevelDebug do
       threadDelay 1000000
       bitcoinConf <- loadBitcoinConfig kmdConfPath
-      kmdAddress <- deriveKomodoAddress pk
+      let kmdAddress = deriveKomodoAddress pk
       wif <- withContext (const bitcoinConf) $ queryBitcoin "dumpprivkey" [kmdAddress]
       sk <- either error pure $ parseWif komodo wif
-      ethIdent <- deriveEthIdent sk
-      kmdIdent <- deriveKomodoIdent sk
+      let ethIdent = deriveEthIdent sk
+      let kmdIdent = deriveKomodoIdent sk
 
       withConsensusNode networkConfig do
         let toNotariser node = EthNotariser bitcoinConf node gethConfig gateway sk ethIdent kmdIdent
@@ -211,7 +211,7 @@ ethMakeNotarisationTx nc@NotariserConfig{..} callData = do
   nonce <- eth_getTransactionCount myAddress
   tx <- ethMakeNotarisationTxPartial nc callData <&>
     \tx -> tx { _nonce = nonce, _gasPrice = gasPrice }
-  signTx sk tx
+  pure $ signTx sk tx
 
 ethMakeNotarisationTxPartial :: NotariserConfig -> ByteString -> Zeno EthNotariser Transaction
 ethMakeNotarisationTxPartial NotariserConfig{..} callData = do
@@ -230,8 +230,8 @@ validateSigs NotariserConfig{..} ourHash chosenInv = do
         Left "Contains non members"
       when (theirhash /= ourHash) do
         Left "Hash is not the same"
-      let recoveredAddr = unsafePerformIO $ recoverAddr ourHash sig
-      when (recoveredAddr /= addr) do
+      let mrecoveredAddr = recoverAddr ourHash sig
+      when (mrecoveredAddr /= Right addr) do
         Left "Invalid signature provided"
       pure sig
 
@@ -240,10 +240,10 @@ validateProposedTx
   -> Address -> Transaction -> Zeno EthNotariser ()
 validateProposedTx nc@NotariserConfig{..} proxyParams sigs sender tx = do
 
-  recoverFrom tx >>=
+  recoverFrom tx &
     \case
-      Nothing -> invalidProposal "Can't recover sender from tx"
-      Just s | s /= sender -> invalidProposal "Sender wrong"
+      Left _ -> invalidProposal "Can't recover sender from tx"
+      Right s | s /= sender -> invalidProposal "Sender wrong"
       _ -> pure ()
 
   minGasPrice <- eth_gasPrice

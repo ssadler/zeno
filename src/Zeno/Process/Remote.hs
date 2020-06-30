@@ -30,7 +30,7 @@ import Zeno.Prelude hiding (finally)
 
 sendRemote :: (Serialize a, HasNode m) => NodeId -> CapabilityId -> a -> m ()
 sendRemote nodeId capid obj = do
-  let payload = encodeLazy (capid, obj)
+  let payload = encodeLazy obj
   BSL.length payload `seq`             -- `seq` avoids holding thunk longer than neccesary
     sendRemoteBS nodeId capid payload
 
@@ -38,7 +38,7 @@ instance Has Node r => HasNode (Zeno r) where
   type HandlerMonad (Zeno r) = IO
   sendRemoteBS nodeId capid bs = do
     withRemoteForwarder nodeId \(chan, _) -> do
-      writeTQueue chan bs
+      writeTQueue chan $ encodeLazy capid <> bs
 
   registerCapability capid handler = do
     node@Node{..} <- asks has
@@ -59,7 +59,6 @@ monitorRemote nodeId act = do
     modifyTVar onQuit (>> ioAct)
 
 
--- TODO: Dejafu test
 withRemoteForwarder :: Has Node r => NodeId -> (Forwarder -> STM a) -> Zeno r a
 withRemoteForwarder nodeId act = do
   node <- asks has

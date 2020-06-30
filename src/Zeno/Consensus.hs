@@ -53,4 +53,4 @@ startSeedNode nc consoleArgs = do
   let cnc = CNC [] nc
   runZeno defaultLog () do
     withConsole consoleArgs LevelDebug do
-      withConsensusNode cnc $ threadDelay $ 2^62
+      withConsensusRunnerContext cnc $ threadDelay $ 2^62

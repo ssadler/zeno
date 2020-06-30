@@ -17,8 +17,8 @@ import           Test.Tasty.HUnit
 test_recSigTests :: TestTree
 test_recSigTests = testGroup "RecSig tests"
   [ 
-     testCase "RecSig" $ do
-      sig <- signIO sk txid_a
+    testCase "RecSig" $ do
+      let sig = sign sk txid_a
       toRSV sig @?= txsig_a
 
   , testCase "Get txid" $ do
@@ -28,16 +28,16 @@ test_recSigTests = testGroup "RecSig tests"
       encodeTx tx_a @?= txbin_a
 
   , testCase "RecoverFrom" $ do
-      signed <- signTx sk tx_a
+      let signed = signTx sk tx_a
       let Just sig = _sig signed
       let m = hashTx $ signed { _sig = Nothing }
-      recoverAddr m sig >>= (@?= address)
+      recoverAddr m sig @?= Right address
 
   , testCase "Recover" $ do
       let txid = hashTx tx_a
-      sig <- signIO sk txid
-      a <- recoverAddr txid sig
-      a @?= address
+      let sig = sign sk txid
+      let a = recoverAddr txid sig
+      a @?= Right address
 
   , testCase "encodeSpecialV" $ do
 
@@ -53,7 +53,7 @@ sk :: SecKey
 sk = "3131313131313131313131313131313131313131313131313131313131313131"
 
 address :: Address
-EthIdent _ address = unsafePerformIO $ deriveEthIdent sk
+EthIdent _ address = deriveEthIdent sk
 
 txid_a :: PrefixedHash 32
 txid_a = "d018f1502a71f61a00b77546b99f2a647dda07ecb4cf94bd14cd4dbf4337be3d"
@@ -81,10 +81,10 @@ txsig_a = ( 94780971301265805650912286908354961846523421941930938890756202620293
 
 
 prop_recover_address :: Bytes32 -> Bool
-prop_recover_address msg = unsafePerformIO do
-  sig <- signIO sk msg
-  a <- recoverAddr msg sig
-  pure $ a == address
+prop_recover_address msg = do
+  let sig = sign sk msg
+      a = recoverAddr msg sig
+   in a == Right address
 
 prop_split_rsv :: RecSig -> Bool
 prop_split_rsv sig =
