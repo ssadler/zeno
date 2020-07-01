@@ -148,6 +148,8 @@ instance ConsensusFrontend (Zeno r) where
 
 type ZenoConsensusNode = ConsensusNode ZenoRunnerBase
 
+data ConsensusTopicRegistered = ConsensusTopicRegistered deriving (Show)
+instance Exception ConsensusTopicRegistered
 data ConsensusTimeout = ConsensusTimeout deriving (Show)
 instance Exception ConsensusTimeout
 data ConsensusMischief = ConsensusMischief Address String deriving (Show)

@@ -21,8 +21,8 @@ import qualified Data.ByteString.Char8 as BS8
 
 import Network.Ethereum.Crypto (Address)
 
+import Zeno.Consensus.Frontend
 import Zeno.Consensus.P2P
-import Zeno.Consensus.Round
 import Zeno.Consensus.Runner
 import Zeno.Consensus.Types
 

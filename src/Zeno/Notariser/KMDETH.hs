@@ -156,18 +156,23 @@ notariseToETH nc@NotariserConfig{..} label notarisationParams = do
   r <- runConsensus label cparams proxyParams do
     -- First complete an empty step to make sure everyone is on the same page
     _ <- step "init" () collectMajority
+
+    -- Now collect sigs; the proposer needs to collect many sigs, the rest don't
     dist@(proposer:_) <- roundShuffle members
     proposal <-
       step "sigs" proxySigHash $
         \recv -> do
           if ethAddress == proposer
              then do
+               logDebug "I am proposer"
                chosen <- collectWeighted dist threshold recv
                let proxyCallData = ethMakeProxyCallData proxyParams (bSig <$> unInventory chosen)
                tx <- lift $ ethMakeNotarisationTx nc proxyCallData
                pure $ Just (chosen, tx) -- Send chosen sigs to make it easy to reconstruct tx
-           else do
-             collectWith (\_ _ -> pure Nothing) recv
+             else do
+               pure Nothing
+
+    -- Lastly, get the tx from the proposer
     stepOptData "tx" proposal $ collectMember proposer
 
 

@@ -62,30 +62,31 @@ dependencies:
 
 library:
   source-dirs: src
-  default-extensions:    BangPatterns
-                       , BlockArguments
-                       , ConstraintKinds
-                       , DataKinds
-                       , DeriveFunctor
-                       , DeriveGeneric
-                       , DerivingStrategies
-                       , DerivingVia
-                       , FlexibleContexts
-                       , FlexibleInstances
-                       , FunctionalDependencies
-                       , GADTs
-                       , GeneralizedNewtypeDeriving
-                       , OverloadedStrings
-                       , LambdaCase
-                       , MultiParamTypeClasses
-                       , NamedFieldPuns
-                       , RecordWildCards
-                       , ScopedTypeVariables
-                       , StandaloneDeriving
-                       , TemplateHaskell
-                       , TupleSections
-                       , TypeFamilies
-                       , TypeSynonymInstances
+  default-extensions:
+      BangPatterns
+    , BlockArguments
+    , ConstraintKinds
+    , DataKinds
+    , DeriveFunctor
+    , DeriveGeneric
+    , DerivingStrategies
+    , DerivingVia
+    , FlexibleContexts
+    , FlexibleInstances
+    , FunctionalDependencies
+    , GADTs
+    , GeneralizedNewtypeDeriving
+    , LambdaCase
+    , MultiParamTypeClasses
+    , NamedFieldPuns
+    , OverloadedStrings
+    , RecordWildCards
+    , ScopedTypeVariables
+    , StandaloneDeriving
+    , TemplateHaskell
+    , TupleSections
+    , TypeFamilies
+    , TypeSynonymInstances
 
   c-sources:
   - cbits/blake2_personalized.c
@@ -136,17 +137,19 @@ tests:
     - concurrency
     - dejafu
     - tasty-dejafu
-    default-extensions:    OverloadedStrings
-                         , MultiParamTypeClasses
-                         , DataKinds
-                         , RecordWildCards
-                         , LambdaCase
-                         , FlexibleContexts
-                         , ScopedTypeVariables
-                         , DeriveGeneric
-                         , TemplateHaskell
-                         , BlockArguments
-                         , NamedFieldPuns
-                         , TypeSynonymInstances
-                         , FlexibleInstances
-                         , GeneralizedNewtypeDeriving
+    default-extensions:
+        OverloadedStrings
+      , BlockArguments
+      , DataKinds
+      , DeriveGeneric
+      , FlexibleContexts
+      , FlexibleInstances
+      , GeneralizedNewtypeDeriving
+      , LambdaCase
+      , MultiParamTypeClasses
+      , NamedFieldPuns
+      , RecordWildCards
+      , ScopedTypeVariables
+      , TemplateHaskell
+      , TypeFamilies
+      , TypeSynonymInstances

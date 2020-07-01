@@ -51,7 +51,7 @@ import qualified Data.Map.Strict as Map
 import Data.Maybe as ALL
 import Data.Monoid as ALL
 import Data.Set as ALL (Set)
-import Data.Serialize as ALL (Serialize)
+import Data.Serialize as ALL (Serialize, encodeLazy, decodeLazy)
 import qualified Data.Serialize as S
 import Data.String.Conv as ALL
 import Data.String as ALL (IsString, fromString)

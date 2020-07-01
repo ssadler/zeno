@@ -1,5 +1,5 @@
 
-module Zeno.Consensus.Round where
+module Zeno.Consensus.Frontend where
 
 import           Control.Monad.Reader
 
@@ -37,6 +37,10 @@ runConsensus label params@ConsensusParams{..} seedData act = do
   let roundId10 = toFixedR $ fromFixed seed :: Bytes10
   let roundId = roundId10 `bappend` newFixed roundTypeId
 
+  roundSize <- getRoundSize manager roundId
+  when (roundSize /= 0) do
+    throwIO ConsensusTopicRegistered
+
   let roundName = "Round %s (%s)" % (roundId, label)
   logInfo $ "Starting: " ++ roundName
   sendUI $ UI_Process $ Just $ UIRound label roundId
@@ -46,6 +50,10 @@ runConsensus label params@ConsensusParams{..} seedData act = do
          send manager (ReleaseRound 60 roundId)
     do send manager (ReleaseRound 0 roundId)
 
+getRoundSize manager roundId = do
+  m <- newEmptyMVar
+  send manager $ GetRoundSize roundId $ putMVar m
+  takeMVar m
 
 
 -- Round Steps ----------------------------------------------------------------
@@ -58,14 +66,13 @@ stepOptData :: BallotData i => String -> Maybe i -> Collect i (Zeno r) o -> Cons
 stepOptData label i collect = do
   r@RoundData{..} <- ask
   let ident = has params
-  roundSize <- do
-    m <- newEmptyMVar
-    send manager $ GetRoundSize roundId $ putMVar m
-    takeMVar m
-  lift $ sendUI $ UI_Step $ "%i: %s" % (roundSize+1, label)
+  roundSize <- getRoundSize manager roundId
+  let stepName = "%i: %s" % (roundSize+1, label)
+  logDebug $ "Step " ++ stepName
+  lift $ sendUI $ UI_Step stepName
 
   let ConsensusParams{..} = params
-  let stepId = StepId roundId (fromIntegral roundSize)
+  let stepId = StepId roundId $ fromIntegral roundSize
   invRef <- newIORef (0, mempty :: Inventory i)
 
   recv <- newEmptyTMVarIO
@@ -126,7 +133,7 @@ collectWith f recv = do
   either pure (\() -> throwIO ConsensusTimeout) =<<
     runExceptT do
       receiveDuring recv timeout' $ \inv ->
-         maybe (pure ()) throwError =<< lift (f majority inv)
+        lift (f majority inv) >>= maybe (pure ()) throwError
 
 
 majorityThreshold :: Int -> Int

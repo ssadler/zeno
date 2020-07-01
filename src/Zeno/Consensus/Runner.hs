@@ -9,7 +9,6 @@ import Control.Monad.STM (orElse)
 
 import Data.IntMap.Strict as IntMap
 import qualified Data.Map as Map
-import Data.Serialize (encode, encodeLazy, decodeLazy, runGetLazyState)
 import Data.Time.Clock.POSIX
 
 import Network.Ethereum (EthIdent(..), sha3b)
@@ -81,10 +80,6 @@ handleEvent =
       l <- use $ _1 . at roundId . to (maybe 0 length)
       lift $ reply l
 
-    -- TODO: there is a problem here, in the case of re-starting a round, it will append more
-    -- steps and step numbers will be totally wrong. Fix: On exceptional exit of round, it
-    -- should be cleared immediately, and there should be round registration so that if a
-    -- round repeats for any reason, it gets blocked.
     NewStep roundId skel -> do
       before <- use $ _1 . ix roundId
       let stepId = length before
