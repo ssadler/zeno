@@ -79,6 +79,7 @@ runNotariserForever = do
           [ Handler $ \e -> recover logError 10 (e :: RPCException)
           , Handler $ \e -> recover logError 20 (e :: RPCTransportException)
           , Handler $ \e -> recover logError 60 (e :: ConfigException)
+          , Handler $ \e -> recover logWarn  30 (e :: ConsensusTopicRegistered)
           ]
         recover f d e = do
           f $ show e
