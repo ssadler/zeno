@@ -90,8 +90,8 @@ expandPath :: FilePath -> IO FilePath
 expandPath ('~':xs) = (++xs) <$> getHomeDirectory
 expandPath p        = pure p
 
-instance StringConv Value String where
-  strConv _ = toS . encode
+instance StringConv Value String where strConv _ = toS . encode
+instance StringConv Value Text   where strConv _ = toS . encode
 
 class PercentFormat a where
   (%%) :: String -> a -> String

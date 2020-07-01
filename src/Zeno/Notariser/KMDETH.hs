@@ -27,7 +27,8 @@ import Zeno.Console
 import Zeno.Prelude
 
 
-runNotariseKmdToEth :: PubKey -> Address -> ConsensusNetworkConfig -> GethConfig -> FilePath -> ConsoleArgs -> IO ()
+runNotariseKmdToEth :: PubKey -> Address -> ConsensusNetworkConfig
+                    -> GethConfig -> FilePath -> ConsoleArgs -> IO ()
 runNotariseKmdToEth pk gateway networkConfig gethConfig kmdConfPath consoleArgs = do
   runZeno defaultLog () do
     withConsole consoleArgs LevelDebug do
@@ -182,7 +183,7 @@ notariseToETH nc@NotariserConfig{..} label notarisationParams = do
   let Ballot proposer _ (chosenSigs, tx) = r
   sigs <- either invalidProposal pure $ validateSigs nc proxySigHash chosenSigs
   validateProposedTx nc proxyParams sigs proposer tx
-  handle onTransactionPostError $ void $ eth_sendRawTransaction tx
+  wrapPostTransaction tx
   let txid = hashTx tx
   sendUI $ UI_Step "Confirm TX"
   waitTransactionConfirmed1 (120 * 1000000) txid >>=
@@ -195,13 +196,23 @@ notariseToETH nc@NotariserConfig{..} label notarisationParams = do
         logInfo $ "Tx confirmed in block %s: %s" % (show height, show txid)
 
 
-onTransactionPostError :: RPCException -> Zeno r ()
-onTransactionPostError (RPCError (String s))
-  | T.isInfixOf "known transaction" (T.toLower s) = pure ()
-  | T.isInfixOf "already known" (T.toLower s) = pure ()
-onTransactionPostError (RPCError o)
-  | otherwise = logTrace debugTraceRPC $ "Got submission error, maybe acceptable: " ++ toS o
-onTransactionPostError e = throwIO e
+wrapPostTransaction :: Has GethConfig r => Transaction -> Zeno r ()
+wrapPostTransaction tx = do
+  withLogCollect \clear -> do
+    catch
+      do void $ eth_sendRawTransaction tx
+      \case
+        RPCError o | acceptable (norm o) -> clear
+        RPCError o -> do
+          logTrace debugTraceRPC $ "Got submission error, maybe acceptable: " ++ toS o
+        e -> throwIO e
+  where
+  norm = T.toLower . toS
+  acceptable s
+    | T.isInfixOf "already known" s = True
+    | T.isInfixOf "known transaction" s = True
+    | T.isInfixOf "tx doesn't have the correct nonce" s = True
+    | otherwise = False
 
 
 invalidProposal :: String -> Zeno EthNotariser a

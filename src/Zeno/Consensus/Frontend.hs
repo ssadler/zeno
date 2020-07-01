@@ -50,6 +50,7 @@ runConsensus label params@ConsensusParams{..} seedData act = do
          send manager (ReleaseRound 60 roundId)
     do send manager (ReleaseRound 0 roundId)
 
+getRoundSize :: (MonadIO m1, MonadIO m2) => Process (ConsensusControlMsg m2) -> RoundId -> m1 Int
 getRoundSize manager roundId = do
   m <- newEmptyMVar
   send manager $ GetRoundSize roundId $ putMVar m
@@ -92,6 +93,8 @@ stepOptData label i collect = do
 
 
 -- Check Majority -------------------------------------------------------------
+
+type Collect i m o = TMVar (Inventory i) -> Consensus m o
 
 type Base m = (MonadLoggerUI m)
 

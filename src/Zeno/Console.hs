@@ -38,7 +38,7 @@ instance MonadLoggerUI (Zeno r) where
   sendUI evt = do
     getConsole >>=
       \case
-        Console _ _ (Just chan) _ _ ->
+        Console _ _ (Just chan) _ _ _ ->
           atomically (writeTBQueue chan $ UIEvent evt)
         _ -> pure ()
 
@@ -129,7 +129,8 @@ withConsole (useUI, debug, both) level act = do
        then Just . procMbox <$> spawn "UI" runConsoleUI
        else pure Nothing
 
-  let c = Console level topics ui "" both
+  -- TODO: why is a console defined here
+  let c = Console level topics ui "" both Nothing
   localZeno (console .~ c) act
 
 

@@ -34,11 +34,12 @@ data UIProcess
   deriving (Show)
 
 data Console = Console
-  { _logLevel :: LogLevel
+  { _logLevel     :: LogLevel
   , _logDebugMask :: Set.Set Text
-  , _statusBar :: Maybe (TBQueue ConsoleCtrl)
-  , _logWorker :: String -- unused
-  , _logBothFH :: Bool
+  , _statusBar    :: Maybe (TBQueue ConsoleCtrl)
+  , _logWorker    :: String -- unused
+  , _logBothFH    :: Bool
+  , _logCollect   :: Maybe (IORef (IO ()))
   }
 
 makeLenses ''Console
@@ -47,10 +48,10 @@ debugTraceRPC :: Text
 debugTraceRPC = "rpc"
 
 consoleWarn :: Console
-consoleWarn = Console LevelWarn mempty Nothing "" False
+consoleWarn = Console LevelWarn mempty Nothing "" False Nothing
 
 defaultLog :: Console
-defaultLog = Console LevelDebug mempty Nothing "" False
+defaultLog = Console LevelDebug mempty Nothing "" False Nothing
 
 type ConsoleArgs = (Bool, String, Bool)
 

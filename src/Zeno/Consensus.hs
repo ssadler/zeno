@@ -2,6 +2,7 @@
 module Zeno.Consensus
   ( module Zeno.Consensus.Types
   , Address
+  , Collect
   , collectMajority
   , collectMember
   , collectMembers

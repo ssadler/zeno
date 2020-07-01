@@ -93,7 +93,7 @@ newtype RoundProtocol = RoundProtocol Word64
 -- Monad ----------------------------------------------------------------------
 --
 
-type Collect i m o = TMVar (Inventory i) -> Consensus m o
+type Consensus m a = ReaderT (RoundData (ConsensusBackend m)) m a
 
 data StepInput
   = StepTick
@@ -133,12 +133,9 @@ data RoundData m = RoundData
   , params  :: ConsensusParams
   , seed    :: Bytes32
   , roundId :: RoundId
-  -- , nSteps  :: IORef Int
   }
 
 instance Has ConsensusParams (RoundData m) where has = params
-
-type Consensus m a = ReaderT (RoundData (ConsensusBackend m)) m a
 
 class Monad m => ConsensusFrontend m where
   type ConsensusBackend m :: * -> *

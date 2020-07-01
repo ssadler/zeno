@@ -12,11 +12,14 @@ module Zeno.Logging
   , logTrace
   , whenSlow
   , renderLogMessage
+  , withLogCollect
   , pf
   , demoLogMessages
   ) where
 
 import Control.Monad (when)
+import Control.Monad.Logger as LOG hiding (logDebug, logInfo, logError, logWarn)
+import Control.Monad.Reader
 import Data.Aeson
 import qualified Data.ByteString.Char8 as BS8
 import Data.ByteString.Lazy (toStrict)
@@ -26,8 +29,7 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Time.Clock
 import Data.Time.Format
-import Control.Monad.Reader
-import Control.Monad.Logger as LOG hiding (logDebug, logInfo, logError, logWarn)
+import Lens.Micro.Platform
 import UnliftIO
 import qualified Language.Haskell.Printf as Printf
 import Language.Haskell.TH.Quote
@@ -77,20 +79,33 @@ renderLogMessage loc source level str = do
 
 
 logMessage :: ToLogStr msg => Console -> Loc -> LogSource -> LogLevel -> msg -> IO ()
-logMessage (Console lvlFilter _debugMask mstatus _worker both) loc source level msg = do
+logMessage (Console lvlFilter _debugMask mstatus _worker both collect) loc source level msg = do
   line <- renderLogMessage loc source level (toLogStr msg)
 
   let
-    act = do
+    write = do
       BS8.hPutStr stdout line *> hFlush stdout
       when both do
         BS8.hPutStr stderr line *> hFlush stderr
 
-  when (level >= lvlFilter) do
-    case mstatus of
-      Just queue -> atomically $ writeTBQueue queue $ UILog act
-      Nothing -> act
+    act = do
+      case mstatus of
+        Just queue -> atomically $ writeTBQueue queue $ UILog write
+        Nothing -> write
 
+  when (level >= lvlFilter) do
+    case collect of
+      Nothing -> act
+      Just ref -> modifyIORef ref (>> act)
+
+
+withLogCollect :: (Zeno r () -> Zeno r a) -> Zeno r a
+withLogCollect act = do
+  ref <- newIORef (pure ())
+  let clear = liftIO $ modifyIORef ref \_ -> pure ()
+  finally
+    do localZeno (console . logCollect .~ Just ref) (act clear)
+    do liftIO $ join $ readIORef ref
 
 
 whenSlow :: MonadIO m => Int -> m a -> (Int -> m ()) -> m a
