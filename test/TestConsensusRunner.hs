@@ -1,3 +1,4 @@
+{-# LANGUAGE MultiWayIf #-}
 
 module TestConsensusRunner where
 
@@ -25,7 +26,7 @@ import Zeno.Prelude
 
 unit_test_sync :: IO ()
 unit_test_sync = do
-  [step0, step1] <- testSteps idents0
+  [step0, step1] <- testSteps 0 idents2
 
   void $ runTestNode 2 do
     flip runStateT (replicate 2 emptyRunnerState) do
@@ -49,7 +50,7 @@ unit_test_sync = do
 
 unit_test_miss_cache :: IO ()
 unit_test_miss_cache = do
-  [step0, step1] <- testSteps idents0
+  [step0, step1] <- testSteps 0 idents2
 
   void $ runTestNode 2 do
     flip runStateT (replicate 2 emptyRunnerState) do
@@ -63,28 +64,88 @@ unit_test_miss_cache = do
       dumpInv step1 >>= (@?= targetInv0)
 
 
-idents0 = map deriveEthIdent sks where
-  sks = [ "dc1a9f817d7c865db1ee50473b67db147b13f0b2b8ae12e4c876c74cc7285d5c"
-        , "12d338400e8e5a91375e29c65c8bbff73f48d47bd24abf21bea8dc49c6a18531"
-        ]
+data RoundState
+  = INIT
+  | STEP Int (Step Int) (Inventory Int)
+  | DONE
+  deriving (Eq)
+
+instance Eq (Step i) where
+  s == s1 = stepId s == stepId s1
+
+instance Show RoundState where
+  show INIT = "INIT"
+  show DONE = "DONE"
+  show (STEP sid Step{..} inv) = "STEP %i %i" % (sid, length inv)
+
+
+
+unit_test_round_ideal :: IO ()
+unit_test_round_ideal = do
+
+  let nnodes = 3
+  let nsteps = 3
+  allSteps <- forM [0..nsteps-1] \i -> testSteps i (take nnodes identsInf)
+
+  void $ runTestNode nnodes do
+    flip runStateT (replicate nnodes emptyRunnerState) do
+
+      -- WHILE loop
+      fix1 (replicate nnodes INIT) \go r -> do
+
+        -- for each node
+        r' <- forM (zip [0..] r) \(n, s) -> do
+          node n do
+            case s of
+              DONE -> pure DONE
+              INIT -> do
+                let step = allSteps !! 0 !! n
+                handleEvent $ NewStep minBound $ createStep step $ Just n
+                inv <- snd <$> readIORef (ioInv step)
+                pure $ STEP 0 step inv
+
+              STEP stepNum stepData inv -> do
+                getMsgMaybe >>= mapM_ (handleEvent . PeerMessage)
+                inv <- snd <$> readIORef (ioInv stepData)
+                if | length inv < nnodes -> pure $ STEP stepNum stepData inv
+                   | stepNum == nsteps-1 -> pure DONE
+                   | otherwise -> do
+                       let step = allSteps !! (stepNum+1) !! n
+                       handleEvent $ NewStep minBound $ createStep step $ Just n
+                       inv <- snd <$> readIORef (ioInv step)
+                       pure $ STEP (stepNum+1) step inv
+
+        mboxes <- lift $ use _mboxes
+        if | (r == r' && length mboxes == 0) -> fail $ "blocked: " ++ show r'
+           | r /= replicate nnodes DONE -> go r'
+           | otherwise -> pure ()
+
+
+
+
+
+
+identsInf = map deriveEthIdent $ drop 1 [minBound..]
+idents2 = take 2 identsInf
 
 targetInv0 = (3, inv) where
-  inv = [ ("0x970c57f44720e0ab7730132b03ab641475a6c102", 0)
-        , ("0xb49bc7852acbff6040787a3f4b735508215555e5", 1)
+  inv = [ ("0x897df33a7b3c62ade01e22c13d48f98124b4480f", 1)
+        , ("0xdc5b20847f43d67928f49cd4f85d696b5a7617b5", 0)
         ]
 
 
+-- | Get inventory without signatures
 dumpInv :: MonadIO m => Step i -> m (PackedInteger, [(Address, i)])
 dumpInv step = do
   (mask, invMap) <- readIORef $ ioInv step
   pure $ (mask, over (each . _2) snd $ Map.toList invMap)
 
 
-testSteps :: MonadIO m => [EthIdent] -> m [Step Int]
-testSteps idents = do
+testSteps :: MonadIO m => Int -> [EthIdent] -> m [Step Int]
+testSteps stepNum idents = do
   let members = ethAddress <$> idents
       membersSet = Set.fromList members
-      stepId = StepId minBound 0
+      stepId = StepId minBound $ fromIntegral stepNum
       yield inv = pure ()
   forM idents \ident -> do
     ioInv <- newIORef (0, mempty)
@@ -98,6 +159,7 @@ type TestNodeState =
   , Map NodeId [RemoteMessage LazyByteString]
   , Maybe Int -- currently focused node
   )
+_mboxes = _1
 emptyTestNode = (mempty, mempty, Nothing) :: TestNodeState
 runTestNode npeers act = runTestIO $ runStateT act (testNodeId <$> [0..npeers-1], mempty, Nothing)
 
@@ -118,16 +180,21 @@ node n act = do
       put $ set (ix n) s' s
       pure a
 
-getMsg :: StateT a TestBase (RemoteMessage LazyByteString)
-getMsg = do
+getMsgMaybe :: StateT a TestBase (Maybe (RemoteMessage LazyByteString))
+getMsgMaybe = do
   Just i <- lift $ use _3
   let to = testNodeId i
   lift do
     zoom _2 do
       state \m ->
         case Map.lookup to m of
-          Just (o:xs) -> (o, Map.insert to xs m)
-          _           -> error $ "no items for " ++ show i
+          Just (o:xs) -> (Just o, Map.insert to xs m)
+          _           -> (Nothing, m)
+
+getMsg :: StateT a TestBase (RemoteMessage LazyByteString)
+getMsg = do
+  Just i <- lift $ use _3
+  getMsgMaybe >>= maybe (error $ "no items for " ++ show i) pure
 
 
 instance HasNode TestBase where

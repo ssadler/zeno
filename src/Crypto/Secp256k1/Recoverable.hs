@@ -35,7 +35,7 @@ import Test.QuickCheck (Arbitrary)
 newtype PubKey = PubKey { unPubKey :: FixedBytes 33 }
   deriving (Eq, Read, Show, Serialize, ByteArrayAccess, IsString, Fixed 33) via FixedBytes 33
 newtype SecKey = SecKey { unSecKey :: FixedBytes 32 }
-  deriving (Eq, Read, Show, Serialize, ByteArrayAccess, IsString, Bounded, Fixed 32) via FixedBytes 32
+  deriving (Eq, Read, Show, Serialize, ByteArrayAccess, IsString, Bounded, Enum, Fixed 32) via FixedBytes 32
 newtype RecSig = RecSig { unRecSig :: FixedBytes 65 }
   deriving ( Eq, Read, Show, Serialize, IsString, FromJSON, ToJSON
            , ByteArrayAccess, Arbitrary, Fixed 65

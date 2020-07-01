@@ -128,6 +128,10 @@ instance forall n. KnownNat n => Arbitrary (FixedBytes n) where
     let n = fixedGetN (Proxy :: Proxy n)
      in Bytes . pack <$> replicateM n arbitrary
 
+instance KnownNat n => Enum (FixedBytes n) where
+  toEnum = toFixed . BS.pack . intToBytesLE
+  fromEnum = intFromBytesLE . unpack . unFixed
+
 asFixed :: Fixed n a => a -> FixedBytes n
 asFixed = Bytes . unFixed
 

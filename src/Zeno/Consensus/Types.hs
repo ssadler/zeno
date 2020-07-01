@@ -44,7 +44,6 @@ type BallotData a = (Typeable a, Serialize a)
 
 instance Serialize a => Serialize (Ballot a)
 
-type Authenticated a = (RecSig, a)
 type Inventory a = Map Address (RecSig, a)
 
 unInventory :: Inventory a -> [Ballot a]
@@ -63,7 +62,7 @@ instance Serialize a => Serialize (StepMessage a)
 data StepId = StepId
   { stRoundId   :: RoundId
   , stStepNum   :: VarInt
-  } deriving (Show, Generic)
+  } deriving (Eq, Show, Generic)
 
 instance Serialize StepId
 
