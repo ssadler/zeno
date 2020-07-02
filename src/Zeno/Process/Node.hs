@@ -142,11 +142,6 @@ runConnection node@Node{..} conn ip = do
       Left s -> murphy s -- How can we fail to decode exactly 3 bytes into a (Word8, Word16)
       Right (_, _) -> do
         -- Someone is port scanning, or running incorrect version
-        more <- recv conn 20 >>= maybe mempty pure
-        let (line: _) = lines $ toS $ header <> fromStrict more
-        if take 4 line == "GET" || take 4 line == "POST"
-           then logInfo $ "%s :eyes: %s" % (renderIp ip, show line)
-           else logDebug $ [pf|Unsupported protocol (%s)|] (show line)
         throwIO ConnectionClosed
 
 renderIp :: HostAddress -> String
