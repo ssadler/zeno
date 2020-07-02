@@ -65,7 +65,7 @@ runStep mdest msource =
     RunNotariseReceipt bnd lastNota :>>= f -> error "exited"
 
 members' = Address . newFixed <$> [1..42]
-nc = NotariserConfig members' (error "threhsold") (error "timeout") (error "proposerRoundRobin") (TestChain "SRC") (TestChain "DEST")
+nc = NotariserConfig members' (error "threhsold") (error "timeout") (TestChain "SRC") (TestChain "DEST")
 go :: (MonadView Bone (Skeleton Bone) () -> TestIO (Skeleton Bone ())) -> TestIO ()
 go f = inner $ debone $ notariserSyncFree nc
   where

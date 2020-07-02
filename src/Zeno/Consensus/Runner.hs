@@ -159,11 +159,10 @@ updateRounds f = do
 -- Receive Miss Cache ---------------------------------------------------------
 
 receiveCachePut :: a -> IntMap a -> IntMap a
-receiveCachePut miss cache
-  | length cache == 0 = IntMap.singleton 0 miss
-  | otherwise =
-      let (maxId, _) = IntMap.findMax cache
-       in IntMap.insert (maxId + 1) miss cache
+receiveCachePut miss cache =
+  case IntMap.lookupMax cache of
+    Nothing -> IntMap.singleton 0 miss
+    Just (maxId, _) -> IntMap.insert (maxId + 1) miss cache
 
 receiveCacheTake :: (a -> Bool) -> IntMap a -> ([a], IntMap a)
 receiveCacheTake f m =
