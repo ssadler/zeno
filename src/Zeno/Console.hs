@@ -59,14 +59,14 @@ emptyUIState = UI 0 Nothing "" (0, 0)
 renderStatus :: UI -> String
 renderStatus UI{..} = sPeers ++ sProc
   where 
-  sPeers = styleWith peersStyle $ printf "[Peers: %i]" _numPeers
+  sPeers = styleWith peersStyle $ printf " Peers: %i " _numPeers
 
   sStep =
     case _cStep of
       "" -> ""
       s -> printf "[%s]" s
 
-  sMofN = case _cMofN of (_, 0) -> ""; o -> "[%i of %i]" % o
+  sMofN = case _cMofN of (_, 0) -> ""; o -> " (%i of %i) " % o
 
   sProc =
     styleWith [SetConsoleIntensity BoldIntensity] $
@@ -74,8 +74,8 @@ renderStatus UI{..} = sPeers ++ sProc
         Nothing -> ""
         Just (UIRound label roundId) ->
           let roundIdShort = take 7 $ show roundId
-           in printf "[%s: %s]" roundIdShort label ++ sStep ++ sMofN ++ " "
-        Just (UIOther s) -> printf "[%s]" s
+           in printf " %s: %s " roundIdShort label ++ sStep ++ sMofN ++ " "
+        Just (UIOther s) -> printf " %s " s
 
   styleWith style s = setSGRCode style ++ s ++ setSGRCode [Reset]
   peersStyle =
