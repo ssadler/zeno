@@ -44,8 +44,7 @@ notariseKmdDpow nc@NotariserConfig{..} label ndata = do
                then collectWeighted dist $ kmdNotarySigs sourceChain
                else collectWith \_ _ -> pure (Just mempty)
 
-
-        Ballot _ _ utxos <- step "propose" (snd <$> proposal) (collectMember proposer)
+        Ballot _ _ utxos <- step "proposal" (snd <$> proposal) (collectMember proposer)
       
         let
           partlySignedTx = signMyInput nc kmdSecKeyH utxos outputs

@@ -41,5 +41,4 @@ runFromPub pk = do
   putStrLn $ printf "ETH addr:  %s" (show ethAddress)
 
 stripQuotes :: String -> String
-stripQuotes s = do
-  drop 1 $ take (length s - 1) s
+stripQuotes = filter (/='"')
