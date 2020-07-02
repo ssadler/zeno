@@ -1,6 +1,6 @@
 # Changelog for Zeno
 
-## 0.3.0.0rc1 - 02/7/2020
+## 0.3.0.0-rc1 - 02/7/2020
 
 * Remove proposer timeouts, use UTXO selection + some magic to derive statistics
 * Overhaul gossip layer, make consensus process testable

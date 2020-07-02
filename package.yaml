@@ -1,5 +1,5 @@
 name:                zeno
-version:             0.3.0.0rc1
+version:             0.3.0.0-rc1
 github:              "ssadler/zeno"
 license:             BSD3
 author:              "ssadler"
