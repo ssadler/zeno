@@ -1,5 +1,17 @@
 # Changelog for Zeno
 
+## 0.3.0.0rc1 - 02/7/2020
+
+* Remove proposer timeouts, use UTXO selection + some magic to derive statistics
+* Overhaul gossip layer, make consensus process testable
+* Address memory leak described in #20
+* Get IP from icanhazip.com
+* Do something more sensible for inbound connection limit
+* fix #21; Must filter out p2pkh UTXOs from listunspent
+* fix deadlock due to receiveCache writing to bounded queue
+* Fix UI so it prints useful info
+* Many other bugfixes and improvements
+
 ## 0.2.3.1 - 19/6/2020
 
 * Upgrade version of secp256k1 wrapper
