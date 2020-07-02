@@ -108,7 +108,7 @@ startP2P seeds = do
 
 getMyIpFromICanHazIp :: IO HostAddress
 getMyIpFromICanHazIp = do
-  ipBs <- getResponseBody <$> httpBS "http://icanhazip.com"
+  ipBs <- getResponseBody <$> httpBS "http://ipv4.icanhazip.com"
   let bail _ = fail $ "Could not parse IP from icanhazip.com: " <> show ipBs
   either bail pure $ A.parseOnly parseIp ipBs
   where

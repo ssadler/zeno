@@ -1,5 +1,9 @@
 # Changelog for Zeno
 
+## Unreleased
+
+* Use ipv4.icanhazip.com
+
 ## 0.3.0.0-rc1 - 02/7/2020
 
 * Remove proposer timeouts, use UTXO selection + some magic to derive statistics
