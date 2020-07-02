@@ -182,12 +182,13 @@ notariseToETH nc@NotariserConfig{..} label notarisationParams = do
 
 
   --- Validate the transaction and dispatch to chain
-
+  sendUI $ UI_Step "Validate TX"
   let Ballot proposer _ (chosenSigs, tx) = r
   sigs <- either invalidProposal pure $ validateSigs nc proxySigHash chosenSigs
   validateProposedTx nc proxyParams sigs proposer tx
   wrapPostTransaction tx
   let txid = hashTx tx
+
   sendUI $ UI_Step "Confirm TX"
   waitTransactionConfirmed1 (120 * 1000000) txid >>=
     \case
