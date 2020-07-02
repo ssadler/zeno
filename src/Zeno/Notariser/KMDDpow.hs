@@ -110,7 +110,7 @@ collectTx tx@SaplingTx{..} utxos recv = do
 
 submitNotarisation :: NotariserConfig -> SaplingTx -> Zeno EthNotariser H.TxHash
 submitNotarisation NotariserConfig{..} tx = do
-  logInfo $ "Broadcast transaction: " ++ show (txHashSapling tx)
+  logInfo $ "Sending transaction: " ++ show (txHashSapling tx)
   -- TODO: Return the whole data structure from getrawtransaction
   bitcoinSubmitTxSync 1 tx
 

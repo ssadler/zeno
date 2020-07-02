@@ -202,6 +202,7 @@ notariseToETH nc@NotariserConfig{..} label notarisationParams = do
 
 wrapPostTransaction :: Has GethConfig r => Transaction -> Zeno r ()
 wrapPostTransaction tx = do
+  logInfo $ "Sending transaction: " ++ show (hashTx tx)
   withLogCollect \clear -> do
     catch
       do void $ eth_sendRawTransaction tx
