@@ -87,9 +87,6 @@ renderStatus UI{..} = sPeers ++ sProc
 runConsoleUI :: Process ConsoleCtrl -> Zeno r ()
 runConsoleUI proc = do
 
-  spawn "UI Ticker" \_ -> do
-    forever $ send proc UITick >> threadDelay 200000
-
   liftIO do
     flip evalStateT emptyUIState do
       forever $ atomically (receiveSTM proc) >>= go
@@ -119,6 +116,7 @@ runConsoleUI proc = do
       UI_Process r -> cProc .= r
       UI_Step r  -> cStep .= r >> cMofN .= (0, 0)
       UI_MofN m n -> cMofN .= (m, n)
+    go UITick
 
 
 withConsole :: ConsoleArgs -> LogLevel -> Zeno r a -> Zeno r a

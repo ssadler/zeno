@@ -161,14 +161,17 @@ updateRounds f = do
 receiveCachePut :: a -> IntMap a -> IntMap a
 receiveCachePut miss cache
   | length cache == 0 = IntMap.singleton 0 miss
-  | length cache == cacheMaxSize =
-      let ((minId, _), nextCache) = IntMap.deleteFindMin cache
-       in IntMap.insert (minId + length cache) miss nextCache
   | otherwise =
-      let (minId, _) = IntMap.findMin cache
-       in IntMap.insert (minId + length cache) miss cache
-  where
-  cacheMaxSize = 1000
+      let (maxId, _) = IntMap.findMax cache
+       in IntMap.insert (maxId + 1) miss cache
 
 receiveCacheTake :: (a -> Bool) -> IntMap a -> ([a], IntMap a)
-receiveCacheTake f = over _1 IntMap.elems . IntMap.partition f
+receiveCacheTake f m =
+  let (hits, next) = IntMap.partition f m
+      -- newer items have a higher id. in the case there there are matches,
+      -- prune removes all items that are i-50 or lower, so stale items will
+      -- continually get cleared out.
+      prune = case IntMap.lookupMin hits of
+                Nothing -> id
+                Just (i, _) -> snd . IntMap.split (i-50)
+   in (IntMap.elems hits, prune next)

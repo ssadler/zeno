@@ -76,14 +76,14 @@ stepOptData label i collect = do
   let stepId = StepId roundId roundSize 0
   invRef <- newIORef (0, mempty :: Inventory i)
 
-  recv <- newEmptyTMVarIO
+  recv <- newTQueueIO
   wrapper <- newMVar recv
   let
     yield inv = do
       tryReadMVar wrapper >>=
         \case
           Nothing -> pure ()
-          Just recv -> atomically $ putTMVar recv inv
+          Just recv -> atomically $ writeTQueue recv inv
 
   let step = Step invRef members' (Set.fromList members') stepId ident yield
   send manager $ NewStep stepId $ createStep step i
@@ -116,7 +116,7 @@ withRetry n act = do
 
 -- Check Majority -------------------------------------------------------------
 
-type Collect i m o = TMVar (Inventory i) -> Consensus m o
+type Collect i m o = TQueue (Inventory i) -> Consensus m o
 
 type Base m = (MonadLoggerUI m)
 
@@ -131,10 +131,10 @@ collectMajority = collectWith \t inv -> do
 --   the majority threshold.
 collectThreshold :: (Base m, Serialize a) => Int -> Collect a m (Inventory a)
 collectThreshold threshold = collectWith \majority inv -> do
-  let t = max threshold majority
-  let l = length inv
-  lift $ sendUI $ UI_MofN l t
-  pure $ if l >= t then Just inv else Nothing
+  let n = max threshold majority
+  let m = length inv
+  lift $ sendUI $ UI_MofN m n
+  pure $ if m >= n then Just inv else Nothing
 
 collectMembers :: (Base m, Serialize a) => [Address] -> Collect a m [Ballot a]
 collectMembers addrs = collectWith \_ inv -> do
