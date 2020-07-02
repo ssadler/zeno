@@ -133,7 +133,7 @@ collectThreshold :: (Base m, Serialize a) => Int -> Collect a m (Inventory a)
 collectThreshold threshold = collectWith \majority inv -> do
   let t = max threshold majority
   let l = length inv
-  -- sendUI $ UI_MofN l t
+  lift $ sendUI $ UI_MofN l t
   pure $ if l >= t then Just inv else Nothing
 
 collectMembers :: (Base m, Serialize a) => [Address] -> Collect a m [Ballot a]
@@ -141,9 +141,9 @@ collectMembers addrs = collectWith \_ inv -> do
   let n = length addrs
       r = catMaybes [Map.lookup a inv | a <- addrs]
       m = length r
-  -- sendUI $ UI_MofN m n
+  lift $ sendUI $ UI_MofN m n
   pure $
-    if m == n
+    if m >= n
        then Just [Ballot a s o | (a, (s, o)) <- zip addrs r]
        else Nothing
 
@@ -154,6 +154,8 @@ collectWith :: (Base m, Serialize a) => (Int -> Inventory a -> Consensus m (Mayb
 collectWith f recv = do
   ConsensusParams{..} <- asks has
   let majority = majorityThreshold $ length members'
+  -- init
+  f majority mempty
 
   either pure (\() -> throwIO ConsensusTimeout) =<<
     runExceptT do
