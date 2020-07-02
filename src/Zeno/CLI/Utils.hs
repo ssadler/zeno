@@ -1,6 +1,8 @@
 
 module Zeno.CLI.Utils where
 
+import qualified Haskoin as H
+
 import Network.Komodo
 import Network.Bitcoin
 import Network.Ethereum
@@ -26,6 +28,9 @@ runFromSec sk = do
   let pk = derivePubKey sk
   putStrLn $ printf "SecKey:    %s" (stripQuotes $ show sk)
   putStrLn $ printf "PubKey:    %s" (stripQuotes $ show pk)
+  let hsk = read $ show $ show sk
+  putStrLn $ printf "KMD Wif:   %s" (stripQuotes $ toS $ H.toWif komodo $ H.SecKeyI hsk True)
+
   runFromPub pk
 
 runFromPub :: PubKey -> IO ()
