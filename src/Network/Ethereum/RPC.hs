@@ -50,7 +50,6 @@ waitTransactionConfirmed1 timeout txid = do
 
 eth_sendRawTransaction :: Has GethConfig r => Transaction -> Zeno r Sha3
 eth_sendRawTransaction tx = do
-  logInfo $ "Sending transaction: " ++ (show $ hashTx tx)
   queryEthereum "eth_sendRawTransaction" [tx]
 
 eth_getTransactionReceipt :: Has GethConfig r => EthTxHash -> Zeno r TransactionReceipt
