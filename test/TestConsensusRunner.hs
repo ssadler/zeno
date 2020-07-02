@@ -31,9 +31,9 @@ unit_test_sync = do
   void $ runTestNode 2 do
     flip runStateT (replicate 2 emptyRunnerState) do
       node 0 do
-        handleEvent $ NewStep minBound $ createStep step0 $ Just 0
+        handleEvent $ NewStep stepId0 $ createStep step0 $ Just 0
       node 1 do
-        handleEvent $ NewStep minBound $ createStep step1 $ Just 1
+        handleEvent $ NewStep stepId0 $ createStep step1 $ Just 1
 
       node 0 $ getMsg >>= handleEvent . PeerMessage
       node 1 $ getMsg >>= handleEvent . PeerMessage
@@ -41,12 +41,14 @@ unit_test_sync = do
       dumpInv step0 >>= (@?= targetInv0)
       dumpInv step1 >>= (@?= targetInv0)
 
-    msgMap <- use _2 <&> over (each . each) (decodeAuthenticated step0 . fmap (BSL.drop 12))
+    msgMap <- use _2 <&> over (each . each) (decodeAuthenticated step0 . fmap (BSL.drop 13))
     msgMap @?=
       Map.fromList [ ("0:0", [Right (StepMessage 3 0 mempty)])
                    , ("1:1", [Right (StepMessage 3 0 mempty)])
                    ]
 
+stepId0 = StepId minBound 0 0
+stepId1 = StepId minBound 1 0
 
 unit_test_miss_cache :: IO ()
 unit_test_miss_cache = do
@@ -55,11 +57,11 @@ unit_test_miss_cache = do
   void $ runTestNode 2 do
     flip runStateT (replicate 2 emptyRunnerState) do
 
-      node 0 $ handleEvent $ NewStep minBound $ createStep step0 $ Just 0
+      node 0 $ handleEvent $ NewStep stepId0 $ createStep step0 $ Just 0
       node 1 do
         getMsg >>= handleEvent . PeerMessage
         use (_missCache . to length) >>= (@?= 1)
-        handleEvent $ NewStep minBound $ createStep step1 $ Just 1
+        handleEvent $ NewStep stepId0 $ createStep step1 $ Just 1
         use (_missCache . to length) >>= (@?= 0)
       dumpInv step1 >>= (@?= targetInv0)
 
@@ -68,6 +70,7 @@ data RoundState
   = INIT
   | STEP Int (Step Int) (Inventory Int)
   | DONE
+  | TIMEOUT
   deriving (Eq)
 
 instance Eq (Step i) where
@@ -76,6 +79,7 @@ instance Eq (Step i) where
 instance Show RoundState where
   show INIT = "INIT"
   show DONE = "DONE"
+  show TIMEOUT = "TIMEOUT"
   show (STEP sid Step{..} inv) = "STEP %i %i" % (sid, length inv)
 
 
@@ -90,39 +94,42 @@ unit_test_round_ideal = do
   void $ runTestNode nnodes do
     flip runStateT (replicate nnodes emptyRunnerState) do
 
-      -- WHILE loop
-      fix1 (replicate nnodes INIT) \go r -> do
+      res <- do
 
-        -- for each node
-        r' <- forM (zip [0..] r) \(n, s) -> do
-          node n do
-            case s of
-              DONE -> pure DONE
-              INIT -> do
-                let step = allSteps !! 0 !! n
-                handleEvent $ NewStep minBound $ createStep step $ Just n
-                inv <- snd <$> readIORef (ioInv step)
-                pure $ STEP 0 step inv
+        -- WHILE loop
+        fix1 (replicate nnodes INIT) \go r -> do
 
-              STEP stepNum stepData inv -> do
-                getMsgMaybe >>= mapM_ (handleEvent . PeerMessage)
-                inv <- snd <$> readIORef (ioInv stepData)
-                if | length inv < nnodes -> pure $ STEP stepNum stepData inv
-                   | stepNum == nsteps-1 -> pure DONE
-                   | otherwise -> do
-                       let step = allSteps !! (stepNum+1) !! n
-                       handleEvent $ NewStep minBound $ createStep step $ Just n
-                       inv <- snd <$> readIORef (ioInv step)
-                       pure $ STEP (stepNum+1) step inv
+          -- for each node
+          r' <- forM (zip [0..] r) \(n, s) -> do
+            node n do
+              case s of
+                DONE -> pure DONE
+                TIMEOUT -> pure TIMEOUT
+                INIT -> do
+                  let step = allSteps !! 0 !! n
+                  let stepId = StepId minBound 0 0
+                  handleEvent $ NewStep stepId $ createStep step $ Just n
+                  inv <- snd <$> readIORef (ioInv step)
+                  pure $ STEP 0 step inv
 
-        mboxes <- lift $ use _mboxes
-        if | (r == r' && length mboxes == 0) -> fail $ "blocked: " ++ show r'
-           | r /= replicate nnodes DONE -> go r'
-           | otherwise -> pure ()
+                STEP stepNum stepData inv -> do
+                  getMsgMaybe >>= mapM_ (handleEvent . PeerMessage)
+                  inv <- snd <$> readIORef (ioInv stepData)
+                  if | length inv < nnodes -> pure $ STEP stepNum stepData inv
+                     | stepNum == nsteps-1 -> pure DONE
+                     | otherwise -> do
+                         let step = allSteps !! (stepNum+1) !! n
+                         let stepId = StepId minBound (fromIntegral $ stepNum+1) 0
+                         handleEvent $ NewStep stepId $ createStep step $ Just n
+                         inv <- snd <$> readIORef (ioInv step)
+                         pure $ STEP (stepNum+1) step inv
 
+          mboxes <- lift $ use _mboxes
+          if | (r == r' && length mboxes == 0) -> pure r'
+             | r == replicate nnodes DONE -> pure r'
+             | otherwise -> go r'
 
-
-
+      res @?= replicate nnodes DONE
 
 
 identsInf = map deriveEthIdent $ drop 1 [minBound..]
@@ -145,7 +152,7 @@ testSteps :: MonadIO m => Int -> [EthIdent] -> m [Step Int]
 testSteps stepNum idents = do
   let members = ethAddress <$> idents
       membersSet = Set.fromList members
-      stepId = StepId minBound $ fromIntegral stepNum
+      stepId = StepId minBound (fromIntegral stepNum) 0
       yield inv = pure ()
   forM idents \ident -> do
     ioInv <- newIORef (0, mempty)
@@ -155,9 +162,9 @@ testSteps stepNum idents = do
 type TestBase = StateT TestNodeState TestIO
 
 type TestNodeState =
-  ( [NodeId]
-  , Map NodeId [RemoteMessage LazyByteString]
-  , Maybe Int -- currently focused node
+  ( [NodeId]                                   -- peers
+  , Map NodeId [RemoteMessage LazyByteString]  -- mailboxes
+  , Maybe Int                                  -- currently focused node
   )
 _mboxes = _1
 emptyTestNode = (mempty, mempty, Nothing) :: TestNodeState

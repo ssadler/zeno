@@ -15,15 +15,14 @@ import Network.Komodo
 
 import Zeno.Consensus.Types
 import Zeno.Console
+import Zeno.Notariser.EthGateway
 import Zeno.Notariser.Types
 import Zeno.Notariser.Targets
 import Zeno.Prelude
 
-import Zeno.EthGateway
-
 
 --------------------------------------------------------------------------------
--- Synchrnous Notariser interface
+-- Synchronous Notariser interface
 --------------------------------------------------------------------------------
 
 

@@ -7,7 +7,6 @@ import Network.Bitcoin
 import Network.Ethereum
 import Network.Komodo
 import Zeno.Consensus.Types
-import Zeno.EthGateway
 import Zeno.Prelude
 
 

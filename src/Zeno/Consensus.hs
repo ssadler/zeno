@@ -15,6 +15,7 @@ module Zeno.Consensus
   , stepOptData
   , withConsensusNode
   , withConsensusRunnerContext
+  , withRetry
   ) where
 
 import qualified Data.ByteString as BS

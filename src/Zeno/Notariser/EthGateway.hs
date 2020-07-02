@@ -1,5 +1,5 @@
 
-module Zeno.EthGateway where
+module Zeno.Notariser.EthGateway where
 
 import qualified Data.ByteString as BS
 

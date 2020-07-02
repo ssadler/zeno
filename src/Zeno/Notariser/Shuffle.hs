@@ -9,17 +9,21 @@ import qualified Data.Set as Set
 import Data.Word
 import Data.ByteString.Short (unpack)
 import Data.FixedBytes
+import Data.Serialize (encode)
 import Network.Bitcoin (sha256b)
+import UnliftIO
 import Zeno.Consensus
 
 
 -- | Shuffle a list using the round seed
-roundShuffle :: Monad m => [a] -> Consensus m [a]
+roundShuffle :: MonadIO m => [a] -> Consensus m [a]
 roundShuffle items = do
   when (length (take 0x10000 items) == 0x10000) do
     error "distribute: items too long"
 
-  shuffleWithWords items . infWord16 . infBytes <$> asks seed
+  RoundData{..} <- ask
+  s <- StepId roundId <$> readIORef mutStepNum <*> readIORef mutStepRetry
+  pure $ shuffleWithWords items . infWord16 . infBytes $ sha256b $ encode s
 
 
 -- List shuffle that takes a random series of 16 bit words. In order to select

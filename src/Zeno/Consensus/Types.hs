@@ -61,10 +61,14 @@ instance Serialize a => Serialize (StepMessage a)
 
 data StepId = StepId
   { stRoundId   :: RoundId
-  , stStepNum   :: VarInt
-  } deriving (Eq, Show, Generic)
+  , stStepNum   :: Word8
+  , stRetry     :: Word8
+  } deriving (Eq, Ord, Generic)
 
 instance Serialize StepId
+
+instance Show StepId where
+  show (StepId r n p) = "%s:%i:%i" % (show r, n, p)
 
 -- Params ---------------------------------------------------------------------
 
@@ -117,7 +121,7 @@ instance MonadLogger m => MonadLogger (ConsensusStep m) where
 type RoundId = Bytes11
 
 data ConsensusControlMsg m
-  = NewStep RoundId (ConsensusStep m Void)
+  = NewStep StepId (ConsensusStep m Void)
   | NewPeer NodeId
   | GetRoundSize RoundId (Int -> m ())
   | PeerMessage (RemoteMessage LazyByteString)
@@ -128,10 +132,12 @@ type ConsensusRunner m = Process (ConsensusControlMsg m)
 type ZenoRunnerBase = Zeno (Node, PeerState)
 
 data RoundData m = RoundData
-  { manager :: ConsensusRunner m
-  , params  :: ConsensusParams
-  , seed    :: Bytes32
-  , roundId :: RoundId
+  { manager      :: ConsensusRunner m
+  , params       :: ConsensusParams
+  , seed         :: Bytes32
+  , roundId      :: RoundId
+  , mutStepNum   :: IORef Word8
+  , mutStepRetry :: IORef Word8
   }
 
 instance Has ConsensusParams (RoundData m) where has = params

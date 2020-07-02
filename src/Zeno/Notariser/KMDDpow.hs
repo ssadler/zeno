@@ -15,7 +15,6 @@ import Network.Ethereum (EthIdent(..))
 import Zeno.Console
 import Zeno.Consensus
 import Zeno.Notariser.Collect
-import Zeno.Notariser.Common.KMD
 import Zeno.Notariser.Common
 import Zeno.Notariser.Shuffle
 import Zeno.Notariser.Types
@@ -78,7 +77,11 @@ collectInputs kmdNotaryInputs _threshold ballots =
      then Nothing
      else Just $ snd <$> ballots
 
-
+kmdDataOutputs :: Word64 -> H.ScriptOutput -> ByteString -> [H.TxOut]
+kmdDataOutputs amount recip opret = 
+   [ H.TxOut amount $ H.encodeOutputBS recip
+   , H.TxOut 0 $ H.encodeOutputBS $ H.DataCarrier opret
+   ]
 
 -- | Given selected UTXOs, compile a tx and sign own inputs, if any.
 signMyInput :: NotariserConfig -> H.SecKey -> Map Address UTXO -> [H.TxOut] -> SaplingTx

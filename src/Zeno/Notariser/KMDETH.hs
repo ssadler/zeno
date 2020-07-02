@@ -13,15 +13,15 @@ import Network.Komodo
 import Network.HTTP.Simple
 import Network.JsonRpc
 
-import Zeno.EthGateway
 import Zeno.Notariser.Common
-import Zeno.Notariser.Common.KMD
 import Zeno.Notariser.Collect
+import Zeno.Notariser.EthGateway
 import Zeno.Notariser.KMDDpow
 import Zeno.Notariser.Shuffle
+import Zeno.Notariser.Synchronous
 import Zeno.Notariser.Targets
 import Zeno.Notariser.Types
-import Zeno.Notariser.Synchronous
+import Zeno.Notariser.UTXO
 import Zeno.Consensus
 import Zeno.Console
 import Zeno.Prelude
@@ -47,7 +47,8 @@ runNotariseKmdToEth pk gateway networkConfig gethConfig kmdConfPath consoleArgs 
           EthIdent{..} <- asks has
           logInfo $ "KMD address: " ++ show kmdAddress
           logInfo $ "ETH address: " ++ show ethAddress
-          runKmdThreads
+
+          forkMonitorUTXOs 5 20
           runNotariserForever
 
 
@@ -160,22 +161,24 @@ notariseToETH nc@NotariserConfig{..} label notarisationParams = do
     _ <- step "init" () collectMajority
 
     -- Now collect sigs; the proposer needs to collect many sigs, the rest don't
-    dist@(proposer:_) <- roundShuffle members
-    proposal <-
-      step "sigs" proxySigHash $
-        \recv -> do
-          if ethAddress == proposer
-             then do
-               logDebug "I am proposer"
-               chosen <- collectWeighted dist threshold recv
-               let proxyCallData = ethMakeProxyCallData proxyParams (bSig <$> unInventory chosen)
-               tx <- lift $ ethMakeNotarisationTx nc proxyCallData
-               pure $ Just (chosen, tx) -- Send chosen sigs to make it easy to reconstruct tx
-             else do
-               pure Nothing
 
-    -- Lastly, get the tx from the proposer
-    stepOptData "tx" proposal $ collectMember proposer
+    withRetry 1 do
+      dist@(proposer:_) <- roundShuffle members
+      proposal <-
+        step "sigs" proxySigHash
+          \recv -> do
+            if ethAddress == proposer
+               then do
+                 logDebug "I am proposer"
+                 chosen <- collectWeighted dist threshold recv
+                 let proxyCallData = ethMakeProxyCallData proxyParams (bSig <$> unInventory chosen)
+                 tx <- lift $ ethMakeNotarisationTx nc proxyCallData
+                 pure $ Just (chosen, tx) -- Send chosen sigs to make it easy to reconstruct tx
+               else do
+                 pure Nothing
+
+      -- Lastly, get the tx from the proposer
+      stepOptData "tx" proposal $ collectMember proposer
 
 
   --- Validate the transaction and dispatch to chain

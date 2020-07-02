@@ -14,7 +14,7 @@ import Network.Ethereum.Transaction
 import Zeno.Consensus
 import Zeno.Data.Aeson
 import Zeno.Prelude
-import Zeno.EthGateway
+import Zeno.Notariser.EthGateway
 import Zeno.Notariser.Targets
 
 import UnliftIO
