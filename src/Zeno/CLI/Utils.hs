@@ -29,7 +29,7 @@ runFromSec sk = do
   putStrLn $ printf "SecKey:    %s" (stripQuotes $ show sk)
   putStrLn $ printf "PubKey:    %s" (stripQuotes $ show pk)
   let hsk = read $ show $ show sk
-  putStrLn $ printf "KMD Wif:   %s" (stripQuotes $ toS $ H.toWif komodo $ H.SecKeyI hsk True)
+  putStrLn $ printf "KMD wif:   %s" (stripQuotes $ toS $ H.toWif komodo $ H.SecKeyI hsk True)
 
   runFromPub pk
 
