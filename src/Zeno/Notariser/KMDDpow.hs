@@ -38,6 +38,7 @@ notariseKmdDpow nc@NotariserConfig{..} label ndata = do
         _ <- step "init" () collectMajority
 
         dist@(proposer:_) <- roundShuffle members
+        logDebug $ "Proposer is: " ++ show proposer
 
         proposal <- step "utxos" (kmdPubKeyI, getOutPoint utxo) $
             if ethAddress == proposer

@@ -164,12 +164,12 @@ notariseToETH nc@NotariserConfig{..} label notarisationParams = do
 
     withRetry 1 do
       dist@(proposer:_) <- roundShuffle members
+      logDebug $ "Proposer is: " ++ show proposer
       proposal <-
         step "sigs" proxySigHash
           \recv -> do
             if ethAddress == proposer
                then do
-                 logDebug "I am proposer"
                  chosen <- collectWeighted dist threshold recv
                  let proxyCallData = ethMakeProxyCallData proxyParams (bSig <$> unInventory chosen)
                  tx <- lift $ ethMakeNotarisationTx nc proxyCallData
