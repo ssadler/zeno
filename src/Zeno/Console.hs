@@ -8,6 +8,7 @@ module Zeno.Console
   ) where
 
 import Control.Monad
+import Control.Monad.Reader
 import Control.Monad.State
 import Control.Monad.Logger hiding (logInfo)
 
@@ -42,6 +43,8 @@ instance MonadLoggerUI (Zeno r) where
           atomically (writeTBQueue chan $ UIEvent evt)
         _ -> pure ()
 
+instance MonadLoggerUI (ReaderT r (Zeno r')) where
+  sendUI = lift . sendUI
 
 data UI = UI
   { _numPeers :: Int

@@ -1,18 +1,21 @@
+{-# LANGUAGE UndecidableInstances #-}
 
 module Zeno.Consensus.Types where
 
 import           Control.Monad.Reader
 import           Control.Monad.Skeleton
+import           Control.Monad.State
 
 import           Data.Bits
 import qualified Data.ByteString as BS
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 import           Data.Serialize
+import           Data.Time.Clock.POSIX
+import           Data.IntMap.Strict as IntMap
 
 import qualified Haskoin as H
 
-import           Control.Exception
 import           Network.Ethereum.Crypto
 import           Network.Ethereum.Data.Utils
 import           GHC.Generics (Generic)
@@ -28,11 +31,11 @@ import           Zeno.Consensus.P2P
 data ConsensusNode m = ConsensusNode
   { cpNode :: Node
   , cpPeers :: PeerState
-  , cpRunner :: ConsensusRunner m
+  , cpRunner :: RunnerProc m
   }
 instance Has Node (ConsensusNode m) where has = cpNode 
 instance Has PeerState (ConsensusNode m) where has = cpPeers
-instance Has (ConsensusRunner m) (ConsensusNode m) where has = cpRunner
+instance Has (RunnerProc m) (ConsensusNode m) where has = cpRunner
 
 data Ballot a = Ballot
   { bMember :: Address
@@ -93,11 +96,12 @@ newtype RoundProtocol = RoundProtocol Word64
   deriving Serialize via H.VarInt
 
 
--- Monad ----------------------------------------------------------------------
+-- Frontend -------------------------------------------------------------------
 --
 
-type Consensus m a = ReaderT (RoundData (ConsensusBackend m)) m a
+type Consensus m = ReaderT RoundData m
 
+-- Step --
 data StepInput
   = StepTick
   | StepData (RemoteMessage LazyByteString)
@@ -112,6 +116,7 @@ data ConsensusStepI m x where
   SendRemoteFree     :: NodeId -> LazyByteString -> ConsensusStepI m ()
   ConsensusStepLift  :: m a -> ConsensusStepI m a
 
+
 instance MonadIO m => MonadIO (ConsensusStep m) where
   liftIO = bone . ConsensusStepLift . liftIO
 
@@ -120,33 +125,32 @@ instance MonadLogger m => MonadLogger (ConsensusStep m) where
 
 type RoundId = Bytes11
 
-data ConsensusControlMsg m
-  = NewStep StepId (ConsensusStep m Void)
-  | NewPeer NodeId
-  | GetRoundSize RoundId (Int -> m ())
-  | PeerMessage (RemoteMessage LazyByteString)
-  | ReleaseRound Int RoundId
-  | DumpStatus
+type Resume m = StepInput -> ConsensusStep m Void
+type RoundsMap m = Map StepId (Resume m)
+type MissCache = IntMap.IntMap (StepId, RemoteMessage LazyByteString)
+type DelayMap m = Map POSIXTime (RunnerAction m)
+type RunnerState m = (RoundsMap m, DelayMap m, MissCache)
+_missCache :: Lens' (RunnerState m) MissCache
+_missCache = _3
+_delays :: Lens' (RunnerState m) (DelayMap m)
+_delays = _2
 
-type ConsensusRunner m = Process (ConsensusControlMsg m)
+type RunnerProc m = MVar (RunnerState m)
 type ZenoRunnerBase = Zeno (Node, PeerState)
+newtype RunnerAction m = RunnerAction { unRunnerAction :: Runner m () }
+type Runner m = StateT (RunnerState m) m
 
-data RoundData m = RoundData
-  { manager      :: ConsensusRunner m
-  , params       :: ConsensusParams
+data RoundData = RoundData
+  { params       :: ConsensusParams
   , seed         :: Bytes32
   , roundId      :: RoundId
   , mutStepNum   :: IORef Word8
   , mutStepRetry :: IORef Word8
   }
 
-instance Has ConsensusParams (RoundData m) where has = params
+type RunnerBase m = (Monad m, HasP2P m, MonadIO m, MonadLogger m)
 
-class Monad m => ConsensusFrontend m where
-  type ConsensusBackend m :: * -> *
-
-instance ConsensusFrontend (Zeno r) where
-  type ConsensusBackend (Zeno r) = ZenoRunnerBase
+instance Has ConsensusParams RoundData where has = params
 
 type ZenoConsensusNode = ConsensusNode ZenoRunnerBase
 

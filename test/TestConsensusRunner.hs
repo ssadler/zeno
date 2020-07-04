@@ -31,12 +31,12 @@ unit_test_sync = do
   void $ runTestNode 2 do
     flip runStateT (replicate 2 emptyRunnerState) do
       node 0 do
-        handleEvent $ NewStep stepId0 $ createStep step0 $ Just 0
+        newStep stepId0 $ createStep step0 $ Just 0
       node 1 do
-        handleEvent $ NewStep stepId0 $ createStep step1 $ Just 1
+        newStep stepId0 $ createStep step1 $ Just 1
 
-      node 0 $ getMsg >>= handleEvent . PeerMessage
-      node 1 $ getMsg >>= handleEvent . PeerMessage
+      node 0 $ getMsg >>= onPeerMessage
+      node 1 $ getMsg >>= onPeerMessage
       
       dumpInv step0 >>= (@?= targetInv0)
       dumpInv step1 >>= (@?= targetInv0)
@@ -57,11 +57,11 @@ unit_test_miss_cache = do
   void $ runTestNode 2 do
     flip runStateT (replicate 2 emptyRunnerState) do
 
-      node 0 $ handleEvent $ NewStep stepId0 $ createStep step0 $ Just 0
+      node 0 $ newStep stepId0 $ createStep step0 $ Just 0
       node 1 do
-        getMsg >>= handleEvent . PeerMessage
+        getMsg >>= onPeerMessage
         use (_missCache . to length) >>= (@?= 1)
-        handleEvent $ NewStep stepId0 $ createStep step1 $ Just 1
+        newStep stepId0 $ createStep step1 $ Just 1
         use (_missCache . to length) >>= (@?= 0)
       dumpInv step1 >>= (@?= targetInv0)
 
@@ -108,19 +108,19 @@ unit_test_round_ideal = do
                 INIT -> do
                   let step = allSteps !! 0 !! n
                   let stepId = StepId minBound 0 0
-                  handleEvent $ NewStep stepId $ createStep step $ Just n
+                  newStep stepId $ createStep step $ Just n
                   inv <- snd <$> readIORef (ioInv step)
                   pure $ STEP 0 step inv
 
                 STEP stepNum stepData inv -> do
-                  getMsgMaybe >>= mapM_ (handleEvent . PeerMessage)
+                  getMsgMaybe >>= mapM_ onPeerMessage
                   inv <- snd <$> readIORef (ioInv stepData)
                   if | length inv < nnodes -> pure $ STEP stepNum stepData inv
                      | stepNum == nsteps-1 -> pure DONE
                      | otherwise -> do
                          let step = allSteps !! (stepNum+1) !! n
                          let stepId = StepId minBound (fromIntegral $ stepNum+1) 0
-                         handleEvent $ NewStep stepId $ createStep step $ Just n
+                         newStep stepId $ createStep step $ Just n
                          inv <- snd <$> readIORef (ioInv step)
                          pure $ STEP (stepNum+1) step inv
 
