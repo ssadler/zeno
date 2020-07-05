@@ -15,8 +15,6 @@ import GHC.Conc (unsafeIOToSTM)
 
 import Network.Ethereum (EthIdent(..), sha3b)
 
-import System.Posix.Signals
-
 import UnliftIO
 
 import Zeno.Consensus.P2P
@@ -24,6 +22,7 @@ import Zeno.Consensus.Step
 import Zeno.Consensus.Types
 import Zeno.Prelude
 import Zeno.Process
+import Zeno.Signal
 
 
 consensusCap :: CapabilityId
@@ -38,7 +37,7 @@ startConsensusRunner = do
   rio <- askRunInIO
   registerCapability consensusCap $ rio . runBackend proc . onPeerMessage
   registerOnNewPeer $ runBackend proc . advanceAll . StepNewPeer
-  liftIO $ installHandler sigUSR2 (Catch $ rio $ runBackend proc dumpStatus) Nothing
+  installSignalHandler sigUSR1 $ runBackend proc dumpStatus
   spawnNoHandle "Consensus manager" $ runProcessDelays proc
   pure proc
 

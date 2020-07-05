@@ -4,6 +4,7 @@ module Zeno.Process.Node.InboundRateLimit
   , ClassyAsync
   , classyAsync
   , newReceiverMap
+  , readReceiverMap
   , inboundConnectionLimit
   , testInboundConnectionLimit
   ) where
@@ -31,6 +32,9 @@ classyAsync = async
 
 newReceiverMap :: MonadConc m => m (ReceiverMap m)
 newReceiverMap = newMVar mempty
+
+readReceiverMap :: MonadConc m => ReceiverMap m -> m (Map.Map HostAddress Int)
+readReceiverMap = readMVar
 
 inboundConnectionLimit
   :: forall m a. MonadConc m

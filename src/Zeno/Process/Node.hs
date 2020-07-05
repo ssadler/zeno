@@ -21,15 +21,16 @@ import Zeno.Process.Spawn
 import Zeno.Process.Types
 import Zeno.Process.Node.InboundRateLimit
 import Zeno.Process.Remote
+import Zeno.Signal
 
 
 withNode :: NetworkConfig -> Zeno Node a -> Zeno () a
 withNode (NetworkConfig host port) act = do
   withRunInIO \rio -> do
-    setupSignals
     listen host (show port) $ \(server, serverAddr) -> do
       node <- mkNode server
       rio do
+        setupSignals node
         withLocalResources do -- This is neccesary so that the server thread gets killed
                               -- before the socket file descriptor is cleaned up. We also
                               -- want to bind the socket in the calling thread in case of any
@@ -65,9 +66,19 @@ withNode (NetworkConfig host port) act = do
       filterInboundConnections node sockAddr asnc $
         runConnection node sock
 
-  setupSignals = do
+  setupSignals node = do
     -- http://hackage.haskell.org/package/network-2.6.0.2/docs/Network.html#g:10
-    installHandler sigPIPE Ignore Nothing 
+    liftIO $ installHandler sigPIPE Ignore Nothing
+    installSignalHandler sigUSR1 $ dumpNode node
+
+dumpNode :: Node -> Zeno () ()
+dumpNode Node{..} = do
+  logInfo $ "My NodeId: " ++ show myNodeId
+  logInfo "Forwarders:"
+  -- Map.keys <$> readMVar mforwarders >>= mapM (logInfo . show)
+  logInfo "Receivers"
+  Map.toList <$> liftIO (readReceiverMap mreceivers) >>=
+    mapM_ (\(ip, i) -> logInfo $ "%i %s" % (i, renderIp ip))
 
 
 maxConn :: Int

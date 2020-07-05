@@ -21,12 +21,12 @@ import qualified Data.Set as Set
 
 import Network.HTTP.Simple
 import Network.Socket (HostAddress)
-import System.Posix.Signals
 import UnliftIO
 
 import Zeno.Console
 import Zeno.Process
 import Zeno.Prelude hiding (finally)
+import Zeno.Signal
 
 
 data P2PNode = P2PNode
@@ -95,15 +95,13 @@ startP2P seeds = do
   logInfo $ "My IP from icanhazip.com: " ++ renderIp p2pMyIp
   let state = PeerState{..}
   _ <- startPeerController state seeds
-  withRunInIO \rio ->
-    installHandler sigUSR1 (Catch $ rio $ dumpPeers state) Nothing
+  installSignalHandler sigUSR1 $ dumpPeers state
   pure state
   where
   dumpPeers PeerState{..} = do
     peers <- atomically $ readTVar p2pPeers
-    logInfo "Got signal USR1"
-    forM_ peers $ \p ->
-      logInfo $ show p
+    logInfo "Peers:"
+    forM_ peers $ logInfo . show
 
 
 getMyIpFromICanHazIp :: IO HostAddress
