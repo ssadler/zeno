@@ -71,7 +71,7 @@ withNode (NetworkConfig host port) act = do
 
 
 maxConn :: Int
-maxConn = 3
+maxConn = 20
 
 filterInboundConnections :: Node -> SockAddr -> ClassyAsync () -> (HostAddress -> Zeno () ()) -> Zeno () ()
 filterInboundConnections Node{..} sockAddr asnc act = do
