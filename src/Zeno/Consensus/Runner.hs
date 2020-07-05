@@ -1,5 +1,4 @@
-{-# LANGUAGE RankNTypes #-}
-{-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE Strict #-}
 
 module Zeno.Consensus.Runner where
 

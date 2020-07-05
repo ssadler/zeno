@@ -1,4 +1,5 @@
 {-# LANGUAGE QuasiQuotes #-}
+{-# LANGUAGE Strict #-}
 
 module Zeno.Process.Node where
 
@@ -119,19 +120,15 @@ runConnection :: Node -> Socket -> HostAddress -> Zeno () ()
 runConnection node@Node{..} conn ip = do
   handle (\ConnectionClosed -> mempty) do -- Don't spam up the log
     nodeId <- readHeader
-    -- forever do // Rather spookily, using `forever` here results in a memory leak.
-    -- Memory leaks in monadic loops have been encountered in Haskell but they are supposed
-    -- to be all fixed by now.
-    fix \f -> do
+    forever do
       len <- (decodeLazy <$> receiveLen 4) >>= either murphy pure :: Zeno () Word32
       receiveMessage (fromIntegral len) >>= handleMessage node nodeId
       threadDelay 10000 -- rate limit to a generous 100 messages/s
-      f
 
   where
   receiveMessage len = do
     when (len > 10000) do
-      throwIO $ NetworkMischief $ [pf|%? sent oversize message: %?|] (renderIp ip) len
+      throwIO $ NetworkMischief $ "%s sent oversize message: %i" % (renderIp ip, len)
     receiveLen len
 
   receiveLen :: Int -> Zeno () LazyByteString
