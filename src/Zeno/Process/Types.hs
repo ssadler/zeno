@@ -4,21 +4,22 @@ module Zeno.Process.Types where
 
 import Crypto.Hash
 import Control.Applicative
+import Control.Monad.Reader
 import qualified Data.ByteArray as BA
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BSL
 import Data.Hashable (Hashable)
-import Data.IntMap (IntMap)
+import qualified Data.Map as Map
 import Data.Serialize
 import Data.String
 import Data.Typeable
 import Data.Word
 import GHC.Generics (Generic)
-import qualified StmContainers.Map as STM
 import Network.Simple.TCP
 import Network.Socket (HostAddress)
 import UnliftIO
 import Data.FixedBytes
+import Zeno.Monad
 import Zeno.Process.Node.InboundRateLimit
 
 data NodeId = NodeId
@@ -41,12 +42,15 @@ instance IsString NodeId where
 
 data Node = Node
   { myNodeId :: NodeId
-  , capabilities :: STM.Map CapabilityId (RemoteMessage BSL.ByteString -> IO ())
-  , mforwarders :: STM.Map NodeId Forwarder
+  , capabilities :: IORef (Map.Map CapabilityId (RemoteMessage BSL.ByteString -> IO ()))
+  , mforwarders :: MVar (Map.Map NodeId Forwarder)
   , mreceivers :: ReceiverMap IO
   }
 
-type Forwarder = (TQueue ForwardMessage, TVar (IO ()))
+getMyIp :: Has Node r => Zeno r String
+getMyIp = asks $ hostName . myNodeId . has
+
+type Forwarder = (TQueue ForwardMessage, IORef (IO ()))
 
 type ForwardMessage = BSL.ByteString
 
@@ -95,7 +99,8 @@ instance HasReceive (TMVar i) i where
 data NetworkConfig = NetworkConfig
   { hostPref :: HostPreference
   , port :: Word16
-  } deriving (Show)
+  , getIP :: Zeno () String
+  }
 
 
 class Monad m => HasNode m where

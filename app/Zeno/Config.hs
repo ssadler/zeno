@@ -14,6 +14,7 @@ import           Network.Simple.TCP
 import           Zeno.Data.Aeson hiding (Parser)
 import           Zeno.Prelude
 import           Zeno.Process.Types
+import           Zeno.Process.GetIP
 import           Zeno.Consensus.Types
 
 import           Options.Applicative
@@ -65,8 +66,11 @@ optSeeds = option str
   <> metavar "HOST"
   <> help "ip:port" )
 
+optGetIp :: Parser (Zeno r HostName)
+optGetIp = pure $ renderIp <$> getMyIpFromICanHazIp
+
 optConsensusConfig = CNC <$> some optSeeds <*> optNetworkConfig
-optNetworkConfig = NetworkConfig <$> optBind <*> optPort
+optNetworkConfig = NetworkConfig <$> optBind <*> optPort <*> optGetIp
 
 -- Helpers --------------------------------------------------------------------
 

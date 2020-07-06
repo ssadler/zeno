@@ -5,7 +5,6 @@ module Zeno.Consensus.P2P
   ( HasP2P(..)
   , startP2P
   , PeerState
-  , getMyIpFromICanHazIp
   , sendPeers
   , registerOnNewPeer
   -- For testing
@@ -14,13 +13,10 @@ module Zeno.Consensus.P2P
   ) where
 
 import Control.Concurrent.STM.TVar (stateTVar)
-import qualified Data.Attoparsec.ByteString.Char8 as A
 import Data.Bits
 import qualified Data.IntMap.Strict as IntMap
 import qualified Data.Set as Set
 
-import Network.HTTP.Simple
-import Network.Socket (HostAddress)
 import UnliftIO
 
 import Zeno.Console
@@ -38,18 +34,7 @@ type Peers = Set.Set NodeId
 
 data PeerState = PeerState
   { p2pPeers :: TVar Peers
-  , p2pPeerNotifier :: PeerNotifier
-  , p2pMyIp :: HostAddress
-  }
-
-data PeerNotifierMessage =
-    SubscribeNewPeers Int (NodeId -> IO ())
-  | UnsubscribeNewPeers Int
-  | NewPeer NodeId
-
-data PeerNotifier = PeerNotifier
-  { pnProc :: Process PeerNotifierMessage
-  , pnCount :: TVar Int
+  , p2pPeerNotifier :: MVar (IntMap.IntMap (NodeId -> IO ()))
   }
 
 
@@ -70,29 +55,22 @@ sendPeers capid msg = do
 
 registerOnNewPeer :: Has PeerState r => (NodeId -> Zeno r ()) -> Zeno r ()
 registerOnNewPeer cb = do
-  PeerNotifier{..} <- asks $ p2pPeerNotifier . has
+  PeerState{..} <- asks has
+  rio <- askRunInIO
+  void $ allocate
+    do
+      liftIO do
+        modifyMVar p2pPeerNotifier \m -> do
+          let i = 1 + maybe 0 fst (IntMap.lookupMax m)
+          pure (IntMap.insert i (rio . cb) m, i)
 
-  (_, subId) <-
-    allocate (readTVarIO pnCount)
-             (send pnProc . UnsubscribeNewPeers)
-
-  UnliftIO unliftIO <- askUnliftIO
-  atomically do
-    writeTVar pnCount $ subId + 1
-    sendSTM pnProc $ SubscribeNewPeers subId $ unliftIO . cb
-
-
--- * Consensus
+    \i -> modifyMVar_ p2pPeerNotifier $ pure . IntMap.delete i
 
 
 startP2P :: [NodeId] -> Zeno Node PeerState
 startP2P seeds = do
   p2pPeers <- newTVarIO mempty
-  pnCount <- newTVarIO 0
-  pnProc <- spawn "peerNotifier" peerNotifier
-  let p2pPeerNotifier = PeerNotifier{..}
-  p2pMyIp <- liftIO getMyIpFromICanHazIp
-  logInfo $ "My IP from icanhazip.com: " ++ renderIp p2pMyIp
+  p2pPeerNotifier <- newMVar mempty
   let state = PeerState{..}
   _ <- startPeerController state seeds
   installSignalHandler sigUSR1 $ dumpPeers state
@@ -104,40 +82,19 @@ startP2P seeds = do
     forM_ peers $ logInfo . show
 
 
-getMyIpFromICanHazIp :: IO HostAddress
-getMyIpFromICanHazIp = do
-  ipBs <- getResponseBody <$> httpBS "http://ipv4.icanhazip.com"
-  let bail _ = fail $ "Could not parse IP from icanhazip.com: " <> show ipBs
-  either bail pure $ A.parseOnly parseIp ipBs
-  where
-  oct i = do
-    n <- A.decimal
-    if n > (255 :: Integer)
-       then fail "Invalid IP data"
-       else pure $ fromIntegral $ shift n i
-
-  parseIp = do
-    let parts =
-          [ oct  0 <* "."
-          , oct  8 <* "."
-          , oct 16 <* "."
-          , oct 24 <* A.skipSpace <* A.endOfInput
-          ]
-    sum <$> sequence parts
-
-
 peerCapabilityId :: CapabilityId
 peerCapabilityId = 1
 
 
 data PeerMsg = GetPeers | Peers Peers
-  deriving (Show, Generic)
+  deriving (Eq, Show, Generic)
 
 instance Serialize PeerMsg
 
 
 startPeerController :: PeerState -> [NodeId] -> Zeno Node ()
 startPeerController state@PeerState{..} seeds = do
+  myIp <- getMyIp
   void $ spawn "peerController" \chan -> do
     registerCapability 1 $ send chan
     forever do
@@ -145,26 +102,31 @@ startPeerController state@PeerState{..} seeds = do
       receiveDuringS (procMbox chan) 60 $
         withRemoteMessage
           \peer msg -> do
-            when (hostName peer /= renderIp p2pMyIp) do
+            when (hostName peer /= myIp) do
               handle peer msg
   where
   handle peer GetPeers = do
-    peers <- readTVarIO p2pPeers
-    let peersWithoutCaller = Peers $ Set.delete peer peers
-    sendRemote peer peerCapabilityId peersWithoutCaller
+    peers <- filterPeers <$> readTVarIO p2pPeers
+    sendRemote peer peerCapabilityId $ Peers peers
     newPeer peer
+    where
+    filterPeers =
+      Set.delete peer .
+       if hostName peer == "127.0.0.1"
+          then id
+          else Set.filter (\h -> hostName h /= "127.0.0.1")
 
   handle peer (Peers peers) = do
     known <- readTVarIO $ p2pPeers
     mapM_ doDiscover $ Set.toList $ Set.difference peers known
 
   doDiscover peer = do
-    when (hostName peer /= renderIp p2pMyIp) do
+    myIp <- getMyIp
+    when (hostName peer /= myIp) do
       sendRemote peer peerCapabilityId GetPeers
 
   newPeer :: NodeId -> Zeno Node ()
   newPeer nodeId = do
-    let PeerNotifier{..} = p2pPeerNotifier
     peers <- readTVarIO p2pPeers
 
     unless (Set.member nodeId peers) do
@@ -172,28 +134,15 @@ startPeerController state@PeerState{..} seeds = do
       nPeers <- atomically $ stateTVar p2pPeers f
       sendUI $ UI_Peers nPeers
       monitorRemote nodeId $ dropPeer nodeId
-      send pnProc $ NewPeer nodeId
+      notifyNewPeer nodeId
       sendRemote nodeId peerCapabilityId GetPeers
+
+  notifyNewPeer nodeId = do
+    liftIO $ forkIO do
+      cbs <- readMVar p2pPeerNotifier
+      forM_ cbs ($ nodeId)
 
   dropPeer nodeId = do
     atomically do
       modifyTVar p2pPeers $ Set.delete nodeId
     readTVarIO p2pPeers >>= sendUI . UI_Peers . length
-
-
-
-peerNotifier :: Process PeerNotifierMessage -> Zeno Node ()
-peerNotifier proc = do
-  fix1 mempty $
-    \go !listeners -> do
-      receiveWait proc >>=
-        \case
-          SubscribeNewPeers subId !f -> do
-            go $ IntMap.insert subId f listeners
-          UnsubscribeNewPeers subId -> do
-            go $ IntMap.delete subId listeners
-          NewPeer nodeId -> do
-            liftIO do
-              forM_ (IntMap.elems listeners) ($ nodeId)
-            go listeners
-

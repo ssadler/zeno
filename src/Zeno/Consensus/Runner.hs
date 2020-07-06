@@ -10,8 +10,6 @@ import qualified Data.Map as Map
 import Data.Time.Clock.POSIX
 import Data.Tuple (swap)
 
-import GHC.Conc (unsafeIOToSTM)
-
 import Network.Ethereum (EthIdent(..), sha3b)
 
 import UnliftIO
@@ -45,7 +43,7 @@ startConsensusRunner = do
     forever do
       threadDelay 50000
       now <- liftIO getPOSIXTime
-      acts <- 
+      acts <-
         modifyMVar proc \s -> do
           let (a, b) = Map.spanAntitone (<now) (view _delays s)
           pure (set _delays b s, Map.elems a)
@@ -94,13 +92,14 @@ releaseRound secs roundId = do
 
 newStep :: RunnerBase m => StepId -> ConsensusStep m Void -> Runner m ()
 newStep stepId skel = do
-  let addCachedInputs r = do
-        hits <- zoom _missCache do
-          state $ receiveCacheTake \(k, _) -> k == stepId
-        let inputs = StepData . snd <$> hits
-        foldM (\r -> execToWait stepId. r) r inputs
   resume <- execToWait stepId skel >>= addCachedInputs
   _1 . at stepId .= Just resume
+  where
+  addCachedInputs r = do
+    hits <- zoom _missCache do
+      state $ receiveCacheTake \(k, _) -> k == stepId
+    let inputs = StepData . snd <$> hits
+    foldM (\r -> execToWait stepId . r) r inputs
 
 dumpStatus :: RunnerBase m => Runner m ()
 dumpStatus = do
@@ -137,7 +136,7 @@ advanceOne stepId msg = do
 advanceAll :: RunnerBase m => StepInput -> Runner m ()
 advanceAll msg = do
   updateRounds $
-    Map.traverseWithKey \stepId f -> do
+    Map.traverseWithKey \stepId f ->
       execToWait stepId $ f msg
 
 updateRounds :: RunnerBase m => (RoundsMap m -> Runner m (RoundsMap m)) -> Runner m ()

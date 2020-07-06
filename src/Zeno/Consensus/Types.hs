@@ -89,7 +89,7 @@ instance Has EthIdent ConsensusParams where has = ident'
 data ConsensusNetworkConfig = CNC
   { seeds :: [NodeId]
   , netConf :: NetworkConfig
-  } deriving (Show)
+  }
 
 
 newtype RoundProtocol = RoundProtocol Word64
@@ -156,9 +156,9 @@ type ZenoConsensusNode = ConsensusNode ZenoRunnerBase
 
 data ConsensusTopicRegistered = ConsensusTopicRegistered deriving (Show)
 instance Exception ConsensusTopicRegistered
-data ConsensusTimeout = ConsensusTimeout deriving (Show)
+data ConsensusTimeout
+  = ConsensusTimeout
+  | ConsensusInvalidProposal String
+  | ConsensusMischief Address String
+  deriving (Show)
 instance Exception ConsensusTimeout
-data ConsensusMischief = ConsensusMischief Address String deriving (Show)
-instance Exception ConsensusMischief
-data ConsensusInvalidProposal = ConsensusInvalidProposal String deriving (Show)
-instance Exception ConsensusInvalidProposal

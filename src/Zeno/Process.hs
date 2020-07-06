@@ -10,7 +10,8 @@ module Zeno.Process
   , Process
   , NetworkConfig(..)
   , NodeId(..)
-  , Node(myNodeId)
+  , Node(..)
+  , getMyIp
   , monitorRemote
   , receiveDuring
   , receiveDuringS
@@ -20,7 +21,6 @@ module Zeno.Process
   , send
   , sendSTM
   , sendRemote
-  , renderIp
   , spawn
   , spawnNoHandle
   , withNode

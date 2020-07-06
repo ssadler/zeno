@@ -7,7 +7,6 @@ import Data.Serialize
 import qualified Data.Map as Map
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BSL
-import qualified StmContainers.Map as STM
 
 import Network.Simple.TCP
 import Network.Socket (SockAddr(..), HostAddress, hostAddressToTuple, getSocketName)
@@ -18,6 +17,7 @@ import UnliftIO
 import UnliftIO.Concurrent
 
 import Zeno.Prelude hiding (finally)
+import Zeno.Process.GetIP
 import Zeno.Process.Spawn
 import Zeno.Process.Types
 import Zeno.Process.Node.InboundRateLimit
@@ -26,11 +26,11 @@ import Zeno.Signal
 
 
 withNode :: NetworkConfig -> Zeno Node a -> Zeno () a
-withNode (NetworkConfig host port) act = do
+withNode (NetworkConfig host port ipProvider) act = do
   withRunInIO \rio -> do
     listen host (show port) $ \(server, serverAddr) -> do
-      node <- mkNode server
       rio do
+        node <- mkNode server
         setupSignals node
         withLocalResources do -- This is neccesary so that the server thread gets killed
                               -- before the socket file descriptor is cleaned up. We also
@@ -39,15 +39,18 @@ withNode (NetworkConfig host port) act = do
           spawn "socket server" \_ -> do
             forever do
               acceptForkAsync server $ wrapRunConn node
-          logInfo $ [pf|Listening on %?|] serverAddr
+          logInfo $ "Listening on %s" % (show serverAddr)
           withContext (const node) act
   where
   mkNode serverSock = do
-    myNodeId <- fromString . show <$> getSocketName serverSock -- flimsy?
-    mforwarders <- STM.newIO
-    mreceivers <- newReceiverMap
-    capabilities <- STM.newIO
-    pure Node{..}
+    myIpStr <- ipProvider
+    liftIO do
+      SockAddrInet boundPort _ <- liftIO $ getSocketName serverSock
+      let myNodeId = NodeId myIpStr $ fromIntegral boundPort
+      capabilities <- newIORef mempty
+      mforwarders <- newMVar mempty
+      mreceivers <- newReceiverMap
+      pure Node{..}
 
   acceptForkAsync :: MonadUnliftIO m => Socket -> ((Socket, SockAddr) -> ClassyAsync () -> m ()) -> m ()
   acceptForkAsync server act = do
@@ -61,8 +64,6 @@ withNode (NetworkConfig host port) act = do
               do closeSock $ fst client
 
   wrapRunConn node s@(sock, sockAddr) asnc = do
-    -- TODO: logDebug new connections
-    -- Is it logging connection errors here?
     logDiedSync ("IN:" ++ show sockAddr) do
       filterInboundConnections node sockAddr asnc $
         runConnection node sock
@@ -76,7 +77,7 @@ dumpNode :: Node -> Zeno () ()
 dumpNode Node{..} = do
   logInfo $ "My NodeId: " ++ show myNodeId
   logInfo "Forwarders:"
-  -- Map.keys <$> readMVar mforwarders >>= mapM (logInfo . show)
+  Map.keys <$> readMVar mforwarders >>= mapM (logInfo . show)
   logInfo "Receivers"
   Map.toList <$> liftIO (readReceiverMap mreceivers) >>=
     mapM_ (\(ip, i) -> logInfo $ "%i %s" % (i, renderIp ip))
@@ -118,7 +119,7 @@ instance Exception ConnectionClosed
 
 runConnection :: Node -> Socket -> HostAddress -> Zeno () ()
 runConnection node@Node{..} conn ip = do
-  handle (\ConnectionClosed -> mempty) do -- Don't spam up the log
+  -- handle (\ConnectionClosed -> mempty) do -- Don't spam up the log
     nodeId <- readHeader
     forever do
       len <- (decodeLazy <$> receiveLen 4) >>= either murphy pure :: Zeno () Word32
@@ -128,7 +129,7 @@ runConnection node@Node{..} conn ip = do
   where
   receiveMessage len = do
     when (len > 10000) do
-      throwIO $ NetworkMischief $ "%s sent oversize message: %i" % (renderIp ip, len)
+      throwIO $ NetworkMischief $ [pf|%? sent oversize message: %?|] (renderIp ip) len
     receiveLen len
 
   receiveLen :: Int -> Zeno () LazyByteString
@@ -152,15 +153,11 @@ runConnection node@Node{..} conn ip = do
         -- Someone is port scanning, or running incorrect version
         throwIO ConnectionClosed
 
-renderIp :: HostAddress -> String
-renderIp ip = "%i.%i.%i.%i" % hostAddressToTuple ip
-
 handleMessage :: Node -> NodeId -> LazyByteString -> Zeno () ()
 handleMessage _ _ "" = pure ()
 handleMessage Node{..} nodeId bs = do
   let capid = CapabilityId $ BSL.head bs
-  atomically (STM.lookup capid capabilities) >>=
-    \case
-      Nothing -> pure ()
-      Just recv -> do
-        liftIO $ recv (RemoteMessage nodeId $ BSL.tail bs)
+  caps <- readIORef capabilities
+  forM_ (Map.lookup capid caps)
+    \recv -> do
+      liftIO $ recv $ RemoteMessage nodeId $ BSL.tail bs
