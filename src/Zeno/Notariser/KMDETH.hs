@@ -89,16 +89,14 @@ runNotariserForever = do
 
     runRepeatedly act = do
       let maxCount = 10
+          handleTimeout ConsensusTimeout = pure ()
+          handleTimeout e = logWarn (show e)
       fix1 0 \f i -> do
         when (i < maxCount) do
           join do
-            catches
-              do act >> pure (f $ i+1)
-              [ Handler $ \ConsensusTimeout -> pure $ f $ i+3
-              , Handler $ \e@(ConsensusInvalidProposal s) -> do
-                  logWarn $ show e
-                  pure $ f $ i+1
-              ]
+            catch
+              do act >> pure (f (i+1))
+              \e -> handleTimeout e >> pure (f (i+2))
 
 
 runNotariserSync :: NotariserConfig
