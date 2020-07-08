@@ -22,5 +22,9 @@ test_consensusReceiveCache = testGroup "consensusReceiveCache"
 
   , testCase "cache get with hits deletes older" do
       receiveCacheTake (==150) rc1 @?= ([150], IntMap.fromList [(200, 200)])
+
+  , testCase "cache never grows beyond 1000 elements" do
+      let c = foldr receiveCachePut mempty [0..1100]
+      length c @?= 1000
       
   ]

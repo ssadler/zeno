@@ -150,7 +150,9 @@ receiveCachePut :: a -> IntMap a -> IntMap a
 receiveCachePut miss cache =
   case IntMap.lookupMax cache of
     Nothing -> IntMap.singleton 0 miss
-    Just (maxId, _) -> IntMap.insert (maxId + 1) miss cache
+    Just (maxId, _) ->
+      let next = IntMap.insert (maxId + 1) miss cache
+       in if length next == 1001 then IntMap.deleteMin next else next
 
 receiveCacheTake :: (a -> Bool) -> IntMap a -> ([a], IntMap a)
 receiveCacheTake f m =
