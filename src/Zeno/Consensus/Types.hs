@@ -101,9 +101,11 @@ newtype RoundProtocol = RoundProtocol Word64
 
 type Consensus m = ReaderT RoundData m
 
+data StepTickType = TickQuery | TickPropagate
+
 -- Step --
 data StepInput
-  = StepTick
+  = StepTick StepTickType
   | StepData (RemoteMessage LazyByteString)
   | StepNewPeer NodeId
 
@@ -111,7 +113,7 @@ type ConsensusStep m = Skeleton (ConsensusStepI m)
 
 data ConsensusStepI m x where
   ReceiveFree        :: ConsensusStepI m StepInput
-  RegisterTickFree   :: Int -> ConsensusStepI m ()
+  RegisterTickFree   :: StepTickType -> Int -> ConsensusStepI m ()
   GetPeersFree       :: ConsensusStepI m [NodeId]
   SendRemoteFree     :: NodeId -> LazyByteString -> ConsensusStepI m ()
   ConsensusStepLift  :: m a -> ConsensusStepI m a

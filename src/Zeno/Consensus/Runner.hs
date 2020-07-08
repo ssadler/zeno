@@ -3,7 +3,6 @@
 module Zeno.Consensus.Runner where
 
 import Control.Monad.State
-import Control.Monad.STM (orElse)
 
 import Data.IntMap.Strict as IntMap
 import qualified Data.Map as Map
@@ -122,10 +121,10 @@ execToWait stepId =
         go . f =<< lift do
           let msg = encodeLazy stepId <> bs
           sendRemoteBS nid consensusCap msg
-      RegisterTickFree us       :>>= f -> do
+      RegisterTickFree tick us  :>>= f -> do
         now <- liftIO getPOSIXTime
         let timeout = now + realToFrac us / 1000000
-        _2 %= Map.insert timeout (RunnerAction $ advanceOne stepId StepTick)
+        _2 %= Map.insert timeout (RunnerAction $ advanceOne stepId $ StepTick tick)
         go $ f ()
 
 advanceOne :: RunnerBase m => StepId -> StepInput -> Runner m ()

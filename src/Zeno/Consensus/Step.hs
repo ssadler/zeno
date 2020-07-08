@@ -10,8 +10,8 @@ module Zeno.Consensus.Step where
 
 import           Control.DeepSeq
 import           Control.Monad
-import           Control.Monad.STM (orElse)
 import           Control.Monad.Skeleton
+import           Control.Monad.State
 
 import           Data.Bits
 import           Data.Serialize
@@ -36,6 +36,9 @@ import           UnliftIO.Concurrent
 
 inventoryQueryInterval :: Int
 inventoryQueryInterval = 200 * 1000
+
+inventoryPropagateInterval :: Int
+inventoryPropagateInterval = 3000 * 1000
 
 data Step i = Step
   { ioInv      :: IORef (PackedInteger, Inventory i)
@@ -62,26 +65,40 @@ createStep step@Step{..} =
 runStepSkel :: (BallotData i, StepBase m) => Step i -> Maybe (Ballot i) -> ConsensusStep m Void
 runStepSkel step@Step{..} mballot = do
   forM_ mballot \(Ballot myAddr sig obj) -> do
-    onInventoryData step True $ Map.singleton myAddr (sig, obj)
-  bone $ RegisterTickFree inventoryQueryInterval
+    onInventoryData step $ Map.singleton myAddr (sig, obj)
+    broadcastInventory step True
+
+  bone $ RegisterTickFree TickQuery inventoryQueryInterval
   buildInventoryLoop step
 
 buildInventoryLoop :: StepBase m => BallotData i => Step i -> ConsensusStep m Void
 buildInventoryLoop step@Step{..} = do
-  forever do
-    fix1 mempty $ \go !idxs -> do
-      bone ReceiveFree >>=
+  flip evalStateT (mempty, False) do
+    forever do
+      lift (bone ReceiveFree) >>=
         \case
-          StepNewPeer peer -> onNewPeer step peer
-          StepTick -> do
-            sendInventoryQueries step $ Map.toList idxs
-            bone $ RegisterTickFree inventoryQueryInterval
+          StepNewPeer peer -> lift $ onNewPeer step peer
+          StepTick TickQuery -> do
+            idxs <- _1 <<.= mempty
+            lift do
+              sendInventoryQueries step $ Map.toList idxs
+              bone $ RegisterTickFree TickQuery inventoryQueryInterval
+          StepTick TickPropagate -> do
+            _2 .= False
+            lift $ broadcastInventory step False
           StepData msg -> msg &
             withDecodeAuthenticated step
                \peer (StepMessage theirIdx theirReq theirData) -> do
-                 onInventoryData step False theirData
-                 onInventoryRequest step peer theirReq
-                 go $ Map.insert peer theirIdx idxs
+
+                 _1 . at peer .= Just theirIdx
+
+                 lift $ onInventoryRequest step peer theirReq
+
+                 r <- lift $ onInventoryData step theirData
+                 when r do
+                   willPropagate <- _2 <<.= True
+                   when (not willPropagate) do
+                     lift $ bone $ RegisterTickFree TickPropagate inventoryPropagateInterval 
 
 onNewPeer :: (BallotData i, StepBase m) => Step i -> NodeId -> ConsensusStep m ()
 onNewPeer Step{..} peer = do
@@ -97,27 +114,33 @@ onInventoryRequest step@Step{..} peer theirReq = do
   sendAuthenticated step [peer] $ StepMessage myIdx 0 subset
 
 
-onInventoryData :: (BallotData i, StepBase m) => Step i -> Bool -> Inventory i -> ConsensusStep m ()
-onInventoryData _ _ theirInv | Map.null theirInv = pure ()
-onInventoryData step@Step{..} forwardInv theirInv = do
+onInventoryData :: (BallotData i, StepBase m) => Step i -> Inventory i -> ConsensusStep m Bool
+onInventoryData _ theirInv | Map.null theirInv = pure False
+onInventoryData step@Step{..} theirInv = do
 
   let theirIdx = inventoryIndex members theirInv
   (oldIdx, oldInv) <- readIORef ioInv
 
-  unless (0 == theirIdx .&. complement oldIdx) do
+  let haveNew = 0 < theirIdx .&. complement oldIdx
+      merged = mergeInventory membersSet oldInv theirInv
 
-    case mergeInventory membersSet oldInv theirInv of
-      Left s -> logWarn s
+  case (haveNew, merged) of
+    (True, Right newInv) -> do
+      let newIdx = theirIdx .|. oldIdx
+      writeIORef ioInv (newIdx, newInv)
 
-      Right newInv -> do
-        let newIdx = theirIdx .|. oldIdx
-        writeIORef ioInv (newIdx, newInv)
+      liftIO $ yield newInv
+      pure True
+    (_, r) -> do
+      either logWarn (\_ -> pure ()) r
+      pure False
 
-        liftIO $ yield newInv
-        peers <- bone GetPeersFree
-        let fwdInv = if forwardInv then newInv else mempty
-        sendAuthenticated step peers $ StepMessage newIdx 0 fwdInv
-
+broadcastInventory :: (BallotData i, StepBase m) => Step i -> Bool -> ConsensusStep m ()
+broadcastInventory step@Step{..} includeInv = do
+  (idx, inv) <- readIORef ioInv
+  let fwdInv = if includeInv then inv else mempty
+  peers <- bone GetPeersFree
+  sendAuthenticated step peers $ StepMessage idx 0 fwdInv
 
 mergeInventory :: BallotData i => Set Address -> Inventory i -> Inventory i -> Either String (Inventory i)
 mergeInventory membersSet ours theirs = do
@@ -178,8 +201,8 @@ sendAuthenticated Step{..} peers obj = do
 -- TODO: Track who sends bad data
 withDecodeAuthenticated
   :: (BallotData i, StepBase m)
-  => Step i -> (NodeId -> StepMessage i -> ConsensusStep m ())
-  -> RemoteMessage LazyByteString -> ConsensusStep m ()
+  => Step i -> (NodeId -> StepMessage i -> m ())
+  -> RemoteMessage LazyByteString -> m ()
 withDecodeAuthenticated step@Step{..} act msg = do
   let RemoteMessage nodeId _ = msg
   either logWarn (act nodeId) $ decodeAuthenticated step msg
