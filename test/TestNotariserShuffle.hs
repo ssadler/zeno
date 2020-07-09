@@ -15,7 +15,7 @@ test_notariserShuffle = testGroup "notariserShuffle"
     testProperty "output always isomorphic to input"
       \i word -> do
         let inp = [0..mod i 100 :: Int]
-            r = sort $ shuffleWithWords inp [word..]
+            r = sort $ shuffleWithWords inp [min word 65400..]
          in inp == sort r
 
   , testProperty "when the length is a power of two, never need to skip" do
