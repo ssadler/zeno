@@ -41,6 +41,11 @@ unit_test_sync = do
       dumpInv step0 >>= (@?= targetInv0)
       dumpInv step1 >>= (@?= targetInv0)
 
+      lift $ use _2 >>= (@?= Map.fromList [("0:0", []), ("1:1", [])])
+
+      node 0 $ use _delays >>= mapM_ unRunnerAction
+      node 1 $ use _delays >>= mapM_ unRunnerAction
+
     msgMap <- use _2 <&> over (each . each) (decodeAuthenticated step0 . fmap (BSL.drop 13))
     msgMap @?=
       Map.fromList [ ("0:0", [Right (StepMessage 3 0 mempty)])

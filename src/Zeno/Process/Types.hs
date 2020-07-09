@@ -61,7 +61,7 @@ type RemoteReceiver i = Receiver (RemoteMessage i)
 data RemoteMessage i = RemoteMessage
   { remoteNodeId :: NodeId
   , remoteMessage :: i
-  } deriving (Functor, Show, Typeable)
+  } deriving (Eq, Functor, Show, Typeable)
 
 
 newtype CapabilityId = CapabilityId Word8
