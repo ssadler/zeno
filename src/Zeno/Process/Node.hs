@@ -76,11 +76,10 @@ withNode (NetworkConfig host port ipProvider) act = do
 dumpNode :: Node -> Zeno () ()
 dumpNode Node{..} = do
   logInfo $ "My NodeId: " ++ show myNodeId
-  logInfo "Forwarders:"
-  Map.keys <$> readMVar mforwarders >>= mapM (logInfo . show)
-  logInfo "Receivers"
-  Map.toList <$> liftIO (readReceiverMap mreceivers) >>=
-    mapM_ (\(ip, i) -> logInfo $ "%i %s" % (i, renderIp ip))
+  forwarders <- readMVar mforwarders
+  logInfo $ "Forwarders: " ++ show (length forwarders)
+  receivers <- liftIO $ readReceiverMap mreceivers
+  logInfo $ "Receivers: " ++ show (length receivers)
 
 
 maxConn :: Int

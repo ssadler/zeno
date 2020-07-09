@@ -47,9 +47,6 @@ data Node = Node
   , mreceivers :: ReceiverMap IO
   }
 
-getMyIp :: Has Node r => Zeno r String
-getMyIp = asks $ hostName . myNodeId . has
-
 type Forwarder = (TQueue ForwardMessage, IORef (IO ()))
 
 type ForwardMessage = BSL.ByteString
@@ -106,4 +103,6 @@ data NetworkConfig = NetworkConfig
 class Monad m => HasNode m where
   type HandlerMonad m :: * -> *
   sendRemoteBS :: NodeId -> CapabilityId -> BSL.ByteString -> m ()
+  monitorRemote :: NodeId -> m () -> m ()
   registerCapability :: CapabilityId -> (RemoteMessage BSL.ByteString -> (HandlerMonad m) ()) -> m ()
+  getMyIp :: m String

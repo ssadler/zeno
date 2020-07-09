@@ -30,11 +30,11 @@ import           Zeno.Consensus.P2P
 
 data ConsensusNode m = ConsensusNode
   { cpNode :: Node
-  , cpPeers :: PeerState
+  , cpPeers :: PeerProc
   , cpRunner :: RunnerProc m
   }
 instance Has Node (ConsensusNode m) where has = cpNode 
-instance Has PeerState (ConsensusNode m) where has = cpPeers
+instance Has PeerProc (ConsensusNode m) where has = cpPeers
 instance Has (RunnerProc m) (ConsensusNode m) where has = cpRunner
 
 data Ballot a = Ballot
@@ -138,7 +138,7 @@ _delays :: Lens' (RunnerState m) (DelayMap m)
 _delays = _2
 
 type RunnerProc m = MVar (RunnerState m)
-type ZenoRunnerBase = Zeno (Node, PeerState)
+type ZenoRunnerBase = Zeno P2PNode
 newtype RunnerAction m = RunnerAction { unRunnerAction :: Runner m () }
 type Runner m = StateT (RunnerState m) m
 

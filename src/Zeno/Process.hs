@@ -11,8 +11,6 @@ module Zeno.Process
   , NetworkConfig(..)
   , NodeId(..)
   , Node(..)
-  , getMyIp
-  , monitorRemote
   , receiveDuring
   , receiveDuringS
   , receiveMaybe

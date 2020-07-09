@@ -31,8 +31,7 @@ startConsensusRunner :: ZenoRunnerBase (RunnerProc ZenoRunnerBase)
 startConsensusRunner = do
   proc <- newMVar emptyRunnerState
   rio <- askRunInIO
-  registerCapability consensusCap $ rio . runBackend proc . onPeerMessage
-  registerOnNewPeer $ runBackend proc . advanceAll . StepNewPeer
+  registerCapability consensusCap $ rio . runBackend proc . onMessage
   installSignalHandler sigUSR1 $ runBackend proc dumpStatus
   spawnNoHandle "Consensus manager" $ runProcessDelays proc
   pure proc
@@ -56,7 +55,7 @@ runBackend proc act = do
 liftBackend :: Has (ConsensusNode ZenoRunnerBase) r => Runner ZenoRunnerBase a -> Zeno r a
 liftBackend act = do
   ConsensusNode{..} <- asks has
-  withContext (\_ -> (cpNode, cpPeers)) do
+  withContext (\_ -> P2PNode cpNode cpPeers) do
     runBackend cpRunner act
 
 getRoundSize :: RunnerBase m => RoundId -> StateT (RunnerState m) m Int
@@ -65,8 +64,8 @@ getRoundSize roundId = do
   let f s = fromEnum $ stRoundId s == roundId
   pure $ Map.foldrWithKey (\s _ n -> n + f s) 0 l
 
-onPeerMessage :: RunnerBase m => RemoteMessage LazyByteString -> Runner m ()
-onPeerMessage (RemoteMessage nodeId bs) = do
+onMessage :: RunnerBase m => RemoteMessage LazyByteString -> Runner m ()
+onMessage (RemoteMessage nodeId bs) = do
   case decodeLazyState bs of
     Right (stepId, msg) -> do
       let rm = RemoteMessage nodeId msg

@@ -5,13 +5,15 @@ module Zeno.Notariser.Collect where
 import qualified Data.Set as Set
 import qualified Data.Map as Map
 
+import UnliftIO
+
 import Zeno.Console
 import Zeno.Consensus
 import Zeno.Prelude
 import Zeno.Process
 
 
-collectWeighted :: forall i m. MonadLoggerUI m
+collectWeighted :: forall i m. (MonadUnliftIO m, MonadLoggerUI m)
                 => [Address] -> Int -> Collect i m (Inventory i)
 collectWeighted distribution n recv = do
 

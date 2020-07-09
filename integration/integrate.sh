@@ -40,15 +40,14 @@ CHAIN=TXSCLZDEV
 notarise="stack exec zeno -- notarise"
 ethkmd="kmdeth --gateway=$1 --seed=127.0.0.1:50440 \
                --kmd=~/.komodo/$CHAIN/$CHAIN.conf \
-               --geth=http://127.0.0.1:9545/"
+               --geth=http://127.0.0.1:9545/ \
+               --log-ui --log-both"
 
-# --log-ui --log-both"
-
-tmux send-keys -t 1 "$notarise seed --bind=127.0.0.1 --port=50440 " Enter # 2>integrate.seed.log" Enter
-tmux send-keys -t 2 "$notarise $ethkmd --pubkey=$pk0 --port=50441 " Enter # 2>integrate.1.log" Enter
-tmux send-keys -t 3 "$notarise $ethkmd --pubkey=$pk1 --port=50442 " Enter # 2>integrate.2.log" Enter
-tmux send-keys -t 4 "$notarise $ethkmd --pubkey=$pk2 --port=50443 " Enter # 2>integrate.3.log" Enter
-tmux send-keys -t 5 "$notarise $ethkmd --pubkey=$pk3 --port=50444 " Enter # 2>integrate.4.log" Enter
+tmux send-keys -t 1 "$notarise seed --bind=127.0.0.1 --port=50440 2>integrate.seed.log" Enter
+tmux send-keys -t 2 "$notarise $ethkmd --pubkey=$pk0 --port=50441 2>integrate.1.log" Enter
+tmux send-keys -t 3 "$notarise $ethkmd --pubkey=$pk1 --port=50442 2>integrate.2.log" Enter
+tmux send-keys -t 4 "$notarise $ethkmd --pubkey=$pk2 --port=50443 2>integrate.3.log" Enter
+tmux send-keys -t 5 "$notarise $ethkmd --pubkey=$pk3 --port=50444 2>integrate.4.log" Enter
 
 tmux select-pane -t 0
 

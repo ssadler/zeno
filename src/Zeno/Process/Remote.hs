@@ -38,9 +38,15 @@ sendRemote nodeId capid obj = do
 
 instance Has Node r => HasNode (Zeno r) where
   type HandlerMonad (Zeno r) = IO
+
   sendRemoteBS nodeId capid bs = do
     withRemoteForwarder nodeId \(chan, _) -> do
       atomically $ writeTQueue chan $ encodeLazy capid <> bs
+
+  monitorRemote nodeId act = do
+    ioAct <- toIO act
+    withRemoteForwarder nodeId $ \(_, onQuit) -> do
+      modifyIORef onQuit (>> ioAct)
 
   registerCapability capid handler = do
     node@Node{..} <- asks has
@@ -50,12 +56,7 @@ instance Has Node r => HasNode (Zeno r) where
           Nothing -> Map.insert capid handler caps
           Just _ -> error $ "Capability registered: %s" % show capid
 
-
-monitorRemote :: Has Node r => NodeId -> Zeno r () -> Zeno r ()
-monitorRemote nodeId act = do
-  ioAct <- toIO act
-  withRemoteForwarder nodeId $ \(_, onQuit) -> do
-    modifyIORef onQuit (>> ioAct)
+  getMyIp = asks $ hostName . myNodeId . has
 
 
 withRemoteForwarder :: Has Node r => NodeId -> (Forwarder -> Zeno r a) -> Zeno r a
@@ -90,7 +91,7 @@ runForwarder nodeId@NodeId{..} chan = do
             rio do
               sendHeader conn
               forever do
-                timeoutSTMS 20 (readTQueue chan) >>=
+                timeoutSTMS 10 (readTQueue chan) >>=
                   sendSizePrefixed conn . maybe "" id
   where
   sendHeader conn = do

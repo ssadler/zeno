@@ -39,14 +39,14 @@ withConsensusNode :: ConsensusNetworkConfig -> Zeno (ConsensusNode ZenoRunnerBas
 withConsensusNode netconf act = do
   withConsensusRunnerContext netconf do
     runner <- startConsensusRunner
-    withContext (\(node, p2p) -> ConsensusNode node p2p runner) act
+    withContext (\(P2PNode node p2p) -> ConsensusNode node p2p runner) act
 
-withConsensusRunnerContext :: ConsensusNetworkConfig -> Zeno (Node, PeerState) a -> Zeno () a
+withConsensusRunnerContext :: ConsensusNetworkConfig -> Zeno P2PNode a -> Zeno () a
 withConsensusRunnerContext CNC{..} act = do
   withNode netConf do
     p2p <- startP2P seeds
     node <- ask
-    let runnerCtx = (node, p2p)
+    let runnerCtx = P2PNode node p2p
     withContext (const runnerCtx) act
 
 

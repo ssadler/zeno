@@ -1,148 +1,152 @@
-{-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE Strict #-}
 
-module Zeno.Consensus.P2P
-  ( HasP2P(..)
-  , startP2P
-  , PeerState
-  , sendPeers
-  , registerOnNewPeer
-  -- For testing
-  , PeerMsg(..)
-  , peerCapabilityId
-  ) where
+module Zeno.Consensus.P2P where
 
-import Control.Concurrent.STM.TVar (stateTVar)
-import Data.Bits
-import qualified Data.IntMap.Strict as IntMap
+import Control.Monad.State
 import qualified Data.Set as Set
+
+import Network.Socket (HostName)
 
 import UnliftIO
 
 import Zeno.Console
 import Zeno.Process
-import Zeno.Prelude hiding (finally)
+import Zeno.Prelude
 import Zeno.Signal
 
+-- Lenses have to go at the top ----------------------------------------------
+
+data PeerState = PeerState
+  { p2pPeers :: Set.Set NodeId
+  , p2pDisconnects :: Set.Set HostName
+  }
+
+makeLensesUnderscored ''PeerState
+
+-- P2P API --------------------------------------------------------------------
 
 data P2PNode = P2PNode
   { p2pNode :: Node
-  , p2pState :: PeerState
+  , p2pProc :: PeerProc
   }
 
-type Peers = Set.Set NodeId
+instance Has Node     P2PNode where has = p2pNode
+instance Has PeerProc P2PNode where has = p2pProc
 
-data PeerState = PeerState
-  { p2pPeers :: TVar Peers
-  , p2pPeerNotifier :: MVar (IntMap.IntMap (NodeId -> IO ()))
-  }
+type PeerProc = MVar PeerState
 
-
--- * Peer-to-peer API
-
-class (Monad m, HasNode m) => HasP2P m where
+class HasNode m => HasP2P m where
   getPeers :: m [NodeId]
 
-instance (HasNode (Zeno r), Has PeerState r) => HasP2P (Zeno r) where
-  getPeers = do
-    PeerState{..} <- asks has
-    Set.toList <$> readTVarIO p2pPeers
-
-sendPeers :: (HasP2P m, Serialize o) => CapabilityId -> o -> m ()
-sendPeers capid msg = do
-  peers <- getPeers
-  forM_ peers $ \peer -> sendRemote peer capid msg
-
-registerOnNewPeer :: Has PeerState r => (NodeId -> Zeno r ()) -> Zeno r ()
-registerOnNewPeer cb = do
-  PeerState{..} <- asks has
-  rio <- askRunInIO
-  void $ allocate
-    do
-      liftIO do
-        modifyMVar p2pPeerNotifier \m -> do
-          let i = 1 + maybe 0 fst (IntMap.lookupMax m)
-          pure (IntMap.insert i (rio . cb) m, i)
-
-    \i -> modifyMVar_ p2pPeerNotifier $ pure . IntMap.delete i
+instance HasP2P (Zeno P2PNode) where
+  getPeers = liftP2P $ Set.toList <$> use _peers
 
 
-startP2P :: [NodeId] -> Zeno Node PeerState
+-- P2P Internal ---------------------------------------------------------------
+
+p2pCapId :: CapabilityId
+p2pCapId = 1
+
+type P2P m = StateT PeerState m
+
+emptyPeerState :: PeerState
+emptyPeerState = PeerState mempty mempty
+
+class (MonadLoggerUI m, HasNode m) => LiftP2P m where
+  liftP2P :: P2P m a -> m a
+
+instance LiftP2P (Zeno P2PNode) where
+  liftP2P act = do
+    asks has >>= flip queryP2P act
+
+queryP2P :: MonadUnliftIO m => PeerProc -> P2P m a -> m a
+queryP2P proc act = do
+  modifyMVar proc $ fmap swap . runStateT act
+
+startP2P :: [NodeId] -> Zeno Node PeerProc
 startP2P seeds = do
-  p2pPeers <- newTVarIO mempty
-  p2pPeerNotifier <- newMVar mempty
-  let state = PeerState{..}
-  _ <- startPeerController state seeds
-  installSignalHandler sigUSR1 $ dumpPeers state
-  pure state
+  proc <- newMVar emptyPeerState
+  withContext (\n -> P2PNode n proc) $ startPeerController seeds
+  installSignalHandler sigUSR1 $ dumpPeers proc
+  pure proc
   where
-  dumpPeers PeerState{..} = do
-    peers <- atomically $ readTVar p2pPeers
-    logInfo "Peers:"
-    forM_ peers $ logInfo . show
+  dumpPeers proc = queryP2P proc do
+    peers <- use _peers
+    logInfo $ "Peers: " ++ show (length peers)
+    disconnects <- Set.toList <$> use _disconnects
+    logInfo $ "Disconnects: " ++ show disconnects
 
+startPeerController :: [NodeId] -> Zeno P2PNode ()
+startPeerController seeds = do
+  myIp <- getMyIp
+  rio <- askRunInIO
 
-peerCapabilityId :: CapabilityId
-peerCapabilityId = 1
+  registerCapability p2pCapId $
+    withRemoteMessage \nodeId msg -> do
+      when (hostName nodeId /= myIp) do
+        rio $ liftP2P $
+          onPeerMessage nodeId msg
 
+  spawnNoHandle "peerController" do
+    forever do
+      forM_ seeds doDiscover
+      liftP2P $ _disconnects .= mempty
+      threadDelayS 60
 
-data PeerMsg = GetPeers | Peers Peers
+data PeerMsg = GetPeers | Peers (Set.Set NodeId)
   deriving (Eq, Show, Generic)
 
 instance Serialize PeerMsg
 
-
-startPeerController :: PeerState -> [NodeId] -> Zeno Node ()
-startPeerController state@PeerState{..} seeds = do
+doDiscover :: HasNode m => NodeId -> m ()
+doDiscover nodeId = do
   myIp <- getMyIp
-  void $ spawn "peerController" \chan -> do
-    registerCapability 1 $ send chan
-    forever do
-      mapM_ doDiscover seeds
-      receiveDuringS (procMbox chan) 60 $
-        withRemoteMessage
-          \peer msg -> do
-            when (hostName peer /= myIp) do
-              handle peer msg
+  when (hostName nodeId /= myIp) do
+    sendRemote nodeId p2pCapId GetPeers
+
+onPeerMessage :: LiftP2P m => NodeId -> PeerMsg -> P2P m ()
+onPeerMessage nodeId =
+  \case
+    GetPeers -> do
+      isDisconnect <- Set.member (hostName nodeId) <$> use _disconnects
+      unless isDisconnect do
+        peers <- filterPeers mempty mempty <$> use _peers
+        lift $ sendRemote nodeId p2pCapId $ Peers peers
+        newPeer nodeId
+
+    Peers peers -> do
+      PeerState{..} <- get
+      let filtered = filterPeers p2pPeers p2pDisconnects peers
+      forM_ filtered $ lift . doDiscover
+
   where
-  handle peer GetPeers = do
-    peers <- filterPeers <$> readTVarIO p2pPeers
-    sendRemote peer peerCapabilityId $ Peers peers
-    newPeer peer
-    where
-    filterPeers =
-      Set.delete peer .
-       if hostName peer == "127.0.0.1"
-          then id
-          else Set.filter (\h -> hostName h /= "127.0.0.1")
+  filterPeers knownNodes knownIps =
+    -- delete the caller
+    Set.delete nodeId .
+    -- delete inaccessible peers
+    (if hostName nodeId /= "127.0.0.1"
+        then Set.filter \h -> hostName h /= "127.0.0.1"
+        else id) .
+    -- exclude nodes
+    flip Set.difference knownNodes .
+    -- exclude IPs
+    Set.filter (\n -> not $ Set.member (hostName n) knownIps)
 
-  handle peer (Peers peers) = do
-    known <- readTVarIO $ p2pPeers
-    mapM_ doDiscover $ Set.toList $ Set.difference peers known
+newPeer :: LiftP2P m => NodeId -> P2P m ()
+newPeer nodeId = do
+  peers <- use _peers
+  unless (Set.member nodeId peers) do
 
-  doDiscover peer = do
-    myIp <- getMyIp
-    when (hostName peer /= myIp) do
-      sendRemote peer peerCapabilityId GetPeers
+    _peers %= Set.insert nodeId
+    lift do
+      sendUI $ UI_Peers $ length peers + 1
+      monitorRemote nodeId $ liftP2P $ dropPeer nodeId
+      sendRemote nodeId p2pCapId GetPeers
 
-  newPeer :: NodeId -> Zeno Node ()
-  newPeer nodeId = do
-    peers <- readTVarIO p2pPeers
+dropPeer :: LiftP2P m => NodeId -> P2P m ()
+dropPeer nodeId = do
+  _disconnects %= Set.insert (hostName nodeId)
+  peers <- _peers <%= Set.delete nodeId
+  lift $ sendUI $ UI_Peers $ length peers
 
-    unless (Set.member nodeId peers) do
-      let f ps = let s' = Set.insert nodeId peers in (length s', s')
-      nPeers <- atomically $ stateTVar p2pPeers f
-      sendUI $ UI_Peers nPeers
-      monitorRemote nodeId $ dropPeer nodeId
-      notifyNewPeer nodeId
-      sendRemote nodeId peerCapabilityId GetPeers
-
-  notifyNewPeer nodeId = do
-    liftIO $ forkIO do
-      cbs <- readMVar p2pPeerNotifier
-      forM_ cbs ($ nodeId)
-
-  dropPeer nodeId = do
-    atomically do
-      modifyTVar p2pPeers $ Set.delete nodeId
-    readTVarIO p2pPeers >>= sendUI . UI_Peers . length

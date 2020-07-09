@@ -1,4 +1,5 @@
 {-# LANGUAGE MultiWayIf #-}
+{-# LANGUAGE OverloadedLists #-}
 
 module TestConsensusRunner where
 
@@ -22,6 +23,7 @@ import Zeno.Consensus.P2P
 import Zeno.Consensus.Runner
 import Zeno.Consensus.Step
 import Zeno.Prelude
+import Zeno.Console
 
 
 unit_test_sync :: IO ()
@@ -29,22 +31,22 @@ unit_test_sync = do
   [step0, step1] <- testSteps 0 idents2
 
   void $ runTestNode 2 do
-    flip runStateT (replicate 2 emptyRunnerState) do
-      node 0 do
+    flip runStateT (newNodeStates 2 emptyRunnerState) do
+      node "0:0" do
         newStep stepId0 $ createStep step0 $ Just 0
-      node 1 do
+      node "1:1" do
         newStep stepId0 $ createStep step1 $ Just 1
 
-      node 0 $ getMsg >>= onPeerMessage
-      node 1 $ getMsg >>= onPeerMessage
+      node "0:0" $ getMsg >>= onMessage
+      node "1:1" $ getMsg >>= onMessage
       
       dumpInv step0 >>= (@?= targetInv0)
       dumpInv step1 >>= (@?= targetInv0)
 
-      lift $ use _2 >>= (@?= Map.fromList [("0:0", []), ("1:1", [])])
+      lift $ use _2 >>= (@?= mempty)
 
-      node 0 $ use _delays >>= mapM_ unRunnerAction
-      node 1 $ use _delays >>= mapM_ unRunnerAction
+      node "0:0" $ use _delays >>= mapM_ unRunnerAction
+      node "1:1" $ use _delays >>= mapM_ unRunnerAction
 
     msgMap <- use _2 <&> over (each . each) (decodeAuthenticated step0 . fmap (BSL.drop 13))
     msgMap @?=
@@ -60,11 +62,11 @@ unit_test_miss_cache = do
   [step0, step1] <- testSteps 0 idents2
 
   void $ runTestNode 2 do
-    flip runStateT (replicate 2 emptyRunnerState) do
+    flip runStateT (newNodeStates 2 emptyRunnerState) do
 
-      node 0 $ newStep stepId0 $ createStep step0 $ Just 0
-      node 1 do
-        getMsg >>= onPeerMessage
+      node "0:0" $ newStep stepId0 $ createStep step0 $ Just 0
+      node "1:1" do
+        getMsg >>= onMessage
         use (_missCache . to length) >>= (@?= 1)
         newStep stepId0 $ createStep step1 $ Just 1
         use (_missCache . to length) >>= (@?= 0)
@@ -97,7 +99,7 @@ unit_test_round_ideal = do
   allSteps <- forM [0..nsteps-1] \i -> testSteps i (take nnodes identsInf)
 
   void $ runTestNode nnodes do
-    flip runStateT (replicate nnodes emptyRunnerState) do
+    flip runStateT (newNodeStates nnodes emptyRunnerState) do
 
       res <- do
 
@@ -106,7 +108,7 @@ unit_test_round_ideal = do
 
           -- for each node
           r' <- forM (zip [0..] r) \(n, s) -> do
-            node n do
+            node (testNodeId n) do
               case s of
                 DONE -> pure DONE
                 TIMEOUT -> pure TIMEOUT
@@ -118,7 +120,7 @@ unit_test_round_ideal = do
                   pure $ STEP 0 step inv
 
                 STEP stepNum stepData inv -> do
-                  getMsgMaybe >>= mapM_ onPeerMessage
+                  getMsgMaybe >>= mapM_ onMessage
                   inv <- snd <$> readIORef (ioInv stepData)
                   if | length inv < nnodes -> pure $ STEP stepNum stepData inv
                      | stepNum == nsteps-1 -> pure DONE
@@ -162,61 +164,3 @@ testSteps stepNum idents = do
   forM idents \ident -> do
     ioInv <- newIORef (0, mempty)
     pure Step{..}
-
-
-type TestBase = StateT TestNodeState TestIO
-
-type TestNodeState =
-  ( [NodeId]                                   -- peers
-  , Map NodeId [RemoteMessage LazyByteString]  -- mailboxes
-  , Maybe Int                                  -- currently focused node
-  )
-_mboxes = _1
-emptyTestNode = (mempty, mempty, Nothing) :: TestNodeState
-runTestNode npeers act = runTestIO $ runStateT act (testNodeId <$> [0..npeers-1], mempty, Nothing)
-
-testNodeId :: Int -> NodeId
-testNodeId i = NodeId (show i) (fromIntegral i)
-
-node :: Int -> StateT (RunnerState TestBase) TestBase a
-            -> StateT [RunnerState TestBase] TestBase a
-node n act = do
-  s <- get
-  join $ lift do
-    _3 .= Just n
-    peers <- _1 <<%= filter (/=testNodeId n)
-    (a, s') <- runStateT act (s !! n)
-    _3 .= Nothing
-    _1 .= peers
-    pure do
-      put $ set (ix n) s' s
-      pure a
-
-getMsgMaybe :: StateT a TestBase (Maybe (RemoteMessage LazyByteString))
-getMsgMaybe = do
-  Just i <- lift $ use _3
-  let to = testNodeId i
-  lift do
-    zoom _2 do
-      state \m ->
-        case Map.lookup to m of
-          Just (o:xs) -> (Just o, Map.insert to xs m)
-          _           -> (Nothing, m)
-
-getMsg :: StateT a TestBase (RemoteMessage LazyByteString)
-getMsg = do
-  Just i <- lift $ use _3
-  getMsgMaybe >>= maybe (error $ "no items for " ++ show i) pure
-
-
-instance HasNode TestBase where
-  type HandlerMonad TestBase = TestBase
-  registerCapability cap h = undefined
-
-  sendRemoteBS to _cap lbs = do
-    Just i <- use _3
-    let from = testNodeId i
-    _2 %= Map.insertWith (flip (++)) to [RemoteMessage from lbs]
-
-instance HasP2P TestBase where
-  getPeers = use _1

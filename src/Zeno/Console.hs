@@ -32,7 +32,7 @@ import Zeno.Process
 import Zeno.Prelude
 
 
-class (MonadUnliftIO m, MonadLogger m) => MonadLoggerUI m where
+class MonadLogger m => MonadLoggerUI m where
   sendUI :: ConsoleEvent -> m ()
 
 instance MonadLoggerUI (Zeno r) where

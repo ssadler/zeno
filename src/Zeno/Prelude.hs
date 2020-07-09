@@ -58,6 +58,7 @@ import Data.String as ALL (IsString, fromString)
 import Data.Text as ALL (Text)
 import Data.Text.Encoding as ALL (encodeUtf8, decodeUtf8)
 import Data.Time.Clock as ALL (UTCTime, getCurrentTime, diffUTCTime)
+import Data.Tuple as ALL (swap)
 import Data.Word as ALL (Word8, Word16, Word32, Word64)
 import Data.Void as ALL
 
@@ -71,6 +72,7 @@ import UnliftIO.Exception as ALL
   )
 
 import Zeno.Data.Aeson as ALL (ToJSON(..), FromJSON(..), SerializeAeson(..))
+import Zeno.Data.Lens as ALL
 import Data.VarInt as ALL
 import Data.FixedBytes as ALL
 import Zeno.Monad as ALL

@@ -14,6 +14,8 @@ cd zeno
 stack install
 ```
 
+If you are building libsecp256k1 yourself, configure with `--enable-module-recovery`.
+
 ## Why "Zeno"?
 
 The name is from the Greek philosopher, Zeno of Elea.
