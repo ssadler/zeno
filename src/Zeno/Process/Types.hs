@@ -2,7 +2,6 @@
 
 module Zeno.Process.Types where
 
-import Crypto.Hash
 import Control.Applicative
 import Control.Monad.Reader
 import qualified Data.ByteArray as BA

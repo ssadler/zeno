@@ -37,8 +37,9 @@ withNode (NetworkConfig host port ipProvider) act = do
                               -- want to bind the socket in the calling thread in case of any
                               -- error and this is the simplest way to do it.
           spawn "socket server" \_ -> do
-            forever do
+            fix \go -> do
               acceptForkAsync server $ wrapRunConn node
+              go
           logInfo $ "Listening on %s" % (show serverAddr)
           withContext (const node) act
   where
