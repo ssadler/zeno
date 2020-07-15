@@ -29,7 +29,6 @@ dependencies:
 - dejafu
 - directory
 - emojis
-- entropy
 - exceptions
 - githash
 - hashable

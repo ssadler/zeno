@@ -30,8 +30,6 @@ import           Zeno.Prelude
 
 import           UnliftIO
 
-import           System.Entropy
-
 
 data EthIdent = EthIdent 
   { ethSecKey :: SecKey
