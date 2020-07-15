@@ -1,9 +1,9 @@
-{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
 module Network.Ethereum.Transaction.Types where
 
 import           Crypto.Secp256k1.Recoverable
+import qualified Data.Attoparsec.ByteString as A
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BS8
 import qualified Data.ByteString.Short as Short
@@ -64,7 +64,7 @@ instance RLPEncodable Transaction where
 
     pure $ Tx { .. }
 
-  rlpDecode o = error $ "Invalid RLP Transaction: " ++ show o
+  rlpDecode o = Left $ "Invalid RLP Transaction: " ++ show o
 
 
 newtype ChainId = ChainId Word8
@@ -93,5 +93,17 @@ instance FromJSON Transaction where
     either fail pure $ rlpDeserialize bs
 
 instance Serialize Transaction where
-  get = either fail pure . rlpDeserialize =<< get
-  put = put . rlpSerialize
+  put = putByteString . rlpSerialize
+  get = attoGet rlpParser >>= either fail pure . rlpDecode
+
+-- | Run attoparsec parser in the context of Get, consuming the correct number of bytes
+attoGet :: A.Parser a -> Get a
+attoGet parser = do
+  (val, len) <- lookAhead $ go 0 $ A.Partial $ A.parse parser
+  skip len >> pure val
+  where
+    go n (A.Partial cont) = do
+      bs <- ensure 1
+      go (n + BS.length bs) (cont bs)
+    go n (A.Done rest rlp) = pure (rlp, n - BS.length rest)
+    go _ (A.Fail _ c s) = fail $ "tx parse failed: " ++ show (c, s)
