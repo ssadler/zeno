@@ -31,7 +31,8 @@ data Transaction = Tx
     deriving (Show, Read) via (PrefixedHex Transaction)
 
 instance RLPEncodable Transaction where
-  rlpEncode tx = RLP.Array (c <> e) where
+  rlpEncode tx = RLP.Array (c <> e)
+    where
 
     RLP.Array c = rlpEncode
         ( _nonce tx
@@ -81,7 +82,9 @@ encodeSpecialV (ChainId c) v = v + c * 2 + 35
 decodeSpecialV :: Word8 -> (ChainId, Word8)
 decodeSpecialV 27 = (1, 0)
 decodeSpecialV 28 = (1, 1)
-decodeSpecialV sv = let c = quot (sv - 35) 2 in (ChainId c, sv - 35 - c * 2)
+decodeSpecialV sv =
+  let c = quot (sv - 35) 2
+   in (ChainId c, sv - 35 - c * 2)
 
 
 instance ToJSON Transaction where
@@ -99,11 +102,11 @@ instance Serialize Transaction where
 -- | Run attoparsec parser in the context of Get, consuming the correct number of bytes
 attoGet :: A.Parser a -> Get a
 attoGet parser = do
-  (val, len) <- lookAhead $ go 0 $ A.Partial $ A.parse parser
+  (val, len) <- lookAhead $ go 0 $ A.parse parser ""
   skip len >> pure val
   where
     go n (A.Partial cont) = do
       bs <- ensure 1
       go (n + BS.length bs) (cont bs)
     go n (A.Done rest rlp) = pure (rlp, n - BS.length rest)
-    go _ (A.Fail _ c s) = fail $ "tx parse failed: " ++ show (c, s)
+    go _ (A.Fail _ c s) = fail $ "parse failed: " ++ show (c, s)
