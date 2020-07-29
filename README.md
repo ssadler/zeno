@@ -1,6 +1,17 @@
 # Zeno
 
-Notarising software for Komodo <> Ethereum, and eventually other protocols.
+Zeno is a notariser that enables a POA group to copy messages between blockchains.
+
+It gets a members list from an Ethereum contract, and those members participate to propagate merkle roots and PoW proofs between blockchains, using threshold n-of-m signatures.
+
+Many of Zeno's components are built from scratch, including:
+
+* A lightweight stateless POA consensus prototocol & P2P discovery.
+* Ethereum data structures including transaction, ABI, closed Patricia merkle trie.
+* ZCash Sapling transaction support.
+* An Ethereum Solidity contract to proxy calls from a multisignature group.
+
+Public Key cryptography provided by bindings to Secp256k1 from bitcoin-core.
 
 ## Building
 
